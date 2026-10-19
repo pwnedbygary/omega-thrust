@@ -1,0 +1,48 @@
+{
+  "format_version": 1,
+  "game": {
+    "name": "Omega Thrust",
+    "id": "SCUS-94449",
+    "boot_exe": "SCUS_944.49"
+  },
+  "marketing": {
+    "description": "Native PC recompilation of Omega Boost (PlayStation, 1999), built with psxrecomp. Requires your own disc.",
+    "publisher": "Sony Computer Entertainment",
+    "year": "1999",
+    "region": "USA",
+    "players": 1
+  },
+  "rom_identity": {
+    "cue_name": "Omega Boost (USA).cue",
+    "bin_name": "Omega Boost (USA).bin",
+    "track_counts": [
+      1
+    ],
+    "require_cue": true,
+    "data_track": {
+      "size": 582616272,
+      "md5": "f1f9af8786f8893224a5a5ed4c647a90",
+      "sha1": "772c58d8af1b69cfeb53e0763cab71ee431ed37b",
+      "crc32": "2f89bc87"
+    },
+    "disc_fp": "307271d0964c63eacad767d68703b64c1c6dd83cc6b788be43a8d8819f77367d"
+  },
+  "exe": {
+    "load_address": "0x80010000",
+    "entry_pc": "0x80090334",
+    "text_size": "0x00110800",
+    "stack_base": "0x801FFFF0"
+  },
+  "seeds": {
+    "count": 697,
+    "source": "boot_exe_jal"
+  },
+  "warnings": [
+    "cue has only 1 TRACK \u2014 Track-01-only dumps fail multi-track netplay/catalog gates; prefer a full Redump cue."
+  ],
+  "notes": [
+    "entry_pc/load_address/text_size/stack_base taken from PS-X EXE header.",
+    "seeds are first-pass boot-EXE JAL targets (+ entry); expect to grow as overlays / runtime paths are discovered.",
+    "required_disc_fp is psxrecomp-toc-v1 (matches runtime DiscIdentity)."
+  ]
+}

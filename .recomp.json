@@ -1,0 +1,13 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Omega Boost",
+  "system": "PS1",
+  "type": "recomp",
+  "toolchain": "psxrecomp",
+  "status": "exploring",
+  "project": "Omega Thrust",
+  "original": {
+    "region": "USA",
+    "serial": "SCUS-94449"
+  }
+}
