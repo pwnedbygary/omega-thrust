@@ -1,6 +1,7 @@
 # Scaffold .gitignore for a PSXRecomp game repository (New Project Layout).
-# Based on docs/ci/templates/game.gitignore. Differences: disc_probe.json is
-# ignored, and the config, env, capture and image patterns are broader.
+# Based on psxrecomp/tools/new_project_layout/templates/gitignore.in.
+# Differences: disc_probe.json is ignored, and the config, env, capture and
+# image patterns are broader.
 
 # Build outputs
 /build/
@@ -89,8 +90,9 @@ psx_freeze_heartbeat.json
 .psxrecomp_last_generate
 .psxrecomp_write_probe
 starvation_dump.jsonl
-# Overlay capture store at any depth: verbatim game code (plus its .d history)
-overlay_captures.json*
+# Overlay capture store at any depth: verbatim game code (plus its .d history
+# and the overlay_captures.addendum.jsonl capture history)
+overlay_captures.*
 
 # Diagnostic dumps (root-level) — keep catalog trackable. disc_probe.json
 # stays ignored: it records the absolute local cue_path.

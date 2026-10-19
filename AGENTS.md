@@ -40,9 +40,17 @@ mkdir -p disc && chdman extractcd -i "<path>/Omega Boost.chd" \
 ## Never commit
 
 - `disc/`, `bios/`, `*.bin`, `*.cue`, `*.chd`, any retail BIOS dump, or C derived from one.
-- `overlay_captures.json` (verbatim game code), `/.cache/`, `/analysis/`.
+- `overlay_captures.*` (verbatim game code: the capture store, its `.d` history
+  and the `.addendum.jsonl` capture history), `/.cache/`, `/analysis/`.
 - `disc_probe.json` (absolute local path), `settings.toml`, `*.cfg`,
   `.psxrecomp.env`, `.env`, build directories.
+
+If `[runtime] overlay_capture_history` is ever enabled, put
+`overlay_capture_persist_dir` under `.cache/`: its
+`<game_id>_<session>_<seq>_<sig>.json` snapshots are full capture copies and
+no ignore pattern matches them elsewhere. For the same reason, keep a store
+named by `PSX_OVERLAY_CAPTURES` outside the repository or under `.cache/`; the
+ignore pattern matches only the default `overlay_captures.*` names.
 
 `generated/` is committed but never hand-edited: change the seeds, or take a
 recompiler fix through a reviewed pin bump, then regenerate.
@@ -71,7 +79,60 @@ bash psxrecomp/tools/ci/check_bios_stamps.sh --framework psxrecomp
 cmake -S . -B build-scaffold-check -G Ninja -DCMAKE_BUILD_TYPE=Release   # configure only
 ```
 
-Generate and build commands are added here once verified.
+Generate the game C (`generated/`, committed) and build. `generate` first runs
+an incremental build of the emitters with the system clang. It builds them in
+the project-root `build-recompiler/` only if emitters already exist there, and
+otherwise inside the submodule at `psxrecomp/recompiler/build`, so on a fresh
+checkout run `build_emitters.sh` once first, as the upstream scaffold does. That
+script uses CMake's default compiler (GCC on this host) and writes no toolchain
+stamp, so the next `generate` rebuilds `build-recompiler/` once with clang;
+later runs are incremental (`--force-emitters` wipes and rebuilds it). The
+output is byte-identical across runs. The runtime builds use the system GCC and
+the CI template flags; `build-dev` adds the TCP debug server (127.0.0.1:4370).
+
+The runtime build writes one file inside the submodule: the framework's
+`psxrecomp/runtime/include/overlay_codegen_hash.h` (`runtime/runtime.cmake:1778`),
+which `psxrecomp/.gitignore:76` ignores. It cannot be redirected without
+patching the submodule. `git -C psxrecomp status --porcelain --ignored` should
+list only that file.
+
+```sh
+bash psxrecomp/tools/ci/build_emitters.sh   # once, while build-recompiler/ has no emitters
+PYTHONDONTWRITEBYTECODE=1 python3 psxrecomp/psxrecomp_cli.py generate --config game.toml \
+  --project-root . --disc "disc/Omega Boost (USA).cue" --no-toolchain-download
+bash psxrecomp/tools/ci/check_generated.sh --root .   # needs generated/ staged or committed
+
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DPSXRECOMP_REQUIRE_GAME_C=ON -DPSXRECOMP_BIOS_STALE_FATAL=ON \
+  -DPSXRECOMP_FORCE_SETUP_HOST=OFF -DPSXRECOMP_ALLOW_NO_BIOS=OFF -DPSX_SETUP_WIZARD=ON
+cmake --build build-release --target psx-runtime -j6
+# build-dev: the same two commands with -B build-dev / --build build-dev and
+# -DPSX_DEBUG_TOOLS=ON added to the configure.
+```
+
+## Running
+
+If the shell exports `APPIMAGE` (for example an agent hosted in an AppImage),
+the runtime resolves every exe-relative file (`game.toml`, the bundled BIOS,
+settings, mod state) beside that AppImage, so launch with `env -u APPIMAGE`.
+Run from a scratch working directory: the runtime writes
+`psx_last_run_report.json` to the cwd. Headless run with the debug server,
+starting from the repository root:
+
+```sh
+REPO=$PWD
+RUN=$(mktemp -d)
+mkdir "$RUN/memcards"
+cd "$RUN"
+env -u APPIMAGE "$REPO/build-dev/Omega_Thrust" --headless --game "$REPO/game.toml" \
+  --disc "$REPO/disc/Omega Boost (USA).cue" --memcard-dir "$RUN/memcards" --debug-port 4370
+```
+
+`PSX_BIOS_HLE=0` selects the LLE boot, and `--bios <SCPH-1001 v2.2 dump>` the
+retail BIOS (never copied into the repository). The debug server answers one
+JSON request per TCP connection, and its I/O thread answers `ping` itself
+without frame data, so poll `frame`. Without `--headless` the launcher opens and
+writes `input.ini` and `keybinds.ini` beside the executable.
 
 ## Naming
 
@@ -87,5 +148,6 @@ Thrust Recompiled" and must be corrected.
 
 - Handoff: `.agent/HANDOFF.md`, updated before every review.
 - Evidence logs: `.cache/evidence/<step>/` (ignored); summarize results in the handoff.
-- Host toolchain: GCC 16.2.1, CMake 4.4.4, Ninja 1.13.2, Python 3.14.7 (the
-  framework requires 3.11+), SDL3 3.4.18.
+- Host toolchain: GCC 16.2.1 (runtime), clang 23.1.1 (emitters, chosen by
+  `psxrecomp_cli.py`), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7 (the framework
+  requires 3.11+), SDL3 3.4.18.
