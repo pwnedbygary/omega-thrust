@@ -162,8 +162,21 @@ env -u APPIMAGE "$REPO/build-dev/Omega_Thrust" --headless --game "$REPO/game.tom
 `PSX_BIOS_HLE=0` selects the LLE boot, and `--bios <SCPH-1001 v2.2 dump>` the
 retail BIOS (never copied into the repository). The debug server answers one
 JSON request per TCP connection, and its I/O thread answers `ping` itself
-without frame data, so poll `frame`. Without `--headless` the launcher opens and
-writes `input.ini` and `keybinds.ini` beside the executable.
+without frame data, so poll `frame`.
+
+Without `--headless` the launcher opens and writes `keybinds.ini`,
+`config.ini`, `input.ini` and `launcher-window.ini` beside the executable.
+When it closes, by PLAY or by Quit, it saves `settings.toml` there and writes
+`[controller] multitap_analog` into the `game.toml` that `--game` names
+(`psxrecomp/runtime/src/main.cpp:16148-16412`); PLAY also writes `bios.cfg`
+and `disc.cfg` (`main.cpp:16430-16585`). Every later run from that directory,
+headless included, reads `settings.toml` (renderer, internal resolution,
+supersampling, texture filtering, controller and multitap settings, and the
+BIOS, disc and memory card paths; `main.cpp:15053-15069`) and `bios.cfg` (an
+explicit BIOS choice; `main.cpp:3004-3017`). So run the launcher only from a
+copy of the build outside `build-dev/`, such as `.cache/play/build/`, with
+`--game` naming that copy's `game.toml`. `build-dev/` must hold none of those
+files, and the tracked `game.toml` must stay unchanged.
 
 Run one runtime per build directory at a time. Every launch commits the mod
 selection (`psxrecomp/runtime/src/main.cpp:16626-16629`; `save_selection`
