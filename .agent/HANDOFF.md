@@ -7,23 +7,21 @@ Overall: recompile Omega Boost (USA, SCUS-94449) with psxrecomp nightly
 oracle. Phases: 0 inputs, 1 scaffold, 2 generate + build + smoke, 3 discovery
 cycles through the whole game, 4 Beetle comparison.
 
-Current iteration, Phase 3 change 2 (menu and demonstration routes), round 3.
-Invariant: `scripts/routes/menus.json` opens every main-menu screen except
-CAMPAIGN PLAY (TRAINING, ZONE PLAY, REPLAY, LOAD/SAVE, RANKING, OPTION, and
-OPTION > CONTROL SETUPS) and backs out of each without starting a lesson, zone
-or replay. `scripts/routes/demo_zone1.json` to `demo_zone6.json` each play one
-zone's REPLAY > DEMONSTRATION recording until shortly after its COMPLETED
-screen. Every committed route passes `scripts/routes/run_route.py` (unchanged)
-in all three boot modes with no unknown-dispatch or segment miss.
-`scripts/routes/test_routes.py` checks the committed route files without a
-build: they are exactly the eight routes `AGENTS.md` lists, the runner accepts
-each file, route names are unique and match their file names, and every shot
-step ends at least 30 frames before the next button change. `AGENTS.md` lists
-the routes and their commands, and its `state.toml` paragraph cites the source
-that ties every launch to `save_state`. The observations below match the saved
-evidence. Baseline: `fc06141`. Out of scope: runner changes, new seeds, overlay
-AOT, memory-card writes, starting a lesson or a ZONE PLAY zone, CAMPAIGN PLAY
-past zone 1, Beetle (Phase 4), CI, packaging.
+Current iteration, Phase 3 change 3 (memory-card route), round 2. Invariant:
+`scripts/routes/memcard.json` opens LOAD/SAVE, saves the environment data to
+memory card 1, slot 1 (SAVE COMPLETED), returns to the main menu, opens
+LOAD/SAVE again and loads slot 1 (CHECKING MEMORY CARD, the LOAD SAVED DATA?
+prompt, OK, OPENING DATA, DATA READ COMPLETED), then returns to the main menu.
+It passes `scripts/routes/run_route.py` (unchanged) in all three boot modes
+with no unknown-dispatch or segment miss, and each run's memory card 1 then
+holds one valid save, `BASCUS-94449OMEBENV`. `scripts/routes/test_routes.py`
+lists it with the eight earlier routes. `AGENTS.md` lists the route and says
+that a new route needs an entry in that list and in `LISTED` (change 2's
+round-3 suggestion). This file records change 2's round-3 verdict and commit,
+the zone-1 live-input exploration, the static coverage comparison and the
+unlock conditions of the later zones, and its observations match the saved
+evidence. Baseline: `4c22512`. Out of scope: runner changes, new seeds, overlay
+AOT, live campaign play, zones 7 and later, Beetle (Phase 4), CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -106,163 +104,162 @@ NEEDS CHANGES (two Medium, four Low), round 2 NEEDS CHANGES (one Low), round 3
 PASS on tree `ede62b41`. The full record is in
 `git show fc06141:.agent/HANDOFF.md`.
 
-## Phase 3 change 2 observations (`.cache/evidence/phase3-2/`)
+## Phase 3 change 2 (commit `4c22512`)
 
-- Scratch exploration before the routes, HLE OpenBIOS only, every run PASS
-  with no miss (`exploration/`, with the route files `exploration/explore_*.json`;
-  capture stores left out because they hold game code):
-  - Main menu (`exploration/explore-menu/`, `explore-menus2/`,
-    `explore-z67-loadsave/`, `cand-menus2/`): the cursor starts on CAMPAIGN
-    PLAY, and each Down moves it one entry: TRAINING, ZONE PLAY, REPLAY,
-    LOAD/SAVE, RANKING, OPTION. Start confirms on the main menu. On the screens
-    below it, Cross confirms (Circle also opened CONTROL SETUPS), and Triangle
-    goes back one screen with the cursor where it was.
-  - Correction to an earlier report to the user: "the cursor skips ZONE PLAY"
-    and "presses 60 frames apart drop one" were misreadings of
-    `exploration/explore-menu/`, whose shot steps ended exactly at the next
-    press. Its `down2` shot was read at frame 5495, after the third Down
-    (frames 5487 to 5492), so it showed REPLAY. Three Downs 60 frames apart
-    reached REPLAY in `exploration/explore-demo/`, as expected, and with the
-    30-frame margin two Downs reach ZONE PLAY, which opens
-    (`exploration/cand-menus2/hle-openbios/05-zone-play.png`).
-  - Screens (`exploration/cand-menus2/hle-openbios/`, sheet
-    `exploration/cand_menus2_sheet.png`; the committed menus route shows the
-    same in all three modes, `.cache/routes/menus/<mode>/`, with the same file
-    names): TRAINING lists LESSON 1 to 4 (LESSON 1 "SCAN SEARCH MISSION");
-    ZONE PLAY shows 1ST ZONE OPENED with LEVEL 1 2 3; REPLAY lists START
-    REPLAY, SAVE REPLAY, LOAD REPLAY and DEMONSTRATION under the line "NO
-    REPLAY DATA", with DISABLE beside START REPLAY and SAVE REPLAY only
-    (`07-replay.png`); LOAD/SAVE shows LOAD SLOT1 ("LOAD SLOT 1 ENVIRONMENT
-    DATA"), SAVE SLOT1, LOAD SLOT2 and SAVE SLOT2; RANKING shows a score
-    table; OPTION lists CONTROL, SELECT BGM, BGM VOLUME, SE VOLUME,
-    DIFFICULTY, INFORMATION and ADJUST SCREEN under the line "CONTROL SETUPS"
-    (`13-option.png`); Cross on CONTROL opens CONTROL SETUPS, the controller
-    diagram (`14-control-setups.png`). With no input, the TRAINING list stayed
-    for 9000 frames (`exploration/explore-training/`,
-    `exploration/training_sheet.png`).
-  - DEMONSTRATION (`exploration/explore-zonelist/`, `explore-z67-loadsave/`,
-    `explore-demo*/`, `explore-z1/` to `explore-z6/`): Cross opens a list of
-    19 entries (1ST to 8TH ZONE, LAST ZONE, U1 to U9 ZONE, V5 ZONE; the disc
-    has `REPLAY/REPLAY00.DAT` to `REPLAY18.DAT`). 1ST to 6TH ZONE show SELECT
-    OK, with listed TIME 2:02, 3:48, 4:29, 3:55 and 4:08 /NORMAL and 3:55
-    /HARD. Of the other 13 entries, the saved shots select six, and each shows
-    DISABLE: 7TH ZONE (`explore-z67-loadsave/hle-openbios/01-zone7.png`) and
-    8TH (while the list scrolls), U1, U4, U8 and V5 ZONE
-    (`explore-zonelist/hle-openbios/01-zdown06.png` to `05-zdown18.png`; those
-    shot steps end where the next Down begins, so some shots show the entry
-    after the one their name implies). LAST ZONE, U2, U3, U5, U6, U7 and U9
-    ZONE were never selected, so their state is unknown. Cross on an enabled
-    zone plays its recording with a REPLAY overlay. The watches in
-    `explore-z1/` to `explore-z6/` set the committed routes' timing.
-- Committed routes, documented commands as written, one runtime at a time
-  (`routes.sh`, `routes.log`, `routes/<name>-<mode>.log`, summary
-  `routes_summary.log`; outputs in `.cache/routes/<name>/<mode>/`; sheets
-  `routes/<name>-<mode>_sheet.png`): all 24 runs (8 routes in 3 modes) PASS,
-  from 21:07:56 to 21:44:33. In every run the banner matches the mode, every
-  shot reports 0 unknown-dispatch and 0 segment misses, every screenshot was
-  taken, and the runtime exits 0. Start frames 30 to 123; shots at most 16
-  frames late. The menus route shows the same 17 intended screens in every mode
-  (`routes/menus-modes_sheet.png`), and the zone-1 route the intro, title, main
-  menu, briefing and zone-1 gameplay (`routes/title-to-zone1-modes_sheet.png`).
-  `routes.sh` first moved change 1's round-3 outputs from
-  `.cache/routes/title-to-zone1/<mode>/` to
-  `.cache/evidence/phase3-1/r3/routes/<mode>/`.
-- Demonstration end screens (`demo_end_sheets.py`,
-  `routes/demo-zone<k>-end_sheet.png`; pixel check `r2/clear_time_check.py` /
-  `.log`): a shot shows the COMPLETED results screen when its COMPLETED banner
-  is fully drawn and its CLEAR TIME line has appeared (the check requires at
-  least 1100 cyan pixels in the banner, which counts 1103 when full, and at
-  least 100 in the label, which counts 361 when full). Neither threshold alone
-  separates the cases: a half-drawn banner with its wipe bar reaches 1155
-  pixels in the banner box (zone 6 `t13500`, HLE), and gameplay beams put up to
-  167 in the label box (zone 4 `t06600`, HLE) and up to 759 in the banner box
-  (zone 6 `t02400`, HLE); only the two together do. By that rule every
-  zone's replay shows its results screen with the same clear time in all three
-  modes, at the same shots except zone 6's last: zone 1 `t06900` to `t07500`
-  (1:45.06), zone 2 `t13200` to `t13800` (3:30.36), zone 3 `t15600` to
-  `t16200` (4:11.43), zone 4 `t13500` (label still being drawn) to `t14100`
-  (3:37.83), zone 5 `t14400` to `t15000` (3:51.06), zone 6 `t13800` to
-  `t14100` in HLE and to `t14400` in both LLE modes (3:38.20). In zones 1 and
-  6 the shot before the range shows only a half-drawn banner (`t06600`,
-  `t13500`). Gameplay follows the results screen in every zone.
-- Zone 6's `t14400` shot is black in HLE (route frame 22067, 7 frames late) and
-  the results screen in both LLE modes (22063 and 22064). In the reviewer's
-  independent build the same shot showed the results screen in all three
-  modes, HLE at route frame 22064 and LLE OpenBIOS at 22065
-  (`r2/review-r1.md`). So the HLE results screen ends after frame 22064 and by
-  22067, consistent with one end frame (22066 or 22067) in every mode; a
-  difference of a frame or two between modes is not excluded.
+`scripts/routes/menus.json` opens every main-menu screen except CAMPAIGN PLAY
+(TRAINING, ZONE PLAY, REPLAY, LOAD/SAVE, RANKING, OPTION, and OPTION > CONTROL
+SETUPS) and backs out of each. `scripts/routes/demo_zone1.json` to
+`demo_zone6.json` play each zone's REPLAY > DEMONSTRATION recording until
+shortly after its COMPLETED results screen, which shows the same clear time in
+all three modes (zone 1 1:45.06, zone 2 3:30.36, zone 3 4:11.43, zone 4
+3:37.83, zone 5 3:51.06, zone 6 3:38.20). `scripts/routes/test_routes.py`
+checks the committed route files without a build: exactly the listed routes,
+accepted by `run_route.load_route`, unique names that match the file names,
+and every shot step ending at least 30 frames before the next button change.
+All 24 runs (eight routes, three modes) passed with no miss. Facts carried
+forward: the main-menu cursor does not skip ZONE PLAY, which opens a zone
+select; in the DEMONSTRATION list, 1ST to 6TH ZONE can be selected, and 7TH,
+8TH, U1, U4, U8 and V5 showed DISABLE when selected (LAST, U2, U3, U5, U6, U7
+and U9 were never selected); the 53 captures in the `build-dev` store then
+held 47 scene `.BIN` pages (TITLE, BRI1, TU, LOGO, MOVIE) and no zone file.
+Review: round 1 NEEDS CHANGES (four Low, this file's observations), round 2
+NEEDS CHANGES (one Low, the checks section), round 3 PASS on tree `acd0532`
+with no findings. The full record is in `git show 4c22512:.agent/HANDOFF.md`.
 
-## Phase 3 change 2 changes
+## Phase 3 change 3 observations (`.cache/evidence/phase3-3/`)
 
-- `scripts/routes/menus.json` (new): 62 steps, 11,202 frames. Each screen is
-  opened with a 6-frame press and left with Triangle; presses are at least 120
-  frames apart, and every shot step ends 30 frames before the next press.
-- `scripts/routes/demo_zone1.json` to `demo_zone6.json` (new): 47 to 69 steps,
-  16,030 to 24,682 frames. Each opens REPLAY > DEMONSTRATION, moves to its zone
-  and presses Cross, then waits until 1200 frames after the listed TIME,
-  rounded up to a multiple of 600, with a shot every 600 frames and every 300
-  from 1200 frames before the listed TIME (rounded down to a multiple of 300).
-  Shot step `tNNNNN` ends NNNNN frames after the Cross press began.
-- Both are written by the scratch generator `gen_routes.py` (not committed):
-  one step per line like `title_to_zone1.json`, mode 0644. The committed JSON
-  is the source of truth; the checks regenerate the files and compare them byte
-  for byte.
-- `scripts/routes/test_routes.py` (new, 100755): four stdlib tests over the
-  committed route files: the route files are exactly the eight routes
-  `AGENTS.md` lists (round-1 and round-2 suggestions); `run_route.load_route`
-  accepts each file, and its `name` with `-` read as `_` equals the file name;
-  names are unique; every shot step ends at least 30 frames before the next
-  button change. It adopts change 1's round-3 suggestion that `load_route` warn
-  about shot margins, as a test of the committed files instead of a runner
-  change.
-- `AGENTS.md`: lists the committed routes, shows the route commands for any
-  `<route>.json`, adds `test_routes.py`, extends the verification rule to every
-  route, and cites `psxrecomp/runtime/include/mod_runtime.h:22` and
-  `psxrecomp/runtime/src/mod_runtime.cpp:1647` in the `state.toml` paragraph
-  (change 1's round-3 suggestion 3).
-- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 2 sections are
-  unchanged, and Phase 3 change 1 is condensed.
+- Scratch exploration, HLE OpenBIOS only, in `exploration/` (generators
+  `gen_explore.py` and `gen_explore2.py`, routes in `routes/`, runs and contact
+  sheets in `out/`; the scratch capture store is not copied). Every run passed
+  with no miss.
+- LOAD/SAVE (`out/explore-memsave-*`, `explore-memcard-*`, `explore-memcard2-*`,
+  `explore-memcard3-*`): the cursor starts on LOAD SLOT1 at every visit and does
+  not wrap. The no-wrap evidence is in `explore-memcard`: three Ups from LOAD
+  SLOT1 stayed there (`load-slot1`); later, six Ups from LOAD SLOT2 stopped on
+  LOAD SLOT1 (`difficulty3-top`), and four Downs then stopped on SAVE SLOT2
+  (`difficulty3`). That run went off its script at its load: its second Cross
+  landed on the prompt's CANCEL, so it never loaded, and its shots from
+  `after-load` to `difficulty3` show LOAD/SAVE where the script expected the
+  main menu and OPTION. SAVE SLOT1 and Cross show SAVE COMPLETED within 300
+  frames; Cross then returns to the main menu with LOAD/SAVE highlighted. LOAD
+  SLOT1 and Cross show CHECKING MEMORY CARD, then the LOAD SAVED DATA? prompt
+  with the save's header (Slot 1, PLAY TIME 0: 0: 0, NO PLAY DATA) and OK above
+  CANCEL. The prompt's cursor starts on CANCEL. The outcomes establish this:
+  Cross on the prompt returned to LOAD/SAVE without loading (`explore-memcard`
+  `after-load`, `explore-memcard2`), while Up and then Cross loaded
+  (`explore-memcard3`, and the committed route in all three modes). The lit
+  entry only supports it (`exploration/prompt-b-x4.png`, `r2/prompt-crops.png`):
+  in seven of nine prompt shots CANCEL is lit before Up and OK after it, and in
+  two (`explore-memcard3` `load-prompt-b`, the committed HLE OpenBIOS run's
+  `load-ok`) neither is, which fits a blinking highlight (hypothesis). In
+  `explore-memcard3`, Cross on OK showed OPENING DATA 107 frames after the
+  press (`load-1`) and DATA READ COMPLETED at 287 and 576 frames (`load-2`,
+  `load-3`); Triangle 606 frames after the press returned to the main menu, as
+  in every committed run.
+- After a save, memory card 1 holds one save (`mcd_ls.py`): directory checksums
+  valid, block 1 in use (state `0x51`), 8192 bytes, name
+  `BASCUS-94449OMEBENV`, one block, a full-width Shift-JIS title starting
+  【ＶＩＥＷ】. Memory card 2 stays blank. The saved block is byte-identical in
+  four runs that saved with different OPTION settings (DIFFICULTY HARD, or
+  NORMAL with INFORMATION changed), so the environment data does not record
+  those two settings; after loading a save made at HARD, OPTION still showed
+  NORMAL (`exploration/memcard3-rows.png`).
+- OPTION's cursor starts on CONTROL at the first visit, wraps (six Ups from
+  CONTROL reached SELECT BGM), and is remembered between visits. The CONTROL
+  SETUPS diagram (Type A, `exploration/control-setups-x3.png`) labels VIPER B.
+  and SCAN on the left shoulder buttons, BACK VIEW and STOP on the right, BOOST
+  on Triangle and Circle, ATTACK on Square and Cross, DOWN on d-pad up, UP on
+  d-pad down and VIEW CHANGE on Select.
+- Zone 1 under scripted input (`out/explore-z1-*`, from CAMPAIGN PLAY, 12,000
+  frames each): no input scored 0. The attack run (`gen_explore.py`
+  `zone1_attack`) held Square for 48 of every 60 frames, with a 6-frame L1 tap
+  at the start of each 600-frame block, and scored 3635. The scan runs
+  (`gen_explore2.py` `zone1_scan`) held Square the same way and tapped R1, L1,
+  L2 or R2 for 6 frames at the start of every 60 frames; they scored 4115,
+  3620, 3740 and 3740. Every score was reached within about 2400 frames and did
+  not change after (`exploration/scan-compare.png` and the run sheets in
+  `out/`). Only the run tapping L1 every 60 frames turned the view (the
+  background moves between shots); the attack run's L1 tap every 600 frames did
+  not visibly turn it (`g02400` to `g12000` on its sheet). That fits SCAN on L1
+  (hypothesis). Input without feedback cleared only the first wave. Hypothesis,
+  untested because no run steered: the zone then needs navigation toward its
+  objective (the briefing says MODE: SEARCH). Per the probe budget there are no
+  further blind variants.
+- Static coverage (`static_coverage.py` / `.log`; `psxrecomp-analyze` built
+  from the verified tarball tree of `8077e71`, the pinned source, in the scratch
+  framework-test build). It finds 1262 functions, all among the 1701 generated
+  entry points. Its 219 address-taken targets, its one resolved pointer call
+  and the 296 case targets of its 34 recovered jump tables (21 proven, 12
+  guarded, 1 scanned) are all generated entry points. 23 direct calls target
+  the scene-overlay area (`0x80120A70` to `0x80128F40`): the boot EXE calls
+  into the loaded overlay. 160 indirect transfers (155 `jalr`, 5 `jr`) have no
+  static target set, so only runtime can find their targets. Static analysis
+  gives no new seed.
+- Unlocks (reference, unverified: the GameFAQs cheats page and A. Dean's FAQ,
+  `gamefaqs.gamespot.com/ps/198233-omega-boost/cheats` and `/faqs/5017`): zones
+  U1 to U9 and V5 and the boost levels A to E unlock by completing the game
+  under conditions on difficulty, AP (the average zone score over nine zones)
+  and continues, and the FAQ's author could not pin the conditions down. 7TH,
+  8TH and LAST ZONE are campaign zones. GameFAQs lists two North American saves
+  with everything unlocked (a DexDrive save described as "Gamesharked", and a
+  PS3 virtual memory card); neither was downloaded. So zones 7 and later, the
+  extra zones and the ending need either a campaign play-through or save data.
+- Committed route runs (`routes.sh` / `routes.log` with the documented
+  commands; outputs in `.cache/routes/memcard/<mode>/`; sheets
+  `routes/memcard-<mode>_sheet.png` and `routes/memcard-modes_sheet.png`):
+  all three modes pass with matching banners, start frames 64 (HLE OpenBIOS),
+  42 (LLE OpenBIOS) and 111 (LLE SCPH-1001), 14 screenshots each, shots 0 to
+  16 frames late, no miss at any record and runtime exit 0. Every mode shows
+  the same screens (SAVE COMPLETED, the main menu, CHECKING MEMORY CARD, the
+  LOAD SAVED DATA? prompt, OPENING DATA, DATA READ COMPLETED, the main menu),
+  and each run's memory card 1 then holds the one save described above, while
+  memory card 2 stays blank.
 
-## Phase 3 change 2 checks
+## Phase 3 change 3 changes
 
-- `build-dev` is current with `fc06141`: `cmake --build build-dev --target
-  psx-runtime -j6` re-ran only its always-run steps (the game-C check and the
-  mod-catalog staging and verification) and compiled nothing
+- `scripts/routes/memcard.json` (new): 48 steps, 9260 frames; the
+  `explore-memcard3` flow without the OPTION visits. Written by
+  `.cache/evidence/phase3-3/gen_routes.py` (not committed), which reuses the
+  change 2 generator's helpers; mode 0644, one step per line.
+- `scripts/routes/test_routes.py`: `LISTED` adds `memcard`.
+- `AGENTS.md`: the route list adds `memcard.json`, and a new route needs an
+  entry in that list and in `LISTED`.
+- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 3 change 1 sections
+  are unchanged, and change 2 is condensed.
+- Round 2 changes only this file: the LOAD/SAVE and zone-1 observations (review
+  round 1), the checks and the review state.
+
+## Phase 3 change 3 checks
+
+- `build-dev` is current with `4c22512`: `cmake --build build-dev --target
+  psx-runtime -j6` re-ran only its always-run steps and compiled nothing
   (`build-dev-check.log`).
-- `test_routes_regression.sh` / `.log`: `test_routes.py` fails the shot-margin
-  test for exactly the four shot steps (intro, title, main-menu, briefing) of
-  the round-2 `title_to_zone1.json` (sha256 `2d2bf910354f…`, tree `24d16254`),
-  which ended at the next press, and passes on the committed route.
-- Route runs: `routes.sh` with the SCPH-1001 v2.2 dump; `routes_summary.py`
-  reports `runs not passing: 0` (`routes_summary.log`), and `routes.log` ends
-  with no listener on port 4370.
-- Round 1, `checks-p3-2.sh` / `.log` (staged tree `6ab537c0`, with the round-1
-  `test_routes.py`): the runner and its tests are unchanged from `HEAD`; the
-  local-path grep finds nothing; `check_generated`, `check_boot_exe` and
-  `check_bios_stamps` exit 0; the pins equal `framework_pins.txt`, the four
-  submodules are at their pins with no changes, and the only ignored file
-  inside them is psxrecomp's `overlay_codegen_hash.h`; no tracked file is
-  ignored; every route passes `run_route.load_route`; regenerating the menus
-  and demo routes with `gen_routes.py` gives byte-identical files;
-  `test_routes.py` passes its 4 tests and `test_run_route.py` its 15, leaving
-  no fake runtime, temp directory or `__pycache__`; `routes_summary.py` exits
-  0; nothing listens on ports 4370 to 4379; `git diff --cached --check` exits
-  0.
-- Round 2, `r2/checks-p3-2-r2.sh` / `.log` (staged tree `9a95a09`): the same
-  checks, all passing, plus: the delta from the round-1 tree changes only this
-  file, `AGENTS.md` and `test_routes.py`, and no route file; this file's
-  Phase 0 to Phase 2 sections equal `HEAD`, and it has no placeholder; and
-  `r2/clear_time_check.py` reproduces its saved log byte for byte.
-  `r2/test_routes_listed.sh` / `.log`: on a scratch copy of the scripts the 4
-  tests pass, and without `menus.json` exactly the listed-routes test fails
-  (route `menus`), exit 1.
-- Round 3, `r3/checks-p3-2-r3.sh` / `.log` (staged tree): the round-2 checks,
-  with the delta taken from the round-2 tree, all passing.
-  `r3/test_routes_listed.sh` / `.log`: on a scratch copy the 4 tests pass;
-  without `menus.json`, and with an unlisted copy of it named
-  `extra_route.json`, exactly `test_route_files_match_the_list` fails, exit 1
-  each time.
+- Route runs: `routes.sh` with the SCPH-1001 v2.2 dump; the three runs pass
+  (see the observations above), and `routes.log` ends with no listener on port
+  4370.
+- `checks-p3-3.sh` / `.log` (staged tree): the earlier routes, the runner and
+  its tests are unchanged from `HEAD`; the Phase 0 to Phase 3 change 1 sections
+  of this file equal `HEAD`; the local-path grep finds nothing;
+  `check_generated`, `check_boot_exe` and `check_bios_stamps` exit 0; the pins
+  equal `framework_pins.txt`, the four submodules are at their pins with no
+  changes, and the only ignored file inside them is psxrecomp's
+  `overlay_codegen_hash.h`; no tracked file is ignored; all nine routes pass
+  `run_route.load_route`; both generators reproduce their routes byte for
+  byte; `test_routes.py` passes its 4 tests, and a copy without `memcard.json`
+  fails only `test_route_files_match_the_list`; `test_run_route.py` passes its
+  15 tests, leaving no fake runtime, temp directory or `__pycache__`; the three
+  memcard runs pass with no missing screenshot; nothing listens on ports 4370
+  to 4379; `git diff --cached --check` exits 0.
+- Round 2, `r2/checks-p3-3-r2.sh` / `.log` (staged tree): the delta from the
+  round-1 tree `ee9e132` touches only this file, and every other staged file
+  equals round 1; the Phase 0 to Phase 3 change 1 sections still equal `HEAD`;
+  no placeholder; the local-path grep finds nothing; the three gates exit 0;
+  the pins and submodules are as in round 1; no tracked file is ignored; both
+  test files pass, leaving no fake runtime; the facts behind the round-2
+  wording reproduce from the saved routes and records (the attack route's 20
+  Square+L1 steps, `explore-memcard`'s shots, the load timings of
+  `explore-memcard3` and the committed runs); `git diff --cached --check` exits
+  0. No route was re-run: no route, script or build input changed.
 
 ## Hypotheses and unknowns
 
@@ -276,22 +273,18 @@ PASS on tree `ede62b41`. The full record is in
   intro. Whether these screens are correct: unknown until the Beetle
   comparison.
 - Whether the eight emitted fallthroughs are faithful: unknown.
-- Untested by committed routes: memory-card saves and loads, TRAINING lessons,
-  ZONE PLAY zones, CAMPAIGN PLAY past zone 1, zones 7 and later (every later
-  DEMONSTRATION entry selected so far shows DISABLE), the ending and credits.
-  The DEMONSTRATION routes run zones 1 to 6 under recorded input. Whether that
-  reaches the code live play reaches, and whether scripted input can clear a
-  zone: unknown.
+- Untested by committed routes: TRAINING lessons, ZONE PLAY zones, CAMPAIGN
+  PLAY past zone 1, SAVE REPLAY and LOAD REPLAY, zones 7 and later, the extra
+  zones, the ending and credits. The DEMONSTRATION routes run zones 1 to 6
+  under recorded input; whether that reaches the code live play reaches is
+  unknown. Any of the 160 statically unresolved indirect transfers that the
+  routes do not reach can still miss later.
+- What the environment save holds: unknown (not DIFFICULTY or INFORMATION).
 - Overlay code above `0x80120800` runs in the interpreter; its share of frame
-  time and any accuracy effect are unknown. The capture store beside
-  `build-dev` (every run since Phase 2 that did not redirect it, now including
-  every committed route in all three modes) holds 53 captures
-  (`capture_match.log`, from `.cache/evidence/phase3-1/r2/capture_match.py`):
-  47 equal a scene `.BIN` at offset `load_addr - 0x80120000` (TITLE 36, BRI1
-  5, TU 3, LOGO 2, MOVIE 1), and 6 match none (pages at `0x80121000`,
-  `0x80122000`, two at `0x80126000` and two at `0x80127000`). None equals a
-  zone file, although zones 1 to 6 played. Where zone code runs, and what the
-  unmatched pages hold: unknown.
+  time and any accuracy effect are unknown. Of the 53 captures in the
+  `build-dev` store at change 2, 6 matched no scene `.BIN` (pages at
+  `0x80121000`, `0x80122000`, two at `0x80126000` and two at `0x80127000`).
+  Where zone code runs, and what those pages hold: unknown.
 - How Phase 4 will feed route input to `psx-beetle`, which has no
   `input_route_*` command: unknown.
 - recomp-ui `864f778`: the launcher dashboard works; starting the game from
@@ -301,48 +294,37 @@ PASS on tree `ede62b41`. The full record is in
 
 - Phase 1: round 2 PASS on tree `b5ef902`; commit `6ad5c9e`.
 - Phase 2: round 3 PASS on tree `8ab2284`; commit `e58cf21`.
-- Phase 3 change 1: round 3 PASS on tree `ede62b41` (staged diff
-  `8bab9784…`) with no findings, after round 1 NEEDS CHANGES (two Medium, four
-  Low) and round 2 NEEDS CHANGES (one Low); commit `fc06141`, pushed to the
-  private `origin/master`. Its round-3 suggestions: the shot-margin check (1)
-  is adopted here as `test_routes.py`; on the lag definitions (2), round-1 lags
-  were read after the screenshot, so the 0-to-14 range of change 1's saved
-  runs treats them as upper bounds; the `save_state` citations (3) are applied
-  here; a lock file that enforces one runtime per build (4) is deferred,
-  because it is a runner change and a second launch from one build already
-  fails closed at startup. Round-2 suggestion 8 (ignore SIGINT during cleanup)
-  stays deferred.
-- Phase 3 change 2, round 1 (tree `6ab537c0`, staged diff `aa1ac2c1…`; report
-  saved as `.cache/evidence/phase3-2/r2/review-r1.md`): NEEDS CHANGES, four
-  Low findings in this file's observations, all corrected above. (1) The
-  REPLAY screen shows DISABLE beside START REPLAY and SAVE REPLAY only, not
-  LOAD REPLAY. (2) OPTION's entries run from CONTROL to ADJUST SCREEN; CONTROL
-  SETUPS is the description line. (3) Only six of the 13 later DEMONSTRATION
-  entries were ever selected. (4) Zone 6's range started at a half-drawn
-  banner, which zone 1's range leaves out; every range now follows one pixel
-  rule. Suggestions adopted: the zone 6 end-frame observation, the zone 6
-  caveat in the commit message, `test_routes.py` checking every listed route,
-  and the lag-range and build-check wording. The reviewer re-ran all 24 route
-  runs on its own build: 24 PASS, 0 misses.
-- Phase 3 change 2, round 2 (tree `9a95a09`, staged diff `55e7e7cb…`): NEEDS
-  CHANGES, one Low finding: this file's checks section still described round 1
-  only, so a round-1 log read as the checks of the committed tree, and the new
-  test's regression evidence was not recorded. The checks section now has a
-  bullet per round. The reviewer confirmed all four round-1 findings and the
-  five suggestions resolved. Suggestions adopted: the sentence on why the pixel
-  rule needs both thresholds; `test_routes.py` now requires the route files to
-  be exactly the listed routes, so an unlisted file fails too; the commit
-  message reuses this file's wording for zone 6's end frame.
-- Phase 3 change 2, round 3: pending delta re-review.
+- Phase 3 change 1: round 3 PASS on tree `ede62b41`; commit `fc06141`.
+  Deferred suggestions: ignore SIGINT during the runner's cleanup (round 2),
+  and enforce one runtime per build with a lock file (round 3).
+- Phase 3 change 2: round 3 PASS on tree `acd0532` (staged diff `9683aa9c…`)
+  with no findings, after round 1 NEEDS CHANGES (four Low) and round 2 NEEDS
+  CHANGES (one Low); commit `4c22512`, pushed to the private `origin/master`.
+  Its round-3 suggestion (a new route needs entries in the `AGENTS.md` list and
+  in `LISTED`) is applied in this change.
+- Phase 3 change 3, round 1 (tree `ee9e132`, staged diff `05db29eb…`): NEEDS
+  CHANGES, one Low finding: the zone-1 bullet described the attack run as
+  Square held with short gaps, but every 600-frame block of that run starts
+  with a 6-frame Square+L1 tap, and the bullet did not say that this tap did
+  not turn the view. Resolved in the zone-1 bullet. Suggestions adopted: label
+  the navigation claim a hypothesis; rest the prompt's CANCEL default on the
+  outcomes, with the lit entry as support only (`r2/prompt-crops.png`); name
+  `explore-memcard`'s off-script shots and its no-wrap shots; give the load
+  timings from the records. The reviewer placed the off-script shots at
+  `cursor-option2` to `difficulty3`, but `cursor-option2` to `menu2` show the
+  main menu and OPTION as scripted; they start at `after-load`
+  (`out/explore-memcard-hle-openbios_sheet.png`).
+- Phase 3 change 3, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Next Phase 3 changes, one per commit:
+After a PASS: commit and push. Reaching zones 7 and later, the extra zones and
+the ending needs a decision by the user: a campaign play-through on the dev
+build while misses are collected, a save with the zones unlocked (the user's
+own, or one of the GameFAQs saves), or leaving them for now. Independent of
+that, one change each:
 
-- a zone-1 route with real input, to learn whether scripted play can clear a
-  zone, and memory-card save and load routes through LOAD/SAVE;
+- static overlay AOT for the scene `.BIN` overlays;
 - harvesting any misses with `psxrecomp/tools/collect_game_misses.py` (none so
   far);
-- static overlay AOT for the scene `.BIN` overlays, as its own change.
-
-Phase 4 needs a way to feed the same input to `psx-beetle`.
+- Phase 4, which needs a way to feed the same input to `psx-beetle`.

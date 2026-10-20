@@ -13,7 +13,7 @@ sys.path.insert(0, str(HERE))
 import run_route  # noqa: E402
 
 ROUTES = sorted(HERE.glob("*.json"))
-LISTED = ["title_to_zone1", "menus"] + [f"demo_zone{k}" for k in range(1, 7)]  # AGENTS.md "## Routes"
+LISTED = ["title_to_zone1", "menus", "memcard"] + [f"demo_zone{k}" for k in range(1, 7)]  # AGENTS.md "## Routes"
 SHOT_MARGIN = 30  # AGENTS.md: end every shot step 30 frames before the next button change
 
 

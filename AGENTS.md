@@ -174,10 +174,12 @@ exit status. Two runs of the same route and mode share an output directory, so
 run routes one at a time.
 
 The committed routes are `title_to_zone1.json` (boot to zone-1 gameplay),
-`menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY) and
+`menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY),
+`memcard.json` (LOAD/SAVE: saves to memory card slot 1, then loads it back) and
 `demo_zone1.json` to `demo_zone6.json` (REPLAY > DEMONSTRATION: each zone's
 recorded replay until shortly after its COMPLETED screen). Each route's `notes`
-give its pad words and timing rules.
+give its pad words and timing rules. A new route also needs an entry in this
+list and in `LISTED` in `scripts/routes/test_routes.py`.
 
 ```sh
 python3 scripts/routes/run_route.py scripts/routes/<route>.json --mode hle-openbios
