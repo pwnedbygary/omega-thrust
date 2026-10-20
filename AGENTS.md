@@ -90,11 +90,11 @@ later runs are incremental (`--force-emitters` wipes and rebuilds it). The
 output is byte-identical across runs. The runtime builds use the system GCC and
 the CI template flags; `build-dev` adds the TCP debug server (127.0.0.1:4370).
 
-The runtime build writes one file inside the submodule: the framework's
-`psxrecomp/runtime/include/overlay_codegen_hash.h` (`runtime/runtime.cmake:1778`),
-which `psxrecomp/.gitignore:76` ignores. It cannot be redirected without
-patching the submodule. `git -C psxrecomp status --porcelain --ignored` should
-list only that file.
+The runtime build writes one file inside the submodule, whenever it is missing
+or stale: the framework's `psxrecomp/runtime/include/overlay_codegen_hash.h`
+(`psxrecomp/runtime/runtime.cmake:1778`), which `psxrecomp/.gitignore:76`
+ignores. It cannot be redirected without patching the submodule.
+`git -C psxrecomp status --porcelain --ignored` should list only that file.
 
 ```sh
 bash psxrecomp/tools/ci/build_emitters.sh   # once, while build-recompiler/ has no emitters
@@ -133,6 +133,54 @@ retail BIOS (never copied into the repository). The debug server answers one
 JSON request per TCP connection, and its I/O thread answers `ping` itself
 without frame data, so poll `frame`. Without `--headless` the launcher opens and
 writes `input.ini` and `keybinds.ini` beside the executable.
+
+Run one runtime per build directory at a time. Every launch commits the mod
+selection to `<build>/mods/state.toml` through the fixed temporary name
+`state.toml.tmp` (`psxrecomp/runtime/src/main.cpp:16626-16629`,
+`psxrecomp/runtime/src/mod_packages.cpp:2826-2904`), so a second launch from
+the same build at the same moment can exit with "cannot launch with selected
+mods: cannot publish state".
+
+## Routes
+
+`scripts/routes/run_route.py` plays a route on the headless dev build. Routes
+use the format of `psxrecomp/tools/perf_routes/`: `steps` of `frames` and
+`buttons`, the inverted pad word (65535 neutral, 65527 Start; bit names in
+`psxrecomp/tools/pad_trace.py`), plus optional `note` and `shot` keys. The
+runtime plays the steps itself (`input_route_*` debug commands), one step frame
+per runtime frame, so input timing is exact relative to the route's start
+frame, which varies between runs. The runner takes each shot after its step has
+ended, a few frames late, so end every shot step at least 30 frames before the
+next button change; each record holds the frame read just before the
+screenshot. A failed screenshot (for example "display disabled") is recorded
+and does not fail the run.
+
+A run fails if the boot banner in `runtime.log` (`bios_boot=`, `image=`) does
+not match `--mode`, the runtime exits early, the route stops early or times
+out, or `dispatch_stats` reports an unknown-dispatch or segment miss. The
+runner sets `PSX_BIOS_HLE` for the mode and removes `PSX_BIOS_HLE_KEEP_INTRO`
+and `APPIMAGE`. It accepts `--bios` only for `lle-scph1001`, refuses a port
+that already accepts connections, and sends commands only after its own
+runtime prints `debug server LISTENING`. It writes `result.json`,
+`runtime.log`, the screenshots and the runtime's `cwd/` and `memcards/` to
+`.cache/routes/<name>/<mode>/`, where `<name>` is the route's `name`. It reuses
+an output directory only if the directory is empty or holds a `result.json`
+written by the runner, and then deletes only its own earlier outputs. A run
+refused before launch (bad arguments, a busy port) leaves the output directory
+untouched, so a `result.json` there may be an earlier run's; trust the runner's
+exit status. Two runs of the same route and mode share an output directory, so
+run routes one at a time.
+
+```sh
+python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json --mode hle-openbios
+python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json --mode lle-openbios
+python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json \
+  --mode lle-scph1001 --bios <SCPH-1001 v2.2 dump>
+python3 -B scripts/routes/test_run_route.py   # runner tests against a fake runtime
+```
+
+Verify every route change in all three modes, and every runner change with the
+tests and the three route commands.
 
 ## Naming
 

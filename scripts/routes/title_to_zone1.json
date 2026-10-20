@@ -1,0 +1,22 @@
+{
+  "name": "title-to-zone1",
+  "title": "Omega Boost (USA)",
+  "scene": "boot to Campaign Play, 1st Zone",
+  "notes": "Skips the intro, opens the main menu, starts Campaign Play, leaves the briefing and idles in zone 1. buttons is the inverted pad word: 65535 neutral, 65527 Start. Each shot step ends 30 neutral frames before the next press, because shots land a few frames after their step ends.",
+  "steps": [
+    {"frames": 3870, "buttons": 65535, "note": "boot and intro; every boot mode is in the intro movie by the end", "shot": "intro"},
+    {"frames": 30, "buttons": 65535},
+    {"frames": 6, "buttons": 65527, "note": "Start: skip the intro movie"},
+    {"frames": 1020, "buttons": 65535, "note": "title screen; Start presses 300 and 600 frames after the skip did nothing in exploration", "shot": "title"},
+    {"frames": 30, "buttons": 65535},
+    {"frames": 6, "buttons": 65527, "note": "Start: open the main menu"},
+    {"frames": 270, "buttons": 65535, "shot": "main-menu"},
+    {"frames": 30, "buttons": 65535},
+    {"frames": 6, "buttons": 65527, "note": "Start: choose CAMPAIGN PLAY (default cursor)"},
+    {"frames": 570, "buttons": 65535, "note": "mission briefing", "shot": "briefing"},
+    {"frames": 30, "buttons": 65535},
+    {"frames": 6, "buttons": 65527, "note": "Start: leave the briefing"},
+    {"frames": 600, "buttons": 65535, "note": "zone 1 begins", "shot": "zone1-start"},
+    {"frames": 1200, "buttons": 65535, "note": "zone 1 with no input", "shot": "zone1-play"}
+  ]
+}
