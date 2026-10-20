@@ -135,9 +135,11 @@ without frame data, so poll `frame`. Without `--headless` the launcher opens and
 writes `input.ini` and `keybinds.ini` beside the executable.
 
 Run one runtime per build directory at a time. Every launch commits the mod
-selection to `<build>/mods/state.toml` through the fixed temporary name
-`state.toml.tmp` (`psxrecomp/runtime/src/main.cpp:16626-16629`,
-`psxrecomp/runtime/src/mod_packages.cpp:2826-2904`), so a second launch from
+selection (`psxrecomp/runtime/src/main.cpp:16626-16629`; `save_selection`
+defaults to true, `psxrecomp/runtime/include/mod_runtime.h:22`, and is checked
+at `psxrecomp/runtime/src/mod_runtime.cpp:1647`) to `<build>/mods/state.toml`
+through the fixed temporary name `state.toml.tmp`
+(`psxrecomp/runtime/src/mod_packages.cpp:2826-2904`), so a second launch from
 the same build at the same moment can exit with "cannot launch with selected
 mods: cannot publish state".
 
@@ -171,16 +173,23 @@ untouched, so a `result.json` there may be an earlier run's; trust the runner's
 exit status. Two runs of the same route and mode share an output directory, so
 run routes one at a time.
 
+The committed routes are `title_to_zone1.json` (boot to zone-1 gameplay),
+`menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY) and
+`demo_zone1.json` to `demo_zone6.json` (REPLAY > DEMONSTRATION: each zone's
+recorded replay until shortly after its COMPLETED screen). Each route's `notes`
+give its pad words and timing rules.
+
 ```sh
-python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json --mode hle-openbios
-python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json --mode lle-openbios
-python3 scripts/routes/run_route.py scripts/routes/title_to_zone1.json \
+python3 scripts/routes/run_route.py scripts/routes/<route>.json --mode hle-openbios
+python3 scripts/routes/run_route.py scripts/routes/<route>.json --mode lle-openbios
+python3 scripts/routes/run_route.py scripts/routes/<route>.json \
   --mode lle-scph1001 --bios <SCPH-1001 v2.2 dump>
 python3 -B scripts/routes/test_run_route.py   # runner tests against a fake runtime
+python3 -B scripts/routes/test_routes.py      # route files: exactly the listed routes, validity, unique names, shot margins
 ```
 
-Verify every route change in all three modes, and every runner change with the
-tests and the three route commands.
+Verify every route change in all three modes and with `test_routes.py`, and
+every runner change with both test files and every route in all three modes.
 
 ## Naming
 
