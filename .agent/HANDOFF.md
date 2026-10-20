@@ -7,29 +7,32 @@ Overall: recompile Omega Boost (USA, SCUS-94449) with psxrecomp nightly
 oracle. Phases: 0 inputs, 1 scaffold, 2 generate + build + smoke, 3 discovery
 cycles through the whole game, 4 Beetle comparison.
 
-Current iteration, Phase 3 change 4 (static overlay AOT), round 3. Invariant:
-`aot/overlays.json` declares the 25 scene `.BIN` files whole at their load
-address 0x80120000 (19 confirmed by the framework's generic extractor, 6 with
-`allow_missing`), the disc's data-track SHA-1, the loader instructions that set
-that base (`0x80075AF4` to `0x80075B00` in `SCUS_944.49`), 25 expected
-records, strict bounds and `static_output` `generated/overlays_static.c`. The
-documented `generate` writes `generated/overlays_static.c`,
-`overlays_static_0000.c` to `overlays_static_0024.c` and
-`AOT_STATIC_AUDIT.json` from the original disc only; the audit reports every
-pair valid and every guard matching the known input bytes; a second run reuses
-the shard and leaves `generated/` byte-identical, and the 49 earlier generated
-files do not change. `CMakeLists.txt` links the shard through
-`GAME_OVERLAY_STATIC_C`, placed above the list arguments, and both builds link
-it with the codegen host. On that build, all nine committed routes pass in all
-three boot modes with no unknown-dispatch or segment miss, and the
-interpreter's instruction count at overlay addresses falls (measured). The
-submodules stay at their pins with only the documented ignored by-product. No
-new file holds a local path or base64 game bytes, and none exceeds 50 MB.
-`AGENTS.md` describes the static step, its reuse rule and the
-`recipe_input_sha256` behaviour. This file records change 3's round-2 verdict
-and commit. Baseline: `8d56854`. Out of scope: runner and route changes, new
-seeds, release packaging (`overlay_cache`), live campaign play, zones 7 and
-later, Beetle (Phase 4), CI.
+Current iteration, Phase 3 change 5 (routes for the zones an unlocked save
+opens), round 2. Invariant: `scripts/routes/run_route.py` accepts an optional
+route key `card1_sha256`. A route that declares it runs only with `--card1`
+naming a readable 131,072-byte image with that sha256. The size (before the
+file is read), the read and the hash are checked before launch, and each
+refusal prints one line, so a refused run starts no runtime and leaves the
+output directory untouched. The runner copies the image into the run's
+`memcards/card1.mcd` and never writes the original, and `result.json` records
+the declared hash (null for the other routes, whose cards start blank as
+before). `--card1` is refused for a route that declares no card. Thirteen new
+routes, `demo_zone7.json`, `demo_zone8.json`, `demo_zone_last.json`,
+`demo_zone_u1.json` to `demo_zone_u9.json` and `demo_zone_v5.json`, declare
+the hash of the user's unlocked save, load it with LOAD SLOT1, and play the
+zone's REPLAY > DEMONSTRATION recording until shortly after its COMPLETED
+results screen; no other route declares a card. All 22 committed routes pass
+in all three boot modes with no unknown-dispatch or segment miss, and the 13
+new replays reach their results screens. Both test files pass and leave
+nothing behind; the new runner tests fail on the committed runner, and the
+preload test fails if the runner links the image instead of copying it.
+`AGENTS.md` documents the key, the option, the save's source and conversion,
+and lists the routes; no save or card image is tracked, and `.gitignore` adds
+`*.gme` and any-case memory card patterns. This file records change 4's
+round-3 verdict and commit and adopts round 3's suggestion. Baseline:
+`a4117a0`. Out of scope: other runner changes (SIGINT during cleanup, a lock
+file), new seeds, the overlay shard, live campaign play, the ending, Beetle
+(Phase 4), CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -157,270 +160,232 @@ completing the game under difficulty, AP and continue conditions. Review:
 round 1 NEEDS CHANGES (one Low, the zone-1 bullet), round 2 PASS on tree
 `41ee4b2`. The full record is in `git show 8d56854:.agent/HANDOFF.md`.
 
-## Phase 3 change 4 observations (`.cache/evidence/overlay-aot/`, `.cache/evidence/phase3-4/`)
+## Phase 3 change 4 (commit `a4117a0`)
 
-- Overlay layout (`overlay-aot/capture_search.py` / `.log`, `ram_search.py` /
-  `ram_search-zone1.log`). Of 85 capture entries (53 in the `build-dev` store,
-  32 in change 3's scratch exploration store, since deleted), 75 equal a scene
-  `.BIN` (TITLE, BRI1, LOGO, TU, MOVIE) at offset `load_addr - 0x80120000`. The
-  other 10 entries, 6 distinct pages, match MOVIE, BRI1 or TU at the same base
-  for their first 1632 to 7456 bytes and then differ, which fits data the game
-  writes inside the loaded image (hypothesis). During zone-1 gameplay
-  (`title_to_zone1`, frame 7243) all 53,816 bytes of `S1/S1.BIN` are in RAM at
-  0x80120000, and no other `.BIN` is. No capture holds a zone page although
-  zone code ran (hypothesis: the store records a page only when it is
-  replaced, and every zone run so far ended inside the zone).
-- Loader (Phase 3 change 1 research; the checked words are in
-  `aot/overlays.json`): in `func_80075AB4`, the block at `0x80075AF4` loads
-  0x80120000 (`lui v0,0x8012`, `addiu v0,v0,0`) and stores it to `0x8009C03C`
-  and to `16(s0)`.
-- Generic extractor (`overlay-aot/extract_generic.log`; the framework's bounded
-  discovery on the original disc, output in scratch): 19 files are raw-code
-  producers at 0x80120000 by its call-fit scores (BRI1, BRI2, MOVIE, S1 to S6,
-  S8 to S10, TITLE, TU, U2, U4, U6, U7, U9). It misses LOGO, U1, U3, U5, U8
-  and V5 because their calls give too few votes for one address, not because
-  they are small: U8 (44,948 bytes) is larger than seven of the 19 files
-  found. The extractor places a file by voting: each call target in it votes
-  for every load address at which it would land on an apparent function
-  prologue, and an address is accepted only with at least 8 votes, twice the
-  runner-up's, and at least a quarter as many votes as the file has apparent
-  prologues (`psxrecomp/tools/aot_overlay_spike/extract_generic.py:328-360`).
-  Rerun with the pinned extractor's own functions (`phase3-4/r2/raw_votes.py`
-  / `.log`, which also reproduces the 19 scores in the extractor's log), each
-  of the six has 0x80120000 as its top address, with 7 votes (LOGO, U3), 4
-  (U5, V5) or 3 (U1, U8) against a runner-up's 1 or 2; U5, U8 and V5 also fail
-  the quarter rule. RAM reads during the replays of U1, U3, U5, U8 and V5
-  confirm that address (next bullet), and captures confirm LOGO's. A wrong
-  address would cost coverage, not correctness, because every variant is
-  guarded by the CRC of the bytes it was compiled from
-  (`extract_generic.py:301-303`, `:336-338`). For these six files,
-  `allow_missing` makes the pipeline build the record from the file's own
-  bytes (prologues, leaf entries, supplemental seeds) instead of stopping
-  (`psxrecomp/tools/aot_overlay_pipeline.py:559-572`); it does not skip the
-  file.
-- Load address of U1, U3, U5, U8 and V5 (`phase3-4/r3/ramcheck/`: `ramcheck.sh`
-  / `.log`, `<zone>-ram.log`, the run outputs, `summary.py`; scratch, run
-  during review round 2). On the scratch trial's build, in HLE OpenBIOS, each
-  zone's DEMONSTRATION replay played with the user's unlocked save as card 1
-  (through a scratch copy of the runner that preloads card 1 and scratch
-  routes, both copied there), and after the replay's `t01800` shot step
-  `overlay-aot/ram_search.py` read all 2 MiB of RAM (frames 12,766 to 13,981).
-  In each run the file's 64 bytes at offset 0x1000 are at 0x80121000, and RAM
-  equals the file from 0x80120000 for its first 7,804 of 7,808 bytes (U1), all
-  13,712 (U3), 3,020 of 17,072 (U5), 44,944 of 44,948 (U8) and 3,548 of 19,616
-  (V5). `ram_search.py` counts only the bytes before the first difference, so
-  how much of U5 and V5 differs after that is not measured. Every other `.BIN`
-  is absent or agrees for at most 4 bytes from the base its window implies.
-  All five runs passed with no unknown-dispatch or segment miss.
-- The generated dispatch runs in CPS mode
-  (`generated/SCUS_944.49_dispatch.c:37616-37618`), and the static step
-  compiles for it (`cps` is true in the audit's generation inputs).
-- Scratch trial (`overlay-aot/trial/`): a fresh export of tree `41ee4b2` with
-  this profile and the CMake wiring. `generate` built the shard, then reused it
-  (identical manifests; the 49 earlier files unchanged). The first build failed
-  to link with three undefined `psxrecomp_codegen_host_*` functions
-  (`trial/attempt1/`). Its CMake edit was not saved, but the failure matches
-  the after-`CODEGEN_SETUP_SOURCES` placement below exactly. With the keyword
-  above the lists, the build linked (117 s at `-j4`).
-- Keyword placement (`phase3-4/order_check.sh` / `.log`, configure only, on the
-  trial tree). Above `GEN_FULL_GLOB` and `CODEGEN_SETUP_SOURCES`, configure
-  passes and `build.ninja` has the 26 shard objects and the codegen host. After
-  `GEN_FULL_GLOB`, configure fails
-  (`psxrecomp/runtime/overlay_static_sources.cmake:42`). After
-  `CODEGEN_SETUP_SOURCES`, configure passes with the 26 shard objects but no
-  codegen host. Cause: `psxrecomp_add_game_runtime` parses those two as list
-  arguments and forwards keywords it does not know
-  (`psxrecomp/runtime/runtime.cmake:2536-2548`), so the keyword and its path
-  join the setup-source list. The host source is appended after them
-  (`:2721-2724`) and everything is passed on as `EXTRAS_SOURCES`
-  (`:2747-2751`), where `psxrecomp_add_runtime_target` takes the path as its
-  one-value `GAME_OVERLAY_STATIC_C` and leaves the host source unparsed
-  (`:1399-1441`).
-- Interpreter load (`overlay-aot/trial/trial_compare.sh` / `.log`,
-  `insn_probe.py`; HLE OpenBIOS; the workspace `build-dev` without the shard
-  against the trial build with it). `title_to_zone1` and `demo_zone1` passed on
-  both builds. The interpreter ran 473,777,645 and 729,291,822 instructions
-  without the shard and 1,113,140 and 1,171,851 with it; at overlay addresses,
-  353,737,535 (190 PCs) and 578,435,952 (307 PCs) without it, and 1,309 (7
-  PCs) and 12 (1 PC) with it.
-- Workspace `generate` (`phase3-4/generate.sh` / `.log`). Run 1 built the shard
-  in 20 s ("Verified 25 images / 25 recipes", "Published 34846 audited static
-  variants in 26 files"). Run 2 printed `RESULT_STATIC=reused`, and the
-  manifest stayed identical. The 49 tracked files are unchanged. The 27 new
-  files hold 124,835,237 bytes in 3,534,300 lines; the largest is
-  `overlays_static.c` at 10,798,356 bytes, and none has a local path. The 26 C
-  files equal the trial's, and the audit differs from the trial's only in
-  `recipe_input_sha256`. Audit: 25 recipes, `all_pairs_valid` and
-  `all_guards_match_known_input_bytes` true, `full_static_coverage_proven`
-  false, 34,846 published variants. psxrecomp shows only the ignored
-  `overlay_codegen_hash.h`, which the static step writes with the runtime
-  build's script (`aot_overlay_pipeline.py:902-920`).
-- `recipe_input_sha256` (`phase3-4/recipe_hash.sh` / `.log`). The audit hashes
-  `runtime-input-inventory.json` in a new `mkdtemp` work directory
-  (`aot_overlay_pipeline.py:1098`, `:1119`;
-  `psxrecomp/tools/audit_aot_cache.py:89`, `:187`), and the inventory names
-  each job's input by absolute path (`aot_overlay_pipeline.py:706`). The work
-  directory kept from the first scratch run shows both: its inventory hashes
-  to `981632e9…`, the value that run's audit recorded, and names its inputs
-  below `disc-aot-elxgt_z9/`. So every fresh build records a new value. Reuse
-  instead compares the generation inputs recorded in the audit (profile,
-  `game.toml`, disc SHA-1, recompiler, cache tag, CPS, gcc path, tool hashes,
-  mod packages) and requires the published files to match the audit's hashes
-  (`aot_overlay_pipeline.py:932-1001`).
-- Guards and forced rebuild (`phase3-4/aot_checks.sh` / `.log`, on the trial
-  copy). The pipeline's static action with the profile as committed published
-  27 files, and their C equals the workspace's. With a wrong loader word it
-  failed ("Loader evidence changed: SCUS_944.49 0x80075AF4", exit 1); with a
-  wrong disc SHA-1 it reported the profile not applicable (exit 3); with 24
-  expected records it failed ("Expected 24 recipes, got 25", exit 1). None of
-  the three published a file. `generate --force-aot-static` in the trial
-  rebuilt the shard: all 26 C files equal the workspace's, and the audit
-  differs from the workspace's only in `recipe_input_sha256`, which also
-  changed from the trial's earlier value.
-- Content: the audit lists entries, CRCs and recipe names (34,846 variants),
-  and neither it nor any shard file has a `bytes_b64` or base64 field, so no
-  new file carries raw game bytes.
-- Builds (`phase3-4/build.sh` / `.log`, the documented commands). Configure
-  reports the usual markers, and both `build.ninja` files have the 26 shard
-  objects and the codegen host. `build-release` took 79 s (286 of 287 steps)
-  and `build-dev` 80 s (288 of 289) at `-j6`, each with the one vendored
-  `stb_image.h` warning. The binaries are 55,203,560 and 56,790,000 bytes,
-  each with 34,850 `psx_ov_static` symbols. Without the shard they were
-  27,895,960 and 28,958,232 bytes: measured in Phase 2 but in no saved log,
-  and re-measured by review round 1 on its own builds of `8d56854`
-  (`phase3-4/review-r1.md`).
-- Committed route runs (`phase3-4/routes.sh` / `routes.log`,
-  `routes_summary.log`; the documented commands on this `build-dev`, one
-  runtime at a time). All 27 runs pass: each boot banner matches its mode, no
-  shot reports an unknown-dispatch or segment miss, every screenshot was taken,
-  and every runtime exits 0. Start frames are 21 to 143, and each run's latest
-  shot came 11 to 17 frames after its step ended. The contact sheets
-  (`routes/<route>-<mode>_sheet.png`, `routes/<route>-modes_sheet.png`) of
-  `title_to_zone1`, `menus` and `memcard` show the same screens as their runs
-  before the shard (changes 2 and 3). Compared pixel by pixel
-  (`r3/shot_diff.py` / `.log`), their 102 shots other than the intro differ
-  from the earlier runs' in at most 4.9% of pixels (26 not at all), and the
-  intro shot can catch the intro movie at a different moment (0 to 84.7% of
-  pixels differ; `r3/intro-pair.png`). Gameplay shots in a replay can catch a
-  different moment from run to run (review round 1 saw a rerun without the
-  shard differ from the earlier run at 8 of 40 shots, `review-r1.md`), so for
-  the six replays the comparison is their results screens: all six reach
-  theirs in every mode, in the same route-frame ranges as change 2
-  (`clear_time_check.log`, change 2's pixel rule;
-  `routes/demo-zone<k>-end_sheet.png`). Zone 6's last results shot, `t14400`,
-  is again on the boundary: HLE and SCPH-1001 show the results there and LLE
-  OpenBIOS does not (in change 2 both LLE modes did and HLE did not). Card 1
-  after the memcard runs has sha256 `42dd8d89…` in every mode, the same as
-  change 3's runs.
-- Interpreter counters (`probe/`, `probe_summary.log`; `insn_probe.py` beside
-  each run). The interpreter ran 1.10 to 2.86 million instructions per run. At
-  overlay addresses it ran 12 in each replay (one PC, 0x80120370), 1,194 in
-  `menus` and 2,628 in `memcard` (0x80135EFC ran 1,182 and 2,616 of them), and
-  1,309 in `title_to_zone1` (seven PCs, as in the trial), the same count for
-  each route in all three modes. Without the shard, the trial measured
-  353,737,535 and 578,435,952 for `title_to_zone1` and `demo_zone1`.
-- Autocompile off (`phase3-4/autocompile_off.sh` / `autocompile.log`,
-  `autocompile/`; HLE OpenBIOS, route outputs and capture stores in scratch;
-  `status_probe.py` samples `autocompile_status` and `overlay_loader_status`).
-  `title_to_zone1` and `demo_zone1` pass with the default setting and with
-  `PSX_OVERLAY_AUTOCOMPILE_OFF=1`, which adds "overlay autocompile disabled by
-  environment" to the log. In both settings the runtime prints "tcc tier active
-  but no bundled toolchain … (overlay gaps -> interpreter)", autocapture is
-  disabled, the compile provider is not configured and ran nothing
-  (`configured` 0, `runs` 0), the DLL loader registered and loaded nothing
-  (`registered` 0, `loads` 0, `dispatch_native` 0), and the interpreter ran
-  the same overlay instructions (1,309 and 12). The loader's `static_hits`
-  counted 15.7 to 16.2 million dispatches into the shard per run
-  (`title_to_zone1` 15,744,982 and 15,721,135, `demo_zone1` 16,198,526 and
-  16,071,491; `autocompile/*-status.json`), direct evidence that the shard
-  runs. Its `dispatch_interp_fallback` (252,575 to 267,736) equals
-  `static_address_misses` plus 1 in `demo_zone1` and plus 219 in
-  `title_to_zone1`, and `static_crc_misses` was 456 and 358; what each counter
-  counts was not traced in the source. So in this build the shard is the only
-  native path for overlay code with either setting, and the setting changed
-  nothing observable on these routes.
+`aot/overlays.json` declares the 25 scene `.BIN` overlays whole at
+0x80120000, guarded by the disc's data-track SHA-1, the loader instructions
+that set that base (`0x80075AF4` to `0x80075B00` in `SCUS_944.49`) and 25
+expected records. The framework's generic extractor places 19 of the files;
+LOGO, U1, U3, U5, U8 and V5 use `allow_missing`, because their calls give too
+few votes for one address. The documented `generate` writes
+`generated/overlays_static.c`, `overlays_static_0000.c` to
+`overlays_static_0024.c` and `AOT_STATIC_AUDIT.json` from the original disc
+(34,846 variants, each guarded by the CRC of the bytes it came from; 124.8 MB
+of C, largest file 10.8 MB), and reuses them while the generation inputs in
+the audit, including the recompiler binary's sha256 and the gcc path, are
+unchanged; a forced rebuild writes the same C, and only the audit's
+`recipe_input_sha256` changes. `CMakeLists.txt` links the shard through
+`GAME_OVERLAY_STATIC_C`, above `GEN_FULL_GLOB` and `CODEGEN_SETUP_SOURCES`
+(after the first, configure fails; after the second, the codegen host drops
+out of the link). With the shard, the interpreter's instructions at overlay
+addresses fell from 353,737,535 to 1,309 on `title_to_zone1` and from
+578,435,952 to 12 on `demo_zone1`, and stayed at or below 2,628 in all 27
+route runs, all of which passed. Facts carried forward: captures place LOGO,
+and RAM reads place S1 during zone-1 gameplay and U1, U3, U5, U8 and V5 during
+their replays, all at 0x80120000. Review round 3 reproduced the reads of the
+five replay files (not S1's) on its own build of the committed tree and
+counted every agreeing byte: U5 and V5 differ from their files in only 116
+bytes each, in 18 small ranges starting at the first difference
+(`phase3-4/r3/review-r3.md`; the change's own script counted only the bytes
+before that difference). A few overlay PCs still go to
+the interpreter (0x80120370 in every route, 0x80135EFC in `menus` and
+`memcard`, seven PCs in `title_to_zone1`). The loader's `static_hits` counted
+15.7 to 16.2 million dispatches into the shard per run, and
+`PSX_OVERLAY_AUTOCOMPILE_OFF=1` changed nothing observable, because this build
+has no overlay toolchain. Review: round 1 NEEDS CHANGES (two Low, this file's
+wording), round 2 NEEDS CHANGES (one Low, `AGENTS.md`'s rebuild rule), round 3
+PASS on tree `9ceae0d` with no findings. The full record is in
+`git show a4117a0:.agent/HANDOFF.md`.
 
-## Phase 3 change 4 changes
+## Phase 3 change 5 observations (`.cache/evidence/phase3-5/`)
 
-- `aot/overlays.json` (new): the profile described above, byte-identical to the
-  one the trial verified (`overlay-aot/overlays.scratch.json` plus
-  `static_output`).
-- `CMakeLists.txt`: `GAME_OVERLAY_STATIC_C
-  "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays_static.c"` after `APP_ICON`,
-  above the list arguments, with a comment on its placement.
-- `generated/`: 27 new files written by `generate` (`overlays_static.c`,
-  `overlays_static_0000.c` to `overlays_static_0024.c`,
-  `AOT_STATIC_AUDIT.json`); the 49 earlier files are unchanged.
-- `AGENTS.md`: `generated/` also changes through `aot/overlays.json`; a new
-  paragraph on the static step (inputs, outputs, reuse, `--force-aot-static`,
-  `recipe_input_sha256`, the CMake keyword, interpreter fallback); the
-  submodule by-product paragraph names the static step as a second writer of
-  `overlay_codegen_hash.h`.
-- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 3 change 2 sections
-  are unchanged, and change 3 is condensed.
-- Round 2 changes only this file (review round 1: the extractor bullet, the
-  fresh-export check, the loader counters, the interpreted PCs, the source of
-  the earlier binary sizes, the screen comparison, the review state) and
-  `AGENTS.md` (the full reuse rule).
-- Round 3 changes this file (review round 2: the extractor wording, the RAM
-  reads that place U1, U3, U5, U8 and V5, the pixel comparison of the
-  non-replay shots, the review state, the next action) and `AGENTS.md` (which
-  recompiler change forces a shard rebuild).
+- The save (the user's decision for zones 7 and later): GameFAQs save 20242
+  for Omega Boost, "All Zones Unlocked (Gamesharked)", a North American
+  DexDrive file (GameFAQs lists it with the date 01/26/2010; the file itself
+  carries no date). The user downloaded it in a browser after a
+  scripted download got HTTP 403. The download, `omega-boost.20242.gme`
+  (134,976 bytes, sha256 `40e7b8fb534b…`, header `123-456-STD`, card data from
+  offset 3,904), is left untouched; a copy is in the ignored `.cache/saves/`.
+  Its last 131,072 bytes, `.cache/saves/all-zones.mcd` (sha256
+  `e3b71c252ce2…`), are a valid card image: header `MC`, every directory
+  frame's checksum valid, and one save, `BASCUS-94449OMEBENV` in block 1 (8,192
+  bytes, the same 【ＶＩＥＷ】 title as the game's own save).
+- Against the game's own save from change 3 (card sha256 `42dd8d89…`), the
+  directory entry is identical. Inside the save, the download has 19 bytes of
+  01 at offsets 0x200 to 0x212 and 13 at 0x214 to 0x220, where the game's save
+  has 01 only at 0x200 and 0x214 (hypothesis: one unlock flag per
+  DEMONSTRATION entry, then the boost levels); a 4-byte value at 0x310 differs
+  (hypothesis: a checksum), and the fill from 0x380 is 00 instead of FF.
+- Exploration (`exploration/`; scratch, HLE OpenBIOS, change 4's trial build,
+  a scratch copy of the runner that preloads card 1): after LOAD SLOT1, all 19
+  DEMONSTRATION entries show SELECT OK and all 19 ZONE PLAY zones show OPENED.
+  Listed times: 7TH 4:33, 8TH 1:44, LAST 4:56, U1 2:47, U2 2:22, U3 1:05, U4
+  1:57, U5 1:07, U6 1:14, U7 1:46, U8 1:17, U9 2:05, V5 1:01 (8TH and LAST
+  /HARD, the others /NORMAL).
+- Scratch HLE runs of the 13 routes (`scratch-hle/`: generator, run script and
+  log, outputs, `clear_time_check-hle.log`; the routes have the committed
+  steps but no `card1_sha256` and older notes; the same scratch runner and
+  build): all 13 passed with no miss. In each replay the results screen first
+  appears in a shot 120 to 660 frames before the listed time (7TH at
+  `t15900`, CLEAR TIME 4:15.50). U1 also shows a results screen mid-replay, at
+  `t04800`, before its final one at `t09900` to `t10200` (CLEAR TIME 2:29.66).
+- Scratch LLE runs (`scratch-lle/`: the runner and routes of this change as
+  drafted, on change 4's trial build, port 4373): `demo_zone7`, `demo_zone8`,
+  `demo_zone_last` and `demo_zone_u1` to `demo_zone_u3` passed in LLE OpenBIOS
+  with no miss (start frames 37, 39, 55, 65, 61 and 60). I stopped the run
+  during `demo_zone_u4` with SIGTERM, because the committed runs repeat it:
+  its `result.json` records `runner stopped: SystemExit: stopped by SIGTERM`
+  and runtime exit code 0. LLE SCPH-1001 was not run in scratch.
+- After a run, memory card 1 differs from the image in 7 bytes, all in frame
+  63 (offset 0x1F80, the card's write-test frame): the image has
+  `11111111800c5a2708004003…`, the run's copy `11111111` followed by zeros.
+  Which component writes it (game, BIOS or runtime) was not traced. The image
+  itself is unchanged after the runs. In the 13 card routes, card 2 ends
+  exactly as the runtime formats a missing card: its frame 63 is still the
+  copy of frame 0 written then (`psxrecomp/runtime/src/memcard.c:45-84`,
+  called at `:148-149`), and the rest equals the memcard route's card 2. In
+  all 27 blank-card runs, frame 63 of both cards is rewritten (`11111111…`).
+  So nothing changed card 2 in the card routes. My first card check expected
+  card 2 to equal the memcard route's card 2 and reported 39 mismatches, all
+  in this frame (`card_check-first.log`); the corrected check allows frame 63
+  only.
+- Committed route runs (`routes.log`, `routes_summary.log`): all 66 runs, the
+  22 routes in three modes, passed: the boot banner matched the mode, no shot
+  saw an unknown-dispatch or segment miss, every screenshot was taken, and the
+  runtime exited 0. Start frames 34 to 139; shots at most 17 frames late. Each
+  new route's `zone-cursor` shot shows its own zone in all three modes
+  (`routes/zone-cursor-headers_sheet.png`). Each new route interprets 1,194
+  overlay instructions in every mode (0x80135EFC 1,182 and 0x80120370 12, as
+  `menus` does), and the nine earlier routes repeat change 4's counts
+  (`probe_summary.log`).
+- Results screens (`clear_time_check.log`, change 2's pixel rule): every
+  replay reaches its results screen in all three modes. First to last results
+  shot of the new routes: 7TH `t15900` to `t16500`; 8TH `t05700` to `t06300`
+  (LLE OpenBIOS from `t06000`); LAST `t17400` to `t18000`; U1 `t09900` to
+  `t10200`, after the mid-replay screen at `t04800`; U2 `t08100` to `t08700`;
+  U3 `t03300` to `t03900` (LLE OpenBIOS from `t03600`); U4 `t06600` to
+  `t06900`; U5 `t03600` to `t03900` (both LLE modes to `t04200`); U6 `t03900`
+  to `t04500`; U7 `t05700` to `t06300`; U8 `t04200` to `t04800`; U9 `t06900`
+  to `t07500`; V5 `t03300` to `t03600`. In each route the CLEAR TIME is the
+  same in all three modes (`routes/clear-times_sheet.png`,
+  `routes/results-mid_sheet.png`): 7TH 4:15.50, 8TH 1:26.60, LAST 4:39.06, U1
+  2:29.66, U2 2:04.76, U3 0:48.23, U4 1:39.36, U5 0:49.56, U6 0:56.43, U7
+  1:28.60, U8 0:59.86, U9 1:47.53, V5 0:44.33. Zones 1 to 6 repeat change 2's
+  ranges; zone 6's last results shot was `t14100` in all three modes this
+  time, where changes 2 and 4 also saw `t14400` in some modes.
 
-## Phase 3 change 4 checks
+## Phase 3 change 5 changes
 
-- Route runs: the 27 committed runs and the four autocompile runs above all
-  pass (`routes_summary.log` "runs not passing: 0", `autocompile.log`), and no
-  listener is left on port 4370.
-- `checks-p3-4.sh` / `.log` (staged tree): all pass. Identity and status;
-  `scripts/` and the 49 earlier generated files unchanged; the Phase 0 to change
-  2 handoff sections equal HEAD and no placeholder is left; no local path in
-  staged content; the largest blob is `overlays_static.c` (10,798,356 bytes),
-  and no new file has a base64 field; the staged profile equals the verified
-  scratch profile plus `static_output`; the keyword sits above the list
-  arguments; `check_generated`, `check_boot_exe` and `check_bios_stamps` exit
-  0; the pins equal `framework_pins.txt`, and the submodules are clean except
-  psxrecomp's ignored `overlay_codegen_hash.h`; no tracked file is ignored; the
-  documented `generate` reuses the shard and changes nothing; in a fresh export
-  of the staged tree, `build_emitters.sh` and the documented `generate`
-  regenerate the game C unchanged ("0 updated") and reuse the committed shard
-  (`RESULT_STATIC=reused`), so `generated/` equals the staged files, and they
-  write nothing under the export's `psxrecomp/` except that header (the reuse
-  shows the shard is current, not that it reproduces; the forced rebuilds
-  show that); both builds are current; the route, probe and autocompile
-  summaries above; `test_routes.py` (4 OK) and `test_run_route.py` (15 OK)
-  leave nothing behind; `git diff --cached --check` is clean outside
-  `generated/`.
-- Round 2, `r2/checks-p3-4-r2.sh` / `.log` (staged tree): the delta from the
-  round-1 tree `1bf8f2b` touches only this file and `AGENTS.md`, and every
-  other staged file equals round 1; the Phase 0 to change 2 sections still
-  equal `HEAD`; no placeholder; no local path; the three gates exit 0; the
-  pins and submodules are as in round 1; no tracked file is ignored; both
-  test files pass and leave nothing behind. In a fresh export of the round-2
-  tree, the documented `generate` reuses the shard, and `generate
-  --force-aot-static` rebuilds it (`RESULT_STATIC=built`): all 26 C files are
-  byte-identical to the staged ones, and the audit differs only in
-  `recipe_input_sha256`. The facts behind the round-2 wording reproduce from
-  saved files (`raw_votes.log`, `pc_entries.log`, the autocompile status
-  probes, the disc listing). `git diff --cached --check` is clean outside
-  `generated/`. No route was re-run: no route, script or build input changed.
-- Round 3, `r3/checks-p3-4-r3.sh` / `.log` (staged tree): the delta from the
-  round-2 tree `edd0ffe` touches only this file and `AGENTS.md`, and every
-  other staged file equals round 1; the Phase 0 to change 2 sections still
-  equal `HEAD`; no placeholder; no local path; the three gates exit 0; the
-  pins and submodules are as before; no tracked file is ignored; both test
-  files pass and leave nothing behind. In a fresh export of the round-3 tree,
-  `build_emitters.sh` builds the recompiler with GCC; the documented
-  `generate` rebuilds it with clang into the binary whose sha256 the audit
-  records (`e13f0e78…`) and reuses the shard; `generate --force-emitters`
-  wipes `build-recompiler/`, rebuilds the same binary and again reuses the
-  shard, with `generated/` unchanged after each step; `generate
-  --force-aot-static` then rebuilds the shard with all 26 C files
-  byte-identical and only `recipe_input_sha256` changed in the audit.
-  `ramcheck/summary.py` and `shot_diff.py` reproduce their saved output, and
-  the saved RAM logs hold the numbers above. `git diff --cached --check` is
-  clean outside `generated/`. No route was re-run on the workspace build: no
-  route, script or build input changed.
+- `scripts/routes/run_route.py`: the `card1_sha256` route key (64 lowercase
+  hex digits, checked by `load_route`, which now also returns it) and the
+  `--card1` option, as in the invariant; the docstring describes both. Round
+  2: the image's size is checked with `stat()` before it is read, and an
+  `OSError` from either becomes a one-line refusal naming the file.
+- `scripts/routes/test_run_route.py`: the fake runtime records the sha256 of
+  the `card1.mcd` it finds at startup and then rewrites that file's
+  write-test frame, as real runs change it (round 2). New tests: a declared
+  image is preloaded (the fake sees its hash, the run's copy holds the fake's
+  write, the original is unchanged, `result.json` records the hash); the card
+  arguments are checked before launch (no `--card1`, a missing file, another
+  hash, the wrong size, an unreadable file (round 2; skipped as root),
+  `--card1` for a route without the key: each exits 1 without a traceback,
+  starts no runtime and creates no output directory); a hash that is not
+  lowercase hex is a bad route; the pass test checks that a route without the
+  key starts with no card 1 and records null. Since round 2, every subtest of
+  the three argument tests starts from a clean state (no fake runtime, output
+  directory or `.cache/`), so one regression fails one subtest. 17 tests.
+- `scripts/routes/test_routes.py`: lists the 13 routes and checks that exactly
+  they declare the save's hash.
+- 13 route files, written by `.cache/evidence/phase3-5/gen_routes.py`, which
+  reuses change 2's generator helpers; the checks regenerate them byte for
+  byte.
+- `AGENTS.md`: the never-commit list adds memory card images and save files;
+  the route list adds the 13 routes; a paragraph on `card1_sha256` and
+  `--card1`, the save's source and the commands that extract its card image.
+- `.gitignore`: `*.gme`, and `.mcd`, `.mcr` and `.gme` in any letter case.
+- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 3 change 3 sections
+  are unchanged, and change 4 is condensed with round 3's suggestion adopted.
+  Round 2: the two corrected attributions, the adopted suggestions, the round 2
+  checks and review state, and Next action, which now records the spike's
+  results since round 1.
+
+## Phase 3 change 5 checks
+
+- Tests (`tests.sh` / `tests.log`): `test_routes.py` 5 OK and
+  `test_run_route.py` 17 OK (11.4 s), with no temp directory, fake runtime or
+  `__pycache__` left. Against the committed runner (a scratch copy with the
+  new tests and routes), `test_routes.py` fails with 44 errors (the old
+  `load_route` returns two values, so both per-route tests fail for each of
+  the 22 routes), and `test_run_route.py` with 8 failures and 1 error, all in
+  the card tests: the pass test (`result.json` has no `card1_sha256`), the
+  bad-route card case and the check after it that no output directory was
+  created, the five card-argument cases and the preload test.
+- Route runs (`routes.sh` / `routes.log`): the documented commands, one run at
+  a time on `build-dev` (port 4370), every route in all three modes, 02:03 to
+  03:40 local time. `build-dev` was current: a rebuild afterwards ran no
+  compile step and left the binary's sha256 and mtime (00:00, before the
+  runs) unchanged (`build-dev-check.log`). The image hashed the same before
+  and after (`card-before.sha256`, `card-after.sha256`).
+  `routes_summary.log`: no run failed. `card_check.log`: every `result.json`
+  records its route's hash (null for the nine others); card 1 differs from the
+  image, and card 2 from the memcard route's card 2, only in frame 63. No
+  listener on 4370 afterwards.
+- `checks-p3-5.sh` / `.log` (staged tree): all pass. Nothing is unstaged or
+  untracked; `generated/`, `aot/`, the build files, the submodules and the
+  nine earlier routes equal HEAD, and so do this file's header and its Phase 0
+  to Phase 3 change 3 sections; no placeholder, no added line over 80 columns,
+  no local path. The three gates pass, the pins are equal, the submodules are
+  clean and only psxrecomp's `overlay_codegen_hash.h` is ignored there. No
+  tracked file is ignored, the save files and any-case card names are, and no
+  card or save file is tracked. Every route passes `load_route`; the three
+  generators reproduce all 21 generated routes byte for byte; `tests.sh` gives
+  the results above; dropping the hash from `demo_zone7.json` or adding it to
+  `menus.json` fails only `test_only_the_unlocked_save_routes_need_card1`. The
+  route-run summaries are as above, `card_check.py` reproduces its log, and
+  `git diff --cached --check` exits 0.
+- Round 2 tests (`r2/tests.log`): `test_routes.py` 5 OK and
+  `test_run_route.py` 17 OK, nothing left behind. Against the committed
+  runner: the same 44 errors, and 8 failures and 1 error, now the pass test,
+  the bad-route card case (whose output-directory check now runs inside the
+  subtest), the six card-argument cases and the preload test.
+- Round 2 regressions (`r2/test_regressions.py` / `.log`; the test file runs
+  from a scratch copy beside each runner variant): the round-2 runner passes
+  all 17 tests; the round-1 runner fails only the unreadable-image case; a
+  runner that symlinks the image fails only the preload test, and passes
+  round 1's tests; a runner without the SCPH-1001 `--bios` check fails the two
+  cases that now launch, where round 1's tests also failed the third. Nothing
+  was left behind. The real runner refuses a mode-000 copy of the save in one
+  line (exit 1, no output directory).
+- Round 2 route runs (`r2/routes.sh` / `r2/routes.log`): the documented
+  commands with the round-2 runner, every route in all three modes, one run at
+  a time on `build-dev`, 10:03 to 11:40 local time; round 1's outputs were
+  moved to `routes-out-r1/` first. Two scratch spike runs on another build
+  (port 4373, 11:13 to 11:26) overlapped about ten of these runs.
+  `r2/routes_summary.log`: all 66 runs pass (banner matching the mode, no
+  miss, every screenshot taken, exit 0; start frames 25 to 138, shots at most
+  18 frames late). `r2/probe_summary.log` gives round 1's counts for every
+  route. `r2/clear_time_check.log`: every replay reaches its results screen in
+  every mode; against round 1, the first or last results shot moved by one
+  shot in six route-mode pairs (U3 and U5 in two modes each, zones 6 and 8TH
+  in one each), the edge variance noted above. `r2/card_check.log`: problems
+  0, the same lines as round 1's; the image hashed the same before and after
+  (`r2/card-before.sha256`, `r2/card-after.sha256`). No listener on 4370
+  afterwards.
+- Round 2, `r2/checks-p3-5-r2.sh` / `.log` (staged tree): all pass. Against
+  the round-1 tree, only this file, the runner and the runner tests changed;
+  `generated/`, `aot/`, the build files and the submodules equal HEAD, and so
+  do this file's header and its Phase 0 to Phase 3 change 3 sections; no
+  placeholder, no added line over 80 columns, no local path. The three gates
+  pass, the pins are equal, the submodules are clean and only psxrecomp's
+  `overlay_codegen_hash.h` is ignored there; no tracked file is ignored, the
+  save files and any-case card names are, and no card or save file is
+  tracked. Every route passes `load_route`; the three generators reproduce
+  the 21 generated routes; `tests.sh` gives the round 2 results above, and
+  `test_regressions.py` reproduces its log (test durations aside); the two
+  card-test mutations fail only `test_only_the_unlocked_save_routes_need_card1`.
+  The route-run summaries are as above, `card_check.py` reproduces its log, a
+  rebuild of `build-dev` compiles nothing and keeps the binary, and
+  `git diff --cached --check` exits 0.
 
 ## Hypotheses and unknowns
 
@@ -434,18 +399,23 @@ round 1 NEEDS CHANGES (one Low, the zone-1 bullet), round 2 PASS on tree
   intro. Whether these screens are correct: unknown until the Beetle
   comparison.
 - Whether the eight emitted fallthroughs are faithful: unknown.
-- Untested by committed routes: TRAINING lessons, ZONE PLAY zones, CAMPAIGN
-  PLAY past zone 1, SAVE REPLAY and LOAD REPLAY, zones 7 and later, the extra
-  zones, the ending and credits. The DEMONSTRATION routes run zones 1 to 6
-  under recorded input; whether that reaches the code live play reaches is
-  unknown. Any of the 160 statically unresolved indirect transfers that the
-  routes do not reach can still miss later.
-- What the environment save holds: unknown (not DIFFICULTY or INFORMATION; the
-  next change examines an unlocked save, see Next action).
+- Untested by committed routes: TRAINING lessons, ZONE PLAY zones, and SAVE
+  REPLAY and LOAD REPLAY, which scripted menu input may reach; CAMPAIGN PLAY
+  past zone 1, the ending and credits, which need steering. The
+  DEMONSTRATION routes now run all 19 zones, but under recorded input; whether
+  that reaches the code live play reaches is unknown. Any of the 160
+  statically unresolved indirect transfers that the routes do not reach can
+  still miss later.
+- The unlocked save is user-made ("Gamesharked"): the routes show which
+  replays its flags open, not that completing the game writes the same flags.
+  Which byte opens which zone, and what else the environment save holds, are
+  hypotheses (it does not record DIFFICULTY or INFORMATION, change 3).
 - Overlay code now runs from the static shard, except a few PCs that still go
-  to the interpreter (0x80120370 in every route, 0x80135EFC in `menus` and
-  `memcard`, seven PCs in `title_to_zone1`; `probe_summary.log`). The shard
-  has no entry at 0x80135EFC (`phase3-4/r2/pc_entries.py` / `.log`, the
+  to the interpreter (0x80120370 in every route; 0x80135EFC in `menus`,
+  `memcard` and the 13 unlocked-zone routes, 1,182 instructions in each of
+  those 13; seven PCs in `title_to_zone1`; `phase3-4/probe_summary.log`,
+  `phase3-5/probe_summary.log`). The
+  shard has no entry at 0x80135EFC (`phase3-4/r2/pc_entries.py` / `.log`, the
   probes' top five PCs against the audit). 0x80120370 has a MOVIE variant but
   lies below the runtime's overlay region floor, 0x120800, the end of the EXE
   text (`runtime.log`). The other four `title_to_zone1` PCs the probe kept
@@ -480,57 +450,79 @@ round 1 NEEDS CHANGES (one Low, the zone-1 bullet), round 2 PASS on tree
   its OPTION presses had already landed on other rows than intended, because
   OPTION wraps and remembers its cursor; "its second Cross" means the load's
   second Cross.
-- Phase 3 change 4, round 1 (tree `1bf8f2b`, staged diff `02a028bb…`;
-  report `phase3-4/review-r1.md`): NEEDS CHANGES, two Low findings, both
-  wording in this file that the draft commit message repeated. The checks
-  bullet said the fresh export reproduced `generated/`, but its log shows
-  `generate` reused the committed shard; resolved there, with forced rebuilds
-  as the reproduction evidence. "The six small files" was wrong (U8 is 44,948
-  bytes) and gave the wrong cause; resolved in the extractor bullet with the
-  votes reproduced (`r2/raw_votes.log`). That reproduction differs from the
-  report in two details: U5's and V5's runner-up has 1 vote, not 2, and U5
-  and U8 fail the quarter rule as well as V5. The reviewer also built the
-  tree, re-ran all 27 route runs (all pass, the same overlay instruction
-  counts) and forced a shard rebuild (byte-identical C). Suggestions adopted:
-  cite `static_hits`; narrow the interpreted PCs; complete the reuse rule in
-  `AGENTS.md` (cache tag, CPS mode, mod packages, published files, the gcc
-  path the audit records); say where the earlier binary sizes come from;
-  restrict the screen comparison to the non-replay routes; reflow a stray
-  short line. Not adopted: relating the interpreted PCs to the pages where
-  captures diverge from TU and BRI1, which is a correlation only.
-- Phase 3 change 4, round 2 (tree `edd0ffe`, staged diff `df201116…`;
-  report `phase3-4/r2/review-r2.md`): NEEDS CHANGES, one Low finding, new in
-  round 2's `AGENTS.md` text: it said another recompiler build is enough to
-  force a shard rebuild, but the audit records the recompiler by the sha256 of
-  its binary (`aot_overlay_pipeline.py:951`), and a rebuild from the same
-  sources with the same toolchain gives the same binary, so the shard is
-  reused (round 2's own fresh export showed the clang rebuild followed by
-  `RESULT_STATIC=reused`). Resolved in `AGENTS.md`, with a `--force-emitters`
-  rebuild added to the round-3 checks. The reviewer confirmed both round-1
-  findings resolved. Suggestions adopted: the intro-shot caveat, with an exact
-  pixel count (the report's 17% and 44% came from another measure); the
-  extractor wording ("few calls" replaced by the votes); a stray short line in
-  the draft commit message. Deferred: naming the last two interpreted
-  `title_to_zone1` PCs, which the reviewer's own probe gives as 0x80126160
-  (variants from S3, S5, S9 and TITLE) and 0x801261AC (U2, U4), because this
-  record's probes kept only their top five PCs; the CRC-guard hypothesis above
-  covers only the four PCs it names.
-- Phase 3 change 4, round 3: pending delta re-review.
+- Phase 3 change 4: round 3 PASS on tree `9ceae0d` (staged diff `a248fe03…`)
+  with no findings, after round 1 NEEDS CHANGES (two Low: the fresh-export
+  check reused rather than reproduced the shard, and the six `allow_missing`
+  files are call-sparse, not small) and round 2 NEEDS CHANGES (one Low: which
+  recompiler change forces a shard rebuild); commit `a4117a0`, pushed to the
+  private `origin/master`. Reports: `phase3-4/review-r1.md`,
+  `phase3-4/r2/review-r2.md`, `phase3-4/r3/review-r3.md`. Round 3's one
+  suggestion (record its reproduction of the RAM reads and the U5 and V5 byte
+  counts) is adopted in the change 4 section above. Still deferred: naming the
+  last two interpreted `title_to_zone1` PCs (0x80126160 and 0x801261AC, from
+  the reviewer's own round-1 probe, reported in round 2).
+- Phase 3 change 5: round 1 NEEDS CHANGES on tree `a831f14` (staged diff
+  `f9f6044f…`; report `phase3-5/review-r1.md`), three Low. (1) The preload
+  test's check that the original image is unchanged could not fail, because
+  the fake runtime only read the card: a runner that symlinked the image
+  passed all 17 tests. (2) The condensed change 4 record said review round 3
+  reproduced S1's RAM read (it ran only the five replays) and credited the two
+  deferred PCs to round 2's probe (the reviewer's round-1 probe, reported in
+  round 2). (3) An unreadable `--card1` ended in a traceback. Resolved in
+  round 2: the fake rewrites the card's write-test frame, and the symlink
+  mutation now fails the preload test while passing round 1's tests; both
+  attributions are corrected; the runner refuses an unreadable image in one
+  line, and the round-1 runner fails only the new test case for it
+  (`r2/test_regressions.py` / `.log`). Suggestions adopted: the size check
+  before reading; a clean state for every argument subtest (a mutation that
+  drops the BIOS check now fails two subtests instead of three); 0x80135EFC
+  in the 13 card routes; the scripted-route candidates in Next action; the
+  save's date as GameFAQs lists it. Declined: an upper bound on the pixel
+  rule at the full counts (label 361, banner 1103). On round 1's outputs it
+  drops 20 shots, all of them results screens on the contact sheet, with
+  labels up to 573 and banners up to 1,274 while the sweep bar crosses the
+  boxes (`r2/clear_time_check_capped.py`, `-round1-outputs.log`,
+  `r2/capped-dropped_sheet.png`). Deferred: the notes' fine-cadence wording
+  (it starts at the listed TIME minus 1,200 frames rounded down to a multiple
+  of 300); all 19 demo routes share the sentence, so the next change that
+  regenerates them fixes it. The earlier deferred suggestions stand.
+- Phase 3 change 5, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. For zones 7 and later the user chose the
-GameFAQs North American DexDrive save "All Zones Unlocked (Gamesharked)"
-(GameFAQs save 20242), which the user downloaded. It stays outside version
-control, in the ignored `.cache/saves/`; the raw card image (the file minus
-its 3,904-byte DexDrive header) has sha256 `e3b71c25…` and holds one
-`BASCUS-94449OMEBENV` save. In a scratch run on the trial build with that image
-as card 1 (`.cache/evidence/phase3-5/exploration/`; a scratch copy of the
-runner that preloads card 1), after LOAD SLOT1 all 19 DEMONSTRATION entries
-show SELECT OK and all 19 ZONE PLAY zones show OPENED; the run passed with no
-miss. Next change: a runner option that preloads card 1 from a pinned image,
-and DEMONSTRATION routes for the 13 zones it opens (7TH, 8TH, LAST, U1 to U9,
-V5). Independent of that, one change each:
+After a PASS: commit and push. Every zone's DEMONSTRATION replay then runs
+under a committed route. No route reaches TRAINING lessons, ZONE PLAY zones,
+or SAVE REPLAY and LOAD REPLAY yet, which scripted menu input may reach, nor
+CAMPAIGN PLAY past zone 1, the ending and the credits, which need steering:
+scripted input without steering cleared only zone 1's first wave (change 3).
+For those, the user chose a spike first, in scratch. Its first step is done
+(`.cache/evidence/spike-replay/`): each of `REPLAY/REPLAY00.DAT` to
+`REPLAY18.DAT` (23,404 bytes) holds one zone's recorded input, an 8-byte
+input state per 30 fps game frame, run-length coded (`decode_replay.py`,
+`decode.log`). Each file's frame count, difficulty and level match its
+DEMONSTRATION entry's listed time, difficulty and LEVEL. Every recording
+steers with the analog stick, off centre in 82 to 99% of its frames
+(`stick_use.py` / `.log`), and routes carry only the 16 button bits, so the
+recordings cannot become route input without a framework change. The user
+chose to continue with the debug server's memory writes, time-boxed, in
+scratch and labelled harness-assisted. The campaign loop (0x8002F814) walks a
+17-step script at 0x8001232C: two briefings, nine zones, four between-zone
+movies (INTER1 to INTER4), END_ALL and the staff credits (STAFF320). The
+functions it calls save its script pointer and step on the stack; rewriting
+both while a step runs makes the loop continue after the chosen step
+(`spike_ending.py`, `spike_tour.py`). Skipping the zones that way, the four
+movies, END_ALL, the credits and the closing copyright screen ran with no miss
+(`runs/ending/`, `runs/tour/`, with contact sheets). A Start press on the
+copyright screen ended the campaign. The game then entered state 7, whose
+handler (`func_8002DC48`) calls the replay player's step (0x80077228), and the
+function at 0x800571B8 called the scene entry stored when the BRI1 briefing
+started (0x80120EAC). Other data filled the overlay area there (the word at
+0x80120EAC is a reserved opcode), so the runtime halted on an unknown dispatch
+(`runs/tour/postmortem.log`). The writes skipped every zone step, which
+normally runs between those scenes, so this may be an artifact of the harness
+(hypothesis); real play to the ending, or the same path under Beetle, would
+settle it. How to continue is the user's decision. Independent of that, one
+change each:
 
 - harvesting any misses with `psxrecomp/tools/collect_game_misses.py` (none so
   far);

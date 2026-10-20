@@ -1,7 +1,7 @@
 # Scaffold .gitignore for a PSXRecomp game repository (New Project Layout).
 # Based on psxrecomp/tools/new_project_layout/templates/gitignore.in.
-# Differences: disc_probe.json is ignored, and the config, env, capture and
-# image patterns are broader.
+# Differences: disc_probe.json is ignored, and the config, env, capture,
+# image and memory card patterns are broader.
 
 # Build outputs
 /build/
@@ -39,6 +39,7 @@
 *.ccd
 *.mcd
 *.mcr
+*.gme
 *.chd
 *.car
 SCPH*.BIN
@@ -50,6 +51,9 @@ SCPH*.BIN
 *.[iI][mM][gG]
 *.[eE][cC][mM]
 *.[pP][bB][pP]
+*.[mM][cC][dD]
+*.[mM][cC][rR]
+*.[gG][mM][eE]
 
 # Local path/config stubs (bios.cfg, disc.cfg, rom.cfg, recomp-ui input.cfg)
 # and env files the runtime reads (they can relocate the capture store)

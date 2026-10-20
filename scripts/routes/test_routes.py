@@ -13,7 +13,12 @@ sys.path.insert(0, str(HERE))
 import run_route  # noqa: E402
 
 ROUTES = sorted(HERE.glob("*.json"))
-LISTED = ["title_to_zone1", "menus", "memcard"] + [f"demo_zone{k}" for k in range(1, 7)]  # AGENTS.md "## Routes"
+UNLOCKED = (["demo_zone7", "demo_zone8", "demo_zone_last"]
+            + [f"demo_zone_u{k}" for k in range(1, 10)] + ["demo_zone_v5"])
+LISTED = (["title_to_zone1", "menus", "memcard"] + [f"demo_zone{k}" for k in range(1, 7)]
+          + UNLOCKED)  # AGENTS.md "## Routes"
+# AGENTS.md "## Routes": the raw card image of GameFAQs save 20242 ("All Zones Unlocked")
+UNLOCKED_CARD1 = "e3b71c252ce26cf26136e7e552f2f258ecc1bca02da8c92bb1e7b6c905860b4e"
 SHOT_MARGIN = 30  # AGENTS.md: end every shot step 30 frames before the next button change
 
 
@@ -24,8 +29,14 @@ class CommittedRoutes(unittest.TestCase):
     def test_runner_accepts_each_route(self):
         for path in ROUTES:
             with self.subTest(route=path.name):
-                name, _ = run_route.load_route(path)
+                name, _, _ = run_route.load_route(path)
                 self.assertEqual(name.replace("-", "_"), path.stem)
+
+    def test_only_the_unlocked_save_routes_need_card1(self):
+        for path in ROUTES:
+            with self.subTest(route=path.name):
+                _, _, card1 = run_route.load_route(path)
+                self.assertEqual(card1, UNLOCKED_CARD1 if path.stem in UNLOCKED else None)
 
     def test_names_are_unique(self):
         names = [json.loads(path.read_text())["name"] for path in ROUTES]

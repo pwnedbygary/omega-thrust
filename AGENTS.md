@@ -44,6 +44,8 @@ mkdir -p disc && chdman extractcd -i "<path>/Omega Boost.chd" \
   and the `.addendum.jsonl` capture history), `/.cache/`, `/analysis/`.
 - `disc_probe.json` (absolute local path), `settings.toml`, `*.cfg`,
   `.psxrecomp.env`, `.env`, build directories.
+- Memory card images and save files (`*.mcd`, `*.mcr`, `*.gme`), such as the
+  unlocked save in `.cache/saves/`.
 
 If `[runtime] overlay_capture_history` is ever enabled, put
 `overlay_capture_persist_dir` under `.cache/`: its
@@ -204,17 +206,41 @@ run routes one at a time.
 
 The committed routes are `title_to_zone1.json` (boot to zone-1 gameplay),
 `menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY),
-`memcard.json` (LOAD/SAVE: saves to memory card slot 1, then loads it back) and
+`memcard.json` (LOAD/SAVE: saves to memory card slot 1, then loads it back),
 `demo_zone1.json` to `demo_zone6.json` (REPLAY > DEMONSTRATION: each zone's
-recorded replay until shortly after its COMPLETED screen). Each route's `notes`
-give its pad words and timing rules. A new route also needs an entry in this
-list and in `LISTED` in `scripts/routes/test_routes.py`.
+recorded replay until shortly after its COMPLETED screen), and
+`demo_zone7.json`, `demo_zone8.json`, `demo_zone_last.json`,
+`demo_zone_u1.json` to `demo_zone_u9.json` and `demo_zone_v5.json` (the same
+for the 13 zones that the unlocked save below opens; each route first loads
+the save with LOAD SLOT1). Each route's `notes` give its pad words and timing
+rules. A new route also needs an entry in this list and in `LISTED` in
+`scripts/routes/test_routes.py`.
+
+A route that needs a memory card declares `card1_sha256`, the sha256 of a raw
+128 KiB card image, and then runs only with `--card1` naming an image of that
+size and hash. The runner checks both before launch and copies the image into
+the run's `memcards/card1.mcd`, so the original is never written (after a run,
+the copy's write-test frame, at offset 0x1F80, has changed).
+`--card1` is refused for a route that declares no card, and `test_routes.py`
+checks that exactly the unlocked-zone routes declare one. Those routes need
+the North American save "All Zones Unlocked (Gamesharked)", GameFAQs save
+20242 for Omega Boost: a DexDrive `.gme` file (download it in a browser; a
+scripted download got HTTP 403). Its raw card image is the file's last 131,072
+bytes, with sha256
+`e3b71c252ce26cf26136e7e552f2f258ecc1bca02da8c92bb1e7b6c905860b4e`. Keep it
+in the ignored `.cache/saves/`:
+
+```sh
+mkdir -p .cache/saves
+tail -c 131072 <download>.gme > .cache/saves/all-zones.mcd
+```
 
 ```sh
 python3 scripts/routes/run_route.py scripts/routes/<route>.json --mode hle-openbios
 python3 scripts/routes/run_route.py scripts/routes/<route>.json --mode lle-openbios
 python3 scripts/routes/run_route.py scripts/routes/<route>.json \
   --mode lle-scph1001 --bios <SCPH-1001 v2.2 dump>
+# routes with card1_sha256 also take --card1 .cache/saves/all-zones.mcd
 python3 -B scripts/routes/test_run_route.py   # runner tests against a fake runtime
 python3 -B scripts/routes/test_routes.py      # route files: exactly the listed routes, validity, unique names, shot margins
 ```

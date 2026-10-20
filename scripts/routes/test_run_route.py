@@ -3,8 +3,10 @@
 
 Linux only (reads /proc). Run: python3 -B scripts/routes/test_run_route.py
 """
+import hashlib
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -22,7 +24,7 @@ SHORT = [{"frames": 60, "buttons": 65535, "shot": "a"},
 # Replies use the shapes of psxrecomp/runtime/src/debug_server.c; the startup
 # lines copy the runtime's LISTENING / bind FAILED and bios_boot banner formats.
 FAKE = r'''
-import json, os, socket, sys, threading, time
+import hashlib, json, os, socket, sys, threading, time
 
 argv = sys.argv[1:]
 port = int(argv[argv.index("--debug-port") + 1])
@@ -32,6 +34,16 @@ state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "pids"), "a") as f:
     f.write(f"{os.getpid()}\n")
 parent, born = os.getppid(), time.monotonic()
+card = os.path.join(argv[argv.index("--memcard-dir") + 1], "card1.mcd")
+seen = "none"
+if os.path.exists(card):
+    with open(card, "r+b") as f:
+        seen = hashlib.sha256(f.read()).hexdigest()
+        # Real runs rewrite the card's write-test frame (offset 0x1F80).
+        f.seek(0x1F80)
+        f.write(b"\x11" * 4 + bytes(124))
+with open(os.path.join(state, "card1"), "w") as f:
+    f.write(seen)
 
 
 def watchdog():
@@ -171,9 +183,9 @@ class RunRouteTest(unittest.TestCase):
             except ProcessLookupError:
                 pass
 
-    def route(self, steps, name="t"):
-        path = self.dir / "route.json"
-        path.write_text(json.dumps({"name": name, "steps": steps}))
+    def route(self, steps, name="t", file="route.json", **extra):
+        path = self.dir / file
+        path.write_text(json.dumps({"name": name, "steps": steps, **extra}))
         return path
 
     def command(self, route, *extra, out=True, binary=None):
@@ -202,6 +214,13 @@ class RunRouteTest(unittest.TestCase):
     def started(self):
         return (self.state / "pids").exists()
 
+    def reset(self):
+        self.kill_fakes()
+        for path in self.state.iterdir():
+            path.unlink()
+        shutil.rmtree(self.out, ignore_errors=True)
+        shutil.rmtree(self.repo / ".cache", ignore_errors=True)
+
     def test_pass_records_shots_after_their_steps(self):
         run = self.run_runner(self.route(SHORT))
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -217,6 +236,8 @@ class RunRouteTest(unittest.TestCase):
         self.assertTrue((self.out / "00-a.png").is_file())
         self.assertTrue((self.out / "01-b.png").is_file())
         self.assertEqual(self.requests()[-1], "quit")
+        self.assertIsNone(result["card1_sha256"])
+        self.assertEqual((self.state / "card1").read_text(), "none")
 
     def test_bad_routes_are_rejected_before_launch(self):
         cases = {
@@ -225,16 +246,18 @@ class RunRouteTest(unittest.TestCase):
             "non-string name": {"name": 5, "steps": SHORT},
             "frames above the server's int": {"steps": [{"frames": 2**31, "buttons": 65535}]},
             "frames that would wrap to 1": {"steps": [{"frames": 2**32 + 1, "buttons": 65535}]},
+            "card1_sha256 that is not lowercase hex": {"steps": SHORT, "card1_sha256": "AB" * 32},
         }
         for label, data in cases.items():
             with self.subTest(label):
+                self.reset()
                 path = self.dir / "bad.json"
                 path.write_text(json.dumps(data))
                 run = self.run_runner(path, out=False)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
                 self.assertNotIn("Traceback", run.stderr)
                 self.assertFalse(self.started())
-        self.assertFalse((self.repo / ".cache").exists())
+                self.assertFalse((self.repo / ".cache").exists())
         self.assertFalse((self.repo / "escaped").exists())
         self.assertFalse((self.dir / "abs").exists())
 
@@ -269,9 +292,56 @@ class RunRouteTest(unittest.TestCase):
         }
         for label, extra in cases.items():
             with self.subTest(label):
+                self.reset()
                 run = self.run_runner(self.route(SHORT), *extra)
                 self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
                 self.assertFalse(self.started())
+
+    def test_card1_image_is_preloaded(self):
+        image = bytes(range(256)) * 512
+        digest = hashlib.sha256(image).hexdigest()
+        card = self.dir / "card.mcd"
+        card.write_bytes(image)
+        run = self.run_runner(self.route(SHORT, card1_sha256=digest), "--card1", str(card))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual((self.state / "card1").read_text(), digest)
+        self.assertEqual(self.result()["card1_sha256"], digest)
+        written = image[:0x1F80] + b"\x11" * 4 + bytes(124) + image[0x2000:]
+        self.assertEqual((self.out / "memcards" / "card1.mcd").read_bytes(), written)
+        self.assertEqual(card.read_bytes(), image)
+
+    def test_card1_arguments_are_checked_before_launch(self):
+        image = bytes(range(256)) * 512
+        good, other, short = self.dir / "good.mcd", self.dir / "other.mcd", self.dir / "short.mcd"
+        good.write_bytes(image)
+        other.write_bytes(image[:-1] + b"\x00")
+        short.write_bytes(image[:1000])
+        needs = self.route(SHORT, file="needs.json", card1_sha256=hashlib.sha256(image).hexdigest())
+        cases = {
+            "declared but no --card1": (needs, []),
+            "--card1 names a missing file": (needs, ["--card1", str(self.dir / "none.mcd")]),
+            "--card1 with another hash": (needs, ["--card1", str(other)]),
+            "an image of the wrong size": (
+                self.route(SHORT, file="short.json",
+                           card1_sha256=hashlib.sha256(image[:1000]).hexdigest()),
+                ["--card1", str(short)]),
+            "--card1 for a route without card1_sha256": (self.route(SHORT, file="plain.json"),
+                                                         ["--card1", str(good)]),
+        }
+        if os.geteuid() != 0:  # root can read a mode-000 file
+            unreadable = self.dir / "unreadable.mcd"
+            unreadable.write_bytes(image)
+            unreadable.chmod(0)
+            cases["an unreadable image"] = (needs, ["--card1", str(unreadable)])
+        for label, (route, extra) in cases.items():
+            with self.subTest(label):
+                self.reset()
+                run = self.run_runner(route, *extra)
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertNotIn("Traceback", run.stderr)
+                self.assertFalse(self.started())
+                self.assertFalse(self.out.exists())
+        self.assertEqual(good.read_bytes(), image)
 
     def test_inherited_bios_env_cannot_change_the_mode(self):
         run = self.run_runner(self.route(SHORT), "--mode", "hle-openbios",

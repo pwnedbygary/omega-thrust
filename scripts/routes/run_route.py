@@ -10,10 +10,17 @@ so input timing is frame-exact relative to the route's start frame. The runner
 takes each shot after its step has ended, a few frames late, and records the
 frame it read just before the screenshot.
 
+A route may declare "card1_sha256", the sha256 of a raw 128 KiB memory card
+image it needs in slot 1, such as a save that opens more of the game. It then
+runs only with --card1 naming an image with that hash, which the runner copies
+into memcards/card1.mcd before the runtime starts; otherwise both cards start
+blank.
+
 The run fails unless the runtime boots in the requested mode, plays the whole
 route, reports no unknown-dispatch or segment miss, and exits 0 after `quit`.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -33,7 +40,9 @@ MODES = {  # PSX_BIOS_HLE value, then the boot banner's bios_boot and image
 DISC = "disc/Omega Boost (USA).cue"
 RUNNER = "scripts/routes/run_route.py"
 MAX_FRAMES = 2**31 - 1  # the debug server parses frames with (int)strtol
+CARD_SIZE = 128 * 1024
 NAME = re.compile(r"[A-Za-z0-9_-]+")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 OUTPUTS = ("cwd", "memcards", "runtime.log", "result.json")
 SHOT_FILE = re.compile(r"\d{2,}-[A-Za-z0-9_-]+\.png")
 BANNER = re.compile(r"bios_boot=(HLE|LLE) .*?image=(\S+)")
@@ -102,7 +111,10 @@ def load_route(path):
             raise SystemExit(f"{path}: steps[{i}].buttons must be 0..65535")
         if shot is not None and not (isinstance(shot, str) and NAME.fullmatch(shot)):
             raise SystemExit(f"{path}: steps[{i}].shot must be ASCII letters, digits, '-' or '_'")
-    return name, steps
+    card1 = data.get("card1_sha256")
+    if card1 is not None and not (isinstance(card1, str) and SHA256.fullmatch(card1)):
+        raise SystemExit(f"{path}: card1_sha256 must be 64 lowercase hex digits")
+    return name, steps, card1
 
 
 def port_answers(port):
@@ -262,6 +274,9 @@ def main():
     ap.add_argument("route", type=Path)
     ap.add_argument("--mode", choices=MODES, default="hle-openbios")
     ap.add_argument("--bios", type=Path, help="SCPH-1001 v2.2 dump (lle-scph1001 only)")
+    ap.add_argument("--card1", type=Path,
+                    help="raw 128 KiB memory card image for slot 1 (only for routes that "
+                         "declare card1_sha256, and required by them)")
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     ap.add_argument("--binary", type=Path, help="default: <repo>/build-dev/Omega_Thrust")
     ap.add_argument("--port", type=int, default=4370)
@@ -272,12 +287,30 @@ def main():
     args = ap.parse_args()
 
     repo = args.repo.resolve()
-    name, steps = load_route(args.route)
+    name, steps, want_card1 = load_route(args.route)
     hle, want_boot, want_image = MODES[args.mode]
     if args.mode == "lle-scph1001" and not (args.bios and args.bios.is_file()):
         raise SystemExit("--mode lle-scph1001 needs --bios naming an existing SCPH-1001 v2.2 dump")
     if args.mode != "lle-scph1001" and args.bios:
         raise SystemExit("--bios applies only to --mode lle-scph1001")
+    card1 = None
+    if want_card1:
+        if not (args.card1 and args.card1.is_file()):
+            raise SystemExit(f"{args.route}: needs --card1 naming the memory card image with "
+                             f"sha256 {want_card1}")
+        need = f"the route needs a {CARD_SIZE}-byte image with sha256 {want_card1}"
+        try:
+            size = args.card1.stat().st_size
+            if size != CARD_SIZE:
+                raise SystemExit(f"{args.card1}: {size} bytes; {need}")
+            card1 = args.card1.read_bytes()
+        except OSError as exc:
+            raise SystemExit(f"{args.card1}: cannot read it ({exc.strerror}); {need}")
+        got = hashlib.sha256(card1).hexdigest()
+        if len(card1) != CARD_SIZE or got != want_card1:
+            raise SystemExit(f"{args.card1}: {len(card1)} bytes, sha256 {got}; {need}")
+    elif args.card1:
+        raise SystemExit("--card1 applies only to routes that declare card1_sha256")
     if not 1 <= args.port <= 65535 or args.timeout <= 0:
         raise SystemExit("--port must be 1..65535 and --timeout positive")
     binary = (args.binary or repo / "build-dev" / "Omega_Thrust").resolve()
@@ -291,9 +324,11 @@ def main():
                          "stop that process or choose another --port")
     out = (args.out or repo / ".cache" / "routes" / name / args.mode).resolve()
     prepare_out(out)
+    if card1 is not None:
+        (out / "memcards" / "card1.mcd").write_bytes(card1)
 
-    result = {"runner": RUNNER, "route": name, "mode": args.mode, "status": "running",
-              "records": []}
+    result = {"runner": RUNNER, "route": name, "mode": args.mode, "card1_sha256": want_card1,
+              "status": "running", "records": []}
     (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
