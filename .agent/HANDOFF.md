@@ -7,32 +7,39 @@ Overall: recompile Omega Boost (USA, SCUS-94449) with psxrecomp nightly
 oracle. Phases: 0 inputs, 1 scaffold, 2 generate + build + smoke, 3 discovery
 cycles through the whole game, 4 Beetle comparison.
 
-Current iteration, Phase 3 change 5 (routes for the zones an unlocked save
-opens), round 2. Invariant: `scripts/routes/run_route.py` accepts an optional
-route key `card1_sha256`. A route that declares it runs only with `--card1`
-naming a readable 131,072-byte image with that sha256. The size (before the
-file is read), the read and the hash are checked before launch, and each
-refusal prints one line, so a refused run starts no runtime and leaves the
-output directory untouched. The runner copies the image into the run's
-`memcards/card1.mcd` and never writes the original, and `result.json` records
-the declared hash (null for the other routes, whose cards start blank as
-before). `--card1` is refused for a route that declares no card. Thirteen new
-routes, `demo_zone7.json`, `demo_zone8.json`, `demo_zone_last.json`,
-`demo_zone_u1.json` to `demo_zone_u9.json` and `demo_zone_v5.json`, declare
-the hash of the user's unlocked save, load it with LOAD SLOT1, and play the
-zone's REPLAY > DEMONSTRATION recording until shortly after its COMPLETED
-results screen; no other route declares a card. All 22 committed routes pass
-in all three boot modes with no unknown-dispatch or segment miss, and the 13
-new replays reach their results screens. Both test files pass and leave
-nothing behind; the new runner tests fail on the committed runner, and the
-preload test fails if the runner links the image instead of copying it.
-`AGENTS.md` documents the key, the option, the save's source and conversion,
-and lists the routes; no save or card image is tracked, and `.gitignore` adds
-`*.gme` and any-case memory card patterns. This file records change 4's
-round-3 verdict and commit and adopts round 3's suggestion. Baseline:
-`a4117a0`. Out of scope: other runner changes (SIGINT during cleanup, a lock
-file), new seeds, the overlay shard, live campaign play, the ending, Beetle
-(Phase 4), CI, packaging.
+Current iteration, Phase 4 change 1 (the Beetle oracle and a route driver for
+it), round 3. Invariant: `scripts/build_beetle.sh` builds psx-beetle out of
+tree in `.cache/beetle/` from archives of the framework commits that HEAD pins
+(the submodule checkout is never written to), beetle-psx-libretro at the commit
+`psxrecomp/docs/beetle-linux.md` pins, and the framework's seven patches in
+the doc's order. `scripts/routes/beetle_route.py` plays a committed route on
+that build in `lle-openbios` or `lle-scph1001` mode over one persistent debug
+connection. Every press and every shot lands on its exact route frame, counted
+from `--start`, or the run fails. The BIOS image must have its framework
+profile's sha256, and Beetle's log must report that image's SHA-1 under the
+name it loads, `scph5501.bin`. Both cards start formatted blank, byte for byte
+as psx-runtime formats a missing card, and `--card1` follows `run_route.py`'s
+rules; the driver writes them under the names Beetle loads
+(`<disc name>.0.mcr` and `.1.mcr`) and fails a run if psx-beetle writes any
+other file in its working directory. A refused run starts nothing and leaves
+the output directory untouched; psx-beetle is stopped with SIGTERM and must
+exit 0. The driver's tests run it against a fake psx-beetle, pass, leave
+nothing behind, and fail when any of eleven safeguards is removed. All 22
+committed routes pass on Beetle in both modes. In every DEMONSTRATION replay
+the results screen's banner, CLEAR TIME, DESTROY RATIO and PILOT ABILITY text
+is the same as psx-runtime's in the same BIOS mode: by `compare_results.py`'s
+rule in 33 of the 38 replay-mode pairs (in three with a few pixels left out,
+within the rule), and in the other five by the positions and colours of the
+differing pixels (`diag_rows.log`) and by reading the shots at 2x; U1's
+mid-replay results screen matches too (a finer-sampled scratch run). Read
+from the digits, both sides' last results shots show the same SCORE BONUS
+figure in 24 pairs; in the other 14 the figures differ, consistent with the
+tally still counting (derived). `AGENTS.md` documents the build, the driver
+and its commands. This file records change 5's round-2 verdict and commit,
+condenses change 5, and keeps the spike's record.
+Baseline: `2a3fe3a`. Out of scope: runner, route, framework and submodule
+changes, new seeds, the ending and live play (the user's decision), automated
+comparison of screens other than the results, CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -197,207 +204,363 @@ wording), round 2 NEEDS CHANGES (one Low, `AGENTS.md`'s rebuild rule), round 3
 PASS on tree `9ceae0d` with no findings. The full record is in
 `git show a4117a0:.agent/HANDOFF.md`.
 
-## Phase 3 change 5 observations (`.cache/evidence/phase3-5/`)
+## Phase 3 change 5 (commit `2a3fe3a`)
 
-- The save (the user's decision for zones 7 and later): GameFAQs save 20242
-  for Omega Boost, "All Zones Unlocked (Gamesharked)", a North American
-  DexDrive file (GameFAQs lists it with the date 01/26/2010; the file itself
-  carries no date). The user downloaded it in a browser after a
-  scripted download got HTTP 403. The download, `omega-boost.20242.gme`
-  (134,976 bytes, sha256 `40e7b8fb534b…`, header `123-456-STD`, card data from
-  offset 3,904), is left untouched; a copy is in the ignored `.cache/saves/`.
-  Its last 131,072 bytes, `.cache/saves/all-zones.mcd` (sha256
-  `e3b71c252ce2…`), are a valid card image: header `MC`, every directory
-  frame's checksum valid, and one save, `BASCUS-94449OMEBENV` in block 1 (8,192
-  bytes, the same 【ＶＩＥＷ】 title as the game's own save).
-- Against the game's own save from change 3 (card sha256 `42dd8d89…`), the
-  directory entry is identical. Inside the save, the download has 19 bytes of
-  01 at offsets 0x200 to 0x212 and 13 at 0x214 to 0x220, where the game's save
-  has 01 only at 0x200 and 0x214 (hypothesis: one unlock flag per
-  DEMONSTRATION entry, then the boost levels); a 4-byte value at 0x310 differs
-  (hypothesis: a checksum), and the fill from 0x380 is 00 instead of FF.
-- Exploration (`exploration/`; scratch, HLE OpenBIOS, change 4's trial build,
-  a scratch copy of the runner that preloads card 1): after LOAD SLOT1, all 19
-  DEMONSTRATION entries show SELECT OK and all 19 ZONE PLAY zones show OPENED.
-  Listed times: 7TH 4:33, 8TH 1:44, LAST 4:56, U1 2:47, U2 2:22, U3 1:05, U4
-  1:57, U5 1:07, U6 1:14, U7 1:46, U8 1:17, U9 2:05, V5 1:01 (8TH and LAST
-  /HARD, the others /NORMAL).
-- Scratch HLE runs of the 13 routes (`scratch-hle/`: generator, run script and
-  log, outputs, `clear_time_check-hle.log`; the routes have the committed
-  steps but no `card1_sha256` and older notes; the same scratch runner and
-  build): all 13 passed with no miss. In each replay the results screen first
-  appears in a shot 120 to 660 frames before the listed time (7TH at
-  `t15900`, CLEAR TIME 4:15.50). U1 also shows a results screen mid-replay, at
-  `t04800`, before its final one at `t09900` to `t10200` (CLEAR TIME 2:29.66).
-- Scratch LLE runs (`scratch-lle/`: the runner and routes of this change as
-  drafted, on change 4's trial build, port 4373): `demo_zone7`, `demo_zone8`,
-  `demo_zone_last` and `demo_zone_u1` to `demo_zone_u3` passed in LLE OpenBIOS
-  with no miss (start frames 37, 39, 55, 65, 61 and 60). I stopped the run
-  during `demo_zone_u4` with SIGTERM, because the committed runs repeat it:
-  its `result.json` records `runner stopped: SystemExit: stopped by SIGTERM`
-  and runtime exit code 0. LLE SCPH-1001 was not run in scratch.
-- After a run, memory card 1 differs from the image in 7 bytes, all in frame
-  63 (offset 0x1F80, the card's write-test frame): the image has
-  `11111111800c5a2708004003…`, the run's copy `11111111` followed by zeros.
-  Which component writes it (game, BIOS or runtime) was not traced. The image
-  itself is unchanged after the runs. In the 13 card routes, card 2 ends
-  exactly as the runtime formats a missing card: its frame 63 is still the
-  copy of frame 0 written then (`psxrecomp/runtime/src/memcard.c:45-84`,
-  called at `:148-149`), and the rest equals the memcard route's card 2. In
-  all 27 blank-card runs, frame 63 of both cards is rewritten (`11111111…`).
-  So nothing changed card 2 in the card routes. My first card check expected
-  card 2 to equal the memcard route's card 2 and reported 39 mismatches, all
-  in this frame (`card_check-first.log`); the corrected check allows frame 63
-  only.
-- Committed route runs (`routes.log`, `routes_summary.log`): all 66 runs, the
-  22 routes in three modes, passed: the boot banner matched the mode, no shot
-  saw an unknown-dispatch or segment miss, every screenshot was taken, and the
-  runtime exited 0. Start frames 34 to 139; shots at most 17 frames late. Each
-  new route's `zone-cursor` shot shows its own zone in all three modes
-  (`routes/zone-cursor-headers_sheet.png`). Each new route interprets 1,194
-  overlay instructions in every mode (0x80135EFC 1,182 and 0x80120370 12, as
-  `menus` does), and the nine earlier routes repeat change 4's counts
-  (`probe_summary.log`).
-- Results screens (`clear_time_check.log`, change 2's pixel rule): every
-  replay reaches its results screen in all three modes. First to last results
-  shot of the new routes: 7TH `t15900` to `t16500`; 8TH `t05700` to `t06300`
-  (LLE OpenBIOS from `t06000`); LAST `t17400` to `t18000`; U1 `t09900` to
-  `t10200`, after the mid-replay screen at `t04800`; U2 `t08100` to `t08700`;
-  U3 `t03300` to `t03900` (LLE OpenBIOS from `t03600`); U4 `t06600` to
-  `t06900`; U5 `t03600` to `t03900` (both LLE modes to `t04200`); U6 `t03900`
-  to `t04500`; U7 `t05700` to `t06300`; U8 `t04200` to `t04800`; U9 `t06900`
-  to `t07500`; V5 `t03300` to `t03600`. In each route the CLEAR TIME is the
-  same in all three modes (`routes/clear-times_sheet.png`,
-  `routes/results-mid_sheet.png`): 7TH 4:15.50, 8TH 1:26.60, LAST 4:39.06, U1
-  2:29.66, U2 2:04.76, U3 0:48.23, U4 1:39.36, U5 0:49.56, U6 0:56.43, U7
-  1:28.60, U8 0:59.86, U9 1:47.53, V5 0:44.33. Zones 1 to 6 repeat change 2's
-  ranges; zone 6's last results shot was `t14100` in all three modes this
-  time, where changes 2 and 4 also saw `t14400` in some modes.
+`scripts/routes/run_route.py` accepts the route key `card1_sha256`: such a
+route runs only with `--card1` naming a readable 131,072-byte image with that
+sha256 (size, read and hash checked before launch, one-line refusals), and the
+runner copies the image into the run's `memcards/card1.mcd`. Thirteen routes,
+`demo_zone7.json`, `demo_zone8.json`, `demo_zone_last.json`,
+`demo_zone_u1.json` to `demo_zone_u9.json` and `demo_zone_v5.json`, load the
+user's unlocked save with LOAD SLOT1 and play each zone's DEMONSTRATION replay
+to its results screen. The save is GameFAQs save 20242 for Omega Boost, "All
+Zones Unlocked (Gamesharked)", a North American DexDrive file the user
+downloaded; its raw card image (`.cache/saves/all-zones.mcd`, ignored, sha256
+`e3b71c252ce2…`) opens all 19 DEMONSTRATION entries and ZONE PLAY zones.
+Against the game's own save it sets 19 one-byte flags at 0x200 to 0x212 and 13
+at 0x214 to 0x220 of the save block (hypothesis: zone unlocks, then boost
+levels). All 66 runs (22 routes in three modes) passed with no miss, and each
+new zone shows the same CLEAR TIME in every mode: 7TH 4:15.50, 8TH 1:26.60,
+LAST 4:39.06, U1 2:29.66, U2 2:04.76, U3 0:48.23, U4 1:39.36, U5 0:49.56, U6
+0:56.43, U7 1:28.60, U8 0:59.86, U9 1:47.53, V5 0:44.33. After a run, card 1
+differs from the image only in its write-test frame (frame 63, offset 0x1F80;
+the writer was not traced); a card the runtime formats keeps frame 63 as a
+copy of frame 0 unless the run rewrites it
+(`psxrecomp/runtime/src/memcard.c:45-84`). Since review round 2, every
+argument subtest of the runner tests starts from a clean state, so a mutation
+fails only the subtests it affects. Review: round 1 NEEDS CHANGES (three Low: a
+preload test that could not fail, two misattributed change 4 review rounds in
+this file, a traceback on an unreadable `--card1`), round 2 PASS on tree
+`91d6447` with no findings. The full record is in
+`git show 2a3fe3a:.agent/HANDOFF.md`.
 
-## Phase 3 change 5 changes
+## Spike: replays and the campaign script (scratch, harness-assisted)
 
-- `scripts/routes/run_route.py`: the `card1_sha256` route key (64 lowercase
-  hex digits, checked by `load_route`, which now also returns it) and the
-  `--card1` option, as in the invariant; the docstring describes both. Round
-  2: the image's size is checked with `stat()` before it is read, and an
-  `OSError` from either becomes a one-line refusal naming the file.
-- `scripts/routes/test_run_route.py`: the fake runtime records the sha256 of
-  the `card1.mcd` it finds at startup and then rewrites that file's
-  write-test frame, as real runs change it (round 2). New tests: a declared
-  image is preloaded (the fake sees its hash, the run's copy holds the fake's
-  write, the original is unchanged, `result.json` records the hash); the card
-  arguments are checked before launch (no `--card1`, a missing file, another
-  hash, the wrong size, an unreadable file (round 2; skipped as root),
-  `--card1` for a route without the key: each exits 1 without a traceback,
-  starts no runtime and creates no output directory); a hash that is not
-  lowercase hex is a bad route; the pass test checks that a route without the
-  key starts with no card 1 and records null. Since round 2, every subtest of
-  the three argument tests starts from a clean state (no fake runtime, output
-  directory or `.cache/`), so one regression fails one subtest. 17 tests.
-- `scripts/routes/test_routes.py`: lists the 13 routes and checks that exactly
-  they declare the save's hash.
-- 13 route files, written by `.cache/evidence/phase3-5/gen_routes.py`, which
-  reuses change 2's generator helpers; the checks regenerate them byte for
-  byte.
-- `AGENTS.md`: the never-commit list adds memory card images and save files;
-  the route list adds the 13 routes; a paragraph on `card1_sha256` and
-  `--card1`, the save's source and the commands that extract its card image.
-- `.gitignore`: `*.gme`, and `.mcd`, `.mcr` and `.gme` in any letter case.
-- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 3 change 3 sections
-  are unchanged, and change 4 is condensed with round 3's suggestion adopted.
-  Round 2: the two corrected attributions, the adopted suggestions, the round 2
-  checks and review state, and Next action, which now records the spike's
-  results since round 1.
+The user chose a time-boxed scratch spike for what scripted routes cannot
+reach (`.cache/evidence/spike-replay/`). Each of `REPLAY/REPLAY00.DAT` to
+`REPLAY18.DAT` (23,404 bytes) holds one zone's recorded input, an 8-byte input
+state per 30 fps game frame, run-length coded (`decode_replay.py`,
+`decode.log`); its frame count, difficulty and level match the zone's
+DEMONSTRATION entry. Every recording steers with the analog stick, off centre
+in 82 to 99% of its frames (`stick_use.py` / `.log`), and routes carry only
+the 16 button bits. CAMPAIGN PLAY's loop (0x8002F814) walks a 17-step script
+at 0x8001232C: two briefings, nine zones, four between-zone movies (INTER1 to
+INTER4), END_ALL and the staff credits. Rewriting the script pointer and step
+that its callees save on the stack (debug-server memory writes;
+`spike_ending.py`, `spike_tour.py`) skipped the zones: the four movies,
+END_ALL, the credits and the closing copyright screen ran with no miss
+(`runs/ending/`, `runs/tour/`). After a Start press on the copyright screen,
+the game entered state 7, whose handler (`func_8002DC48`) calls the replay
+player's step (0x80077228), and the function at 0x800571B8 called the scene
+entry stored when BRI1 started (0x80120EAC) while other data filled the
+overlay area there (a reserved opcode), so the runtime halted on an unknown
+dispatch
+(`runs/tour/postmortem.log`). The writes skipped every zone step, so this may
+be an artifact of the harness (hypothesis); psx-beetle has no memory-write
+command, so only genuine play to the ending can settle it.
 
-## Phase 3 change 5 checks
+## Phase 4 change 1 observations (`.cache/evidence/phase4-1/`)
 
-- Tests (`tests.sh` / `tests.log`): `test_routes.py` 5 OK and
-  `test_run_route.py` 17 OK (11.4 s), with no temp directory, fake runtime or
-  `__pycache__` left. Against the committed runner (a scratch copy with the
-  new tests and routes), `test_routes.py` fails with 44 errors (the old
-  `load_route` returns two values, so both per-route tests fail for each of
-  the 22 routes), and `test_run_route.py` with 8 failures and 1 error, all in
-  the card tests: the pass test (`result.json` has no `card1_sha256`), the
-  bad-route card case and the check after it that no output directory was
-  created, the five card-argument cases and the preload test.
-- Route runs (`routes.sh` / `routes.log`): the documented commands, one run at
-  a time on `build-dev` (port 4370), every route in all three modes, 02:03 to
-  03:40 local time. `build-dev` was current: a rebuild afterwards ran no
-  compile step and left the binary's sha256 and mtime (00:00, before the
-  runs) unchanged (`build-dev-check.log`). The image hashed the same before
-  and after (`card-before.sha256`, `card-after.sha256`).
-  `routes_summary.log`: no run failed. `card_check.log`: every `result.json`
-  records its route's hash (null for the nine others); card 1 differs from the
-  image, and card 2 from the memcard route's card 2, only in frame 63. No
-  listener on 4370 afterwards.
-- `checks-p3-5.sh` / `.log` (staged tree): all pass. Nothing is unstaged or
-  untracked; `generated/`, `aot/`, the build files, the submodules and the
-  nine earlier routes equal HEAD, and so do this file's header and its Phase 0
-  to Phase 3 change 3 sections; no placeholder, no added line over 80 columns,
-  no local path. The three gates pass, the pins are equal, the submodules are
-  clean and only psxrecomp's `overlay_codegen_hash.h` is ignored there. No
-  tracked file is ignored, the save files and any-case card names are, and no
-  card or save file is tracked. Every route passes `load_route`; the three
-  generators reproduce all 21 generated routes byte for byte; `tests.sh` gives
-  the results above; dropping the hash from `demo_zone7.json` or adding it to
-  `menus.json` fails only `test_only_the_unlocked_save_routes_need_card1`. The
-  route-run summaries are as above, `card_check.py` reproduces its log, and
-  `git diff --cached --check` exits 0.
-- Round 2 tests (`r2/tests.log`): `test_routes.py` 5 OK and
-  `test_run_route.py` 17 OK, nothing left behind. Against the committed
-  runner: the same 44 errors, and 8 failures and 1 error, now the pass test,
-  the bad-route card case (whose output-directory check now runs inside the
-  subtest), the six card-argument cases and the preload test.
-- Round 2 regressions (`r2/test_regressions.py` / `.log`; the test file runs
-  from a scratch copy beside each runner variant): the round-2 runner passes
-  all 17 tests; the round-1 runner fails only the unreadable-image case; a
-  runner that symlinks the image fails only the preload test, and passes
-  round 1's tests; a runner without the SCPH-1001 `--bios` check fails the two
-  cases that now launch, where round 1's tests also failed the third. Nothing
-  was left behind. The real runner refuses a mode-000 copy of the save in one
-  line (exit 1, no output directory).
-- Round 2 route runs (`r2/routes.sh` / `r2/routes.log`): the documented
-  commands with the round-2 runner, every route in all three modes, one run at
-  a time on `build-dev`, 10:03 to 11:40 local time; round 1's outputs were
-  moved to `routes-out-r1/` first. Two scratch spike runs on another build
-  (port 4373, 11:13 to 11:26) overlapped about ten of these runs.
-  `r2/routes_summary.log`: all 66 runs pass (banner matching the mode, no
-  miss, every screenshot taken, exit 0; start frames 25 to 138, shots at most
-  18 frames late). `r2/probe_summary.log` gives round 1's counts for every
-  route. `r2/clear_time_check.log`: every replay reaches its results screen in
-  every mode; against round 1, the first or last results shot moved by one
-  shot in six route-mode pairs (U3 and U5 in two modes each, zones 6 and 8TH
-  in one each), the edge variance noted above. `r2/card_check.log`: problems
-  0, the same lines as round 1's; the image hashed the same before and after
-  (`r2/card-before.sha256`, `r2/card-after.sha256`). No listener on 4370
-  afterwards.
-- Round 2, `r2/checks-p3-5-r2.sh` / `.log` (staged tree): all pass. Against
-  the round-1 tree, only this file, the runner and the runner tests changed;
-  `generated/`, `aot/`, the build files and the submodules equal HEAD, and so
-  do this file's header and its Phase 0 to Phase 3 change 3 sections; no
-  placeholder, no added line over 80 columns, no local path. The three gates
-  pass, the pins are equal, the submodules are clean and only psxrecomp's
-  `overlay_codegen_hash.h` is ignored there; no tracked file is ignored, the
-  save files and any-case card names are, and no card or save file is
-  tracked. Every route passes `load_route`; the three generators reproduce
-  the 21 generated routes; `tests.sh` gives the round 2 results above, and
-  `test_regressions.py` reproduces its log (test durations aside); the two
-  card-test mutations fail only `test_only_the_unlocked_save_routes_need_card1`.
-  The route-run summaries are as above, `card_check.py` reproduces its log, a
-  rebuild of `build-dev` compiles nothing and keeps the binary, and
-  `git diff --cached --check` exits 0.
+- The build (`build_beetle.log`, 45 s with `JOBS=8`): `scripts/build_beetle.sh`
+  archived psxrecomp `8077e71`, recomp-net `e2491d2` and retcomm-rbengine
+  `2a03e73`, checked out beetle-psx-libretro `5759277be500…`, applied the
+  seven patches and built a psx-beetle identical to the prototype build's
+  (sha256 `63d0e568a6e5…`, `prototype-binary.sha256`). Afterwards the
+  psxrecomp submodule still lists only its ignored `overlay_codegen_hash.h`.
+- psx-beetle at the pin (source): each pass of its main loop reads the debug
+  connection, takes the pad override, then runs one frame
+  (`psxrecomp/runtime/src/beetle_main.cpp:226-233`). The server holds one
+  client and handles every complete request line it has read
+  (`beetle_debug_server.c:1785-1837`); `press` holds a pad word for exactly
+  `frames` frames from the frame about to run (`:380-387`, `:1847-1855`), and
+  `ping` reports the frame count (`:300-305`). It has no `input_route_*`,
+  memory-write or quit command (the table at `:1652-1719`), sets no
+  `TCP_NODELAY` (`:1755`) and sends each reply on its own (`send_raw`,
+  `:222`). Without `scph5501.bin` in the BIOS path's directory, Beetle boots
+  its own OpenBIOS build (`psxrecomp/docs/beetle-macos.md`, section 4); an
+  image with another SHA-1 under that name is used, and the log reports
+  "Firmware found but has invalid SHA1" with the image's SHA-1.
+- psx-beetle's memory cards (the patched tree in
+  `.cache/beetle/psxrecomp/beetle-psx`): the host selects the mednafen card
+  method with save directory `.` (`beetle_libretro.cpp:419`, `:431`), so
+  Beetle reads `./<disc base name>.<n>.mcr` when the game loads, here
+  `Omega Boost (USA).0.mcr` and `.1.mcr` (`libretro.cpp:2190-2208`; the name
+  from `MDFN_MakeFName`, `:5440-5468`, and the content path, `:4416`), and
+  keeps its own card if the file is missing
+  (`mednafen/psx/frontio.cpp:968-996`). It saves a card the game changed to
+  the same file about two emulated seconds after the game's last write to it
+  (checked at the end of each emulated frame, `libretro.cpp:4855-4897`), and
+  again on exit if the card changed since (`retro_unload_game`, `:4590-4596`;
+  `CloseGame`, `:2546-2567`); `SaveMemcard` writes only a card changed since
+  its last save (`frontio.cpp:1009-1029`). SIGTERM reaches the exit path as
+  SDL's quit event (`beetle_main.cpp:212-221`). The second batch's card files
+  changed during the runs (file times against `beetle_routes.log`, now in
+  `batch2/`): `memcard`'s two cards 13 s and 19 s into its 26 s runs,
+  `demo_zone1`'s two cards 13 s into 49 s, and `demo_zone7`'s card 1 (LLE
+  SCPH-1001) 11 s into 89 s, while its card 2 kept the time the driver wrote
+  it. `beetle_libretro.cpp:543-567` separately checks `dummy.0.mcr` and
+  `dummy.1.mcr` and only logs what it finds; Beetle does not load them.
+- The scratch prototype (`prototype/`: its driver, batch script and log, and
+  each run's `result.json` and `beetle.log`) opened a new connection per
+  request. Beetle notices a closed connection only on its next loop pass, so
+  the prototype saw every other frame: in its batch (LLE OpenBIOS,
+  `prototype/run_demos-openbios.log`), four replays failed with every press
+  flagged one frame late (zones 1 and 2, U2 and U7: 11, 12, 28 and 33
+  presses), and the other 15 passed. The committed driver keeps one
+  connection.
+- A second hazard, found by the driver's tests: after a two-command batch, the
+  driver's view of the frame count jumped about 13 frames at the fake's 300
+  fps (about 40 ms). The kernel held the second reply until the first was
+  acknowledged (Nagle), and the driver delayed that acknowledgement. The
+  driver now acknowledges at once (`TCP_QUICKACK` before every read).
+- The driver's blank card equals byte for byte the card psx-runtime formats
+  for a missing slot (sha256 `7706c7d43eda…`, compared with change 5's
+  `demo-zone7` card 2).
+- The first full batch (`batch1/`, 12:16 to 12:56) ran the driver as it then
+  was: it wrote the cards as `dummy.0.mcr` and `dummy.1.mcr`, the names in
+  psx-beetle's log check, and required that check's "OK" lines. Beetle never
+  loaded them; every run's `cwd/` also held Beetle's own
+  `Omega Boost (USA).0.mcr` and `.1.mcr`, the cards it saved. The 26
+  unlocked-save runs never had the save: LOAD SLOT1 reported "THERE IS NO
+  OMEGA BOOST DATA PRESENT", later presses landed on other screens (a "Slot 2
+  SAVE COMPLETED", the ZONE PLAY list) and no replay ran
+  (`batch1/diag/zone7-beetle-load_sheet.png`). The driver passed them, since
+  it checks timing, not screens; the results comparison found no results
+  screen on Beetle in any of the 13 replays (`batch1/compare_results.log`).
+  The other 18 runs started from Beetle's own formatted cards; the second
+  batch supersedes them. The driver now writes Beetle's names and fails a run
+  if psx-beetle writes any other file in `cwd/`, which would have failed all
+  44 first-batch runs. The check sees only cards Beetle saves: in the
+  unlocked-save routes the game never writes card 2, so there it covers card
+  1 only; both names come from one expression.
+- Also in the first batch, `demo_zone_u6` in LLE OpenBIOS failed: its first
+  event, the intro shot, landed on frame 3931 instead of 3930
+  (`batch1/failed/`). The driver answers each ping within the time Beetle takes
+  to run one frame, about 3 ms unpaced (the 17,156-frame route took 49 s,
+  `batch1/rerun.log`), so a longer host delay makes an event land late and
+  fails the run, as designed. The same command then passed. `beetle_routes.sh`
+  now re-runs such a run once and keeps the failed attempt in `failed/`.
+- Runs (`beetle_routes.sh`): the second batch (13:17 to 14:00, with the
+  round-1 driver; its log, hash files, outputs and per-run logs are now in
+  `batch2/`) passed all 22 routes in both modes on the first try (44 runs, no
+  retry). Every press and shot landed on its route frame, no screenshot is
+  missing, psx-beetle exited 0 every time, and the save image, the psx-beetle
+  binary and the driver were unchanged (`inputs-before.sha256`,
+  `inputs-after.sha256`); `beetle_summary.log` counts all 44, and no listener
+  was left. Each run's `cwd/` held only Beetle's two card files. The round-2
+  driver differs from round 1's only in its docstring. The third batch, with
+  it (15:03 to 15:46; `beetle_routes.log`, the hash files and `routes/` here,
+  outputs in `.cache/beetle-routes/`), passed the same way: 44 runs, no
+  retry, inputs unchanged, no listener left. Its screenshots, cards and
+  `result.json` files, and even its `beetle.log` files, equal the second
+  batch's byte for byte (`r2/batch_compare.py` / `.log`), and the comparison
+  logs below, regenerated from it, equal their copies in `batch2/`.
+- Results screens (`compare_results.py` / `.log`, `results-<mode>_sheet.png`):
+  by the comparison's rule, 33 of the 38 replay-mode pairs match (17 of 19 in
+  LLE OpenBIOS, 16 in SCPH-1001). In them no compared pixel of the banner,
+  CLEAR TIME, DESTROY RATIO or PILOT ABILITY rows differs, and those rows are
+  fully compared except in U8 (both modes: 5, 35 and 23 pixels left out) and
+  zone 3 in SCPH-1001 (42 of 832 in PILOT ABILITY), within the rule's limit of
+  one in five. The controls, each replay's psx-runtime screens against the
+  next replay's Beetle screens, differ in 423 to 2,591 pixels. The other
+  five pairs are zone 7 in both modes, U1 in both, and LAST in SCPH-1001;
+  `diag_rows.py` / `.log` lists their differing pixels. In zone 7 they are 27
+  and 29 background pixels at x 134 to 199, around "100%" and "RANK", all
+  dark in psx-runtime's first results shot. The white light sweep, whose grey
+  248 passes the rule's text test, covers 49 of the 56 by psx-runtime's
+  second results shot and Beetle's third; the other seven turn grey at other
+  shots, except (191,101) in SCPH-1001, which never does on Beetle (its third
+  shot shows (248,248,120) there; `r2/zone7-sweep-crops.png`). The small
+  "(43/43)" and "(100pts)" digits, from x 230, have no differing pixel. In
+  LAST they are four grey (160,160,160) pixels of the mech model behind the
+  text. U1's final results screen has one results shot on Beetle; on it the
+  banner, CLEAR TIME, DESTROY RATIO and PILOT ABILITY rows have no differing
+  text pixel (726 to 890 per row), and only SCORE BONUS differs (160 of 306
+  pixels). Viewed at 2x (`diag2/`), the text is the same on both:
+  zone 7 CLEAR TIME 4:15.50 (96pts), DESTROY RATIO 100% (43/43), PILOT
+  ABILITY RANK S (96pts); LAST 4:39.06 (92pts), 100% (3/3), RANK S (92pts),
+  SCORE BONUS 77632; U1 2:29.66 (40pts), 94% (189/201), RANK C (37pts).
+  Beetle never reaches its first results shot before psx-runtime does; at the
+  final results screen it is one 300-frame shot later in zones 3, 4, 8, U1,
+  U7 and U9 in both modes, and U3 in LLE OpenBIOS.
+- SCORE BONUS (`r3/score_bonus.py` / `.log`, `r3/score-bonus-<mode>_sheet.png`:
+  2x crops of the row from each side's last two results shots, read by eye):
+  the rule finds no differing pixel in 19 of the 38 pairs, and in five more
+  both sides' last results shots show the same figure: zone 7 in both modes
+  (34760, under the light sweep), U8 in both (40896; the differing pixels are
+  background graphics at x 139 to 190, at the figure's left end) and U2 in
+  SCPH-1001 (22276; four background pixels at x 100 to 159). That is 24
+  pairs; that the shared figure is the final tally is derived (Beetle reaches
+  the screen later yet shows the same figure). In the other 14 (12 of the
+  matching 33, and U1's final screen in both modes) the figures differ, and
+  in each the lower one is Beetle's at the same route frame or the one from
+  the earlier shot, as a tally still counting would show (derived): for
+  example zone 3 23872 against 19776 at t16200, U1 12896 against 04000.
+- U1 also shows a results screen in mid-replay, which psx-runtime's t04800
+  shot catches and Beetle draws between the committed route's shots
+  (`r2/u1_fine.py`, `r2/u1_fine.sh` / `.log`, `r2/u1_mid.py` / `.log`,
+  `r2/u1-mid_sheet.png`). A scratch copy of the route, with its neutral shot
+  steps from t03600 to t06000 split into 100-frame shots (the same input),
+  passes the rule's results-screen test on psx-runtime from t04800 to t05200
+  in both modes and on Beetle from t05000 (LLE OpenBIOS) or t04900
+  (SCPH-1001) to t05300; Beetle's LLE OpenBIOS t04900 shot already shows the
+  COMPLETED banner, with only "CL" of the CLEAR TIME label drawn. By the
+  comparison's rule its banner, CLEAR TIME, DESTROY RATIO and PILOT ABILITY
+  rows match (no differing pixel, none left out). SCORE BONUS reads 12896 on
+  both sides in both modes (psx-runtime holds it at t05100 and t05200); in
+  SCPH-1001 the rule finds one differing pixel, a grey (160,160,160) dot on
+  Beetle's side at (178,155), left of the figure, and every digit pixel
+  matches (`r3/score_bonus.log`). Its text equals the final screen's.
+  Beetle's 19 shots up to t03600 equal the batch's byte for byte.
+- The other routes' screens (`compare_screens.py` / `.log`,
+  `screens-<route>-<mode>_sheet.png`): `title_to_zone1`, `menus` and
+  `memcard` show the same screens in the same order on both emulators
+  (viewed). The title, menu and memory card screens have the same RGB on
+  90.2% to 99.9% of the display area (animated backgrounds make up the rest),
+  the two zone-1 gameplay shots on 73% to 74%; the intro movie and the
+  briefing are not measured, as their frame sizes differ.
+- Memory cards at the end of each route (`card_compare.py` / `.log`): in LLE
+  OpenBIOS, both of Beetle's cards equal psx-runtime's byte for byte after
+  all 22 routes, including `memcard`'s saved block (card 1 sha256
+  `42dd8d89acd1…`, as in Phase 3 change 3) and the rewritten write-test frame
+  (frame 63) of blank cards. So that write comes from code both emulators
+  run, the game or the BIOS, not from psx-runtime (derived). In SCPH-1001
+  mode, every card the game rewrote differs in frame 63 only, in seven of
+  bytes 4 to 11: Beetle has `80 0c 5a 27 08 00 40 03`, psx-runtime zeros
+  (byte 9 is zero on both; card 2 of the unlocked-save routes, which the game
+  leaves alone, is identical). Those bytes, `addiu k0,k0,0x0c80` and `jr k0`,
+  are words 2 and 3 of the BIOS's exception-vector stub (`lui k0,0; addiu
+  k0,k0,0x0c80; jr k0; nop`, at 0xBFC10A0C in the SCPH-1001 image), and the
+  unlocked save's own frame 63 has the same bytes (Phase 3 change 5).
+- Exception vectors (`vector_probe.py` / `.log`, frame 1200 or later of a
+  boot with no input): RAM at 0x80000080 holds that stub in both emulators.
+  At 0x80000000, Beetle holds `03000000` followed by stub words 2 to 4, and
+  psx-runtime `11111111` followed by zeros; in OpenBIOS mode both vectors
+  match. Frame 63 equals the first 16 bytes of RAM at address 0 with
+  0x11111111 over its first word, which fits the write test writing frame 63
+  from address 0 (derived from equal bytes, not traced). Hypothesis:
+  psx-runtime's recompiled SCPH-1001 boot does not leave the BIOS's stub copy
+  at the UTLB vector (0x80000000). That is a framework accuracy difference;
+  no game-visible effect has been seen, and a fix is a framework change.
+- Intro (`intro/intro.sh` / `intro.log`; `intro/intro_grid.py` / `.log`,
+  `intro/grid-*_sheet.png`): sampled every 120 frames for 3,960 frames with
+  no input, all five runs (psx-runtime HLE, LLE OpenBIOS and SCPH-1001;
+  Beetle OpenBIOS and SCPH-1001) show the same order: the BIOS screens (the
+  OpenBIOS logo, or the SCE, SONY and PlayStation screens), the SCEA
+  "Presents" card, the Polyphony card, the orange text line (seen earlier as
+  "Alpha core dumped ...."), the orange glyph field, then the movie with its
+  scenes in the same order. Only the frames differ: the glyph field first
+  appears in the samples at frame 1624 (psx-runtime HLE), 1959 (psx-runtime
+  LLE OpenBIOS), 2100 (Beetle OpenBIOS), 2137 (psx-runtime SCPH-1001) and
+  2580 (Beetle SCPH-1001). psx-runtime saved no screenshot at some boot
+  samples ("display disabled"). Beetle reaches each screen later than
+  psx-runtime in the same BIOS mode, as with the results screens; why is not
+  established (hypothesis: Beetle's CD timing).
+
+## Phase 4 change 1 changes
+
+- `scripts/build_beetle.sh` (new): the build in the invariant, from the
+  prototype script (`.cache/evidence/phase4/beetle_build.sh`) with the
+  beetle-psx-libretro commit in full, the framework archived from the
+  gitlinks that HEAD records, and `pipefail`.
+- `scripts/routes/beetle_route.py` (new): the driver in the invariant. It
+  imports `load_route`, `port_answers` and shared constants from
+  `run_route.py`, which is unchanged, and sets `sys.dont_write_bytecode`, so
+  the import leaves no `__pycache__` even without `-B`. Since the first batch
+  it writes the cards under Beetle's names and fails a run if psx-beetle
+  writes any other file in `cwd/`.
+- `scripts/routes/test_beetle_route.py` (new): 15 tests against a fake
+  psx-beetle whose frame loop follows Beetle's order (read requests, take the
+  override, run the frame), whose replies and log lines copy Beetle's, and
+  whose cards follow Beetle's (read from `<disc name>.<n>.mcr` at startup;
+  card 1 is saved, though only on exit). They cover presses and shots on
+  their exact frames (including a shot and a press on the same frame) and the
+  resulting input stream frame by frame; the SCPH-1001 mode; the cards Beetle
+  loads (blank, or the card-1 preload: the copy changes, the image does not);
+  cards Beetle does not load (the fake uses other names, so a stray card
+  appears); arguments refused before launch (card, including, since round 2,
+  an image of the wrong size and an unreadable one; BIOS, profile, route
+  name, `--start`), each with no traceback, no fake started and no output
+  directory; a missing or wrong BIOS report; late input (the fake handles each
+  request one frame late); an exit during the route; stalled frames (the
+  timeout applies); a failed screenshot (recorded, not a failure); a nonzero
+  exit after SIGTERM; a busy port; a server that reports a bind failure;
+  output-directory reuse; and SIGTERM to the driver. Blank cards are checked
+  against the PS1 card layout in psx-spx, not against the driver's code.
+- `AGENTS.md`: a "Beetle oracle" section (the build, the driver, its failure
+  rules, Beetle's card names and when it saves the cards, the one-frame
+  timing window, that the driver and its tests are Linux-only, the commands,
+  comparing along routes rather than frames, and when a route change needs a
+  Beetle run).
+- `.agent/HANDOFF.md`: this rewrite. The Phase 0 to Phase 3 change 4 sections
+  are unchanged; change 5 is condensed, and the spike has its own section.
+
+## Phase 4 change 1 checks
+
+- Driver tests: `python3 -B scripts/routes/test_beetle_route.py` passes 15
+  tests in about 21 s and leaves no temporary entry, fake process or
+  `__pycache__`; since round 2 the argument test also refuses a wrong-size
+  and an unreadable `--card1` image.
+- Memory card fix (`card_regression.py` / `.log`): the tests against the
+  driver as it was before the fix (rebuilt in scratch by undoing its three
+  code hunks) fail exactly the three card tests; against the fixed driver
+  they pass.
+- Mutations (`mutations.py`; round 1 `mutations.log`, nine; round 2
+  `r2/mutations.log`, eleven): each mutation, each removing one safeguard,
+  fails the tests (the two added in round 2, removing the card size checks
+  and the unreadable-card report, fail only the argument test); the
+  unmutated copy passes; no leftovers.
+- Beetle route runs: the second and third batches above; the first batch is
+  kept in `batch1/`, the second in `batch2/`. The round-2 driver's re-run of
+  the intro sampling route on Beetle gave the same shots and cards as the
+  round-1 driver's in both modes (35 of 35 files each, `r2/u1_fine.log`).
+- Comparisons: `beetle_summary.py`, `compare_results.py`, `diag_rows.py`,
+  `compare_screens.py`, `card_compare.py`, `vector_probe.py`,
+  `intro/intro_grid.py`, `r2/zone7_pixels.py`, `r2/u1_mid.py` and
+  `r3/score_bonus.py`, with the results above.
+- `checks-p4-1.sh` / `.log` (round 1, tree `9706929`): all pass. Nothing is
+  unstaged or untracked; files outside this change, and the header and the
+  Phase 0 to Phase 3 change 4 sections of this file, equal HEAD; no
+  placeholder, no added line over 80 columns and no local path; the three
+  gates pass, the pins and submodules are unchanged and clean, and only
+  psxrecomp's `overlay_codegen_hash.h` is ignored there; Beetle's outputs are
+  ignored and no tracked file is; the scripts pass `bash -n` and pyflakes;
+  the batch hashed the staged driver; the tests, the mutations, the card
+  regression and the committed runner's tests pass; the batch counts and
+  every comparison log reproduce (`compare_results.py` and `card_compare.py`
+  exit 1, for the five replays and the SCPH-1001 write-test frames described
+  above); no listener is left; `git diff --cached --check` is clean.
+- `r2/checks-p4-1-r2.sh` / `.log` (round 2, tree `9d7f44a`): all pass. The
+  delta from the round-1 tree changes only the handoff, `AGENTS.md`, the
+  driver and its tests, and the driver's code without its docstring parses
+  to the same syntax tree as round 1's. Every round-1 check holds again: the
+  identity, files outside this change, the preserved handoff sections, no
+  placeholder, doubled blank line, added line over 80 columns or local path,
+  the gates, pins, submodules and ignore rules, `bash -n` and pyflakes, the
+  driver tests, the card regression and the committed runner's tests.
+  `mutations.py` reproduces `r2/mutations.log`. The third batch hashed the
+  staged driver and passed 44 of 44 runs with no retry, `r2/batch_compare.py`
+  finds no difference from the second batch, and every comparison log
+  reproduces from the third batch and equals its `batch2/` copy
+  (`compare_results.py` and `card_compare.py` exit 1, for the five replays and
+  the SCPH-1001 write-test frames described above). `r2/zone7_pixels.py`,
+  `r2/u1_mid.py` (against both batches) and `intro/intro_grid.py` reproduce
+  their results; no listener is left; `git diff --cached --check` is clean.
+- `r3/checks-p4-1-r3.sh` / `.log` (round 3, staged tree): all pass. The
+  delta from the round-2 tree changes only this file. Every round-2 check
+  holds again, `r3/score_bonus.py` reproduces `r3/score_bonus.log` into a
+  scratch directory, no temporary crop is left in `phase4-1/` after
+  `r2/u1_mid.py` and `r3/score_bonus.py`, and the commit message draft has no
+  line over 72 columns, no local path and only its verdict placeholder.
 
 ## Hypotheses and unknowns
 
-- The screens between the Polyphony card and the intro movie differ by boot
-  mode at every checkpoint so far. At frame 1800 (Phase 2,
-  `git show e58cf21:.agent/HANDOFF.md`), HLE showed the orange glyph field,
-  LLE OpenBIOS orange text "Alpha core dumped ....", and SCPH-1001 a flat gray
-  letterboxed frame; at the first exploration checkpoint of Phase 3 change 1,
-  HLE showed the glyph field and LLE OpenBIOS a flat gray frame. The boots take
-  different lengths, so equal frame numbers are not the same point of the
-  intro. Whether these screens are correct: unknown until the Beetle
-  comparison.
+- The intro screens that differed by boot mode at equal frame numbers (Phase
+  2, `git show e58cf21:.agent/HANDOFF.md`, and Phase 3 change 1) are points
+  of one sequence that every mode, and Beetle, shows in the same order (Phase
+  4 change 1, intro). Why Beetle reaches each screen later than psx-runtime in
+  the same BIOS mode, at boot, in the intro and at the results screens:
+  unknown (hypothesis: Beetle's CD timing).
 - Whether the eight emitted fallthroughs are faithful: unknown.
 - Untested by committed routes: TRAINING lessons, ZONE PLAY zones, and SAVE
   REPLAY and LOAD REPLAY, which scripted menu input may reach; CAMPAIGN PLAY
@@ -421,12 +584,20 @@ PASS on tree `9ceae0d` with no findings. The full record is in
   text (`runtime.log`). The other four `title_to_zone1` PCs the probe kept
   (0x80127690, 0x801276B0, 0x801264B8, 0x8012649C) have variants only from
   S8, BRI2, S6 and U7, so other code at those addresses fails the CRC guard
-  (hypothesis). Why the game runs code there, and whether the shard behaves
-  like the interpreter beyond the committed routes: unknown until the Beetle
-  comparison. `full_static_coverage_proven` is false: code the extractor
-  cannot find statically still goes to the interpreter.
-- How Phase 4 will feed route input to `psx-beetle`, which has no
-  `input_route_*` command: unknown.
+  (hypothesis). Along the committed routes, Beetle, which runs the original
+  overlay code, shows the same results text (and the same SCORE BONUS figure
+  in 24 of the 38 pairs; in the others it was still counting, derived), the
+  same screens in the same order and (in OpenBIOS mode) the same cards. Why
+  the game runs code at those PCs, and whether the shard behaves like the
+  interpreter beyond the routes: unknown.
+  `full_static_coverage_proven` is false: code the extractor cannot find
+  statically still goes to the interpreter.
+- In SCPH-1001 mode, psx-runtime's RAM lacks the BIOS's exception stub at
+  0x80000004 to 0x8000000F, which Beetle has (observations, exception
+  vectors). The cause (hypothesis: the recompiled BIOS path skips or clears
+  that copy) and any game-visible effect are unknown. It is framework
+  behaviour; whether to investigate it or report it upstream is the user's
+  decision.
 - recomp-ui `864f778`: the launcher dashboard works; starting the game from
   PLAY has not been exercised.
 
@@ -461,69 +632,80 @@ PASS on tree `9ceae0d` with no findings. The full record is in
   counts) is adopted in the change 4 section above. Still deferred: naming the
   last two interpreted `title_to_zone1` PCs (0x80126160 and 0x801261AC, from
   the reviewer's own round-1 probe, reported in round 2).
-- Phase 3 change 5: round 1 NEEDS CHANGES on tree `a831f14` (staged diff
-  `f9f6044f…`; report `phase3-5/review-r1.md`), three Low. (1) The preload
-  test's check that the original image is unchanged could not fail, because
-  the fake runtime only read the card: a runner that symlinked the image
-  passed all 17 tests. (2) The condensed change 4 record said review round 3
-  reproduced S1's RAM read (it ran only the five replays) and credited the two
-  deferred PCs to round 2's probe (the reviewer's round-1 probe, reported in
-  round 2). (3) An unreadable `--card1` ended in a traceback. Resolved in
-  round 2: the fake rewrites the card's write-test frame, and the symlink
-  mutation now fails the preload test while passing round 1's tests; both
-  attributions are corrected; the runner refuses an unreadable image in one
-  line, and the round-1 runner fails only the new test case for it
-  (`r2/test_regressions.py` / `.log`). Suggestions adopted: the size check
-  before reading; a clean state for every argument subtest (a mutation that
-  drops the BIOS check now fails two subtests instead of three); 0x80135EFC
-  in the 13 card routes; the scripted-route candidates in Next action; the
-  save's date as GameFAQs lists it. Declined: an upper bound on the pixel
-  rule at the full counts (label 361, banner 1103). On round 1's outputs it
-  drops 20 shots, all of them results screens on the contact sheet, with
-  labels up to 573 and banners up to 1,274 while the sweep bar crosses the
-  boxes (`r2/clear_time_check_capped.py`, `-round1-outputs.log`,
-  `r2/capped-dropped_sheet.png`). Deferred: the notes' fine-cadence wording
-  (it starts at the listed TIME minus 1,200 frames rounded down to a multiple
-  of 300); all 19 demo routes share the sentence, so the next change that
-  regenerates them fixes it. The earlier deferred suggestions stand.
-- Phase 3 change 5, round 2: pending delta re-review.
+- Phase 3 change 5: round 2 PASS on tree `91d6447` (staged diff `5ecf0036…`)
+  with no findings, after round 1 NEEDS CHANGES on tree `a831f14` (three Low:
+  the preload test could not fail, because the fake runtime only read the
+  card; two misattributed change 4 review rounds in this file; a traceback on
+  an unreadable `--card1`); commit `2a3fe3a`, pushed to the private
+  `origin/master`. Reports: `phase3-5/review-r1.md`, `phase3-5/r2/review-r2.md`.
+  Declined in round 2: capping the pixel rule at the full counts, which would
+  drop 20 real results screens (`phase3-5/r2/capped-dropped_sheet.png`). Round
+  2's suggestions: "a mutation fails only the subtests it affects" (applied in
+  the change 5 section above); the commit message's spike wording (fixed in
+  the commit); the debug server's `set_input` and `press` take stick axes
+  `lx`, `ly`, `rx` and `ry` (`psxrecomp/runtime/src/debug_server.c:7951-7980`),
+  so the recordings' stick values could be injected without a framework
+  change, though not frame-exactly (in Next action); a label bound near 600 in
+  the evidence pixel rule (evidence tooling, deferred). Still deferred: the
+  demo routes' fine-cadence notes (fixed when they are next regenerated),
+  ignoring SIGINT during the runner's cleanup, a lock file for one runtime per
+  build, and naming the last two interpreted `title_to_zone1` PCs.
+- Phase 4 change 1: round 1 NEEDS CHANGES on tree `9706929` (staged diff
+  `5663f5b7…`; report `phase4-1/review-r1.md`), six Low, resolved in round 2.
+  L1: Beetle also saves a changed card about two emulated seconds after the
+  game's last write, not only on exit; corrected in `AGENTS.md`, the driver's
+  docstring, the test comments and this file, with the source lines and the
+  second batch's file times. L2: zone 7's differing pixels are background
+  under the light sweep, not the small digits; corrected, with
+  `r2/zone7-sweep-crops.png`. L3: U1's mid-replay results screen is now
+  recorded and compared (a finer-sampled scratch run). L4: the results claim
+  names what was compared (the four text rows, three pairs with pixels left
+  out, SCORE BONUS only where final). L5: the prototype batch had four
+  failures, not two; corrected. L6: the commit message is rewritten (seven
+  bytes, the light sweep, U1's SCORE BONUS, the same screens in the same
+  order). Suggestions adopted: the `beetle_main.cpp:226-233` citation;
+  wrong-size and unreadable `--card1` test cases, with two more mutations
+  (eleven, all caught); the driver is Linux-only (`AGENTS.md`, docstring);
+  the stray check covers only card 1 in the unlocked-save routes (first-batch
+  bullet); when a route change needs a Beetle run (`AGENTS.md`); the Engram
+  memories corrected. Deferred: tests for the connect-too-late and reply-id
+  checks (each needs a new fake behaviour; the next driver change), and a
+  finer shot cadence where a replay shows a mid-replay results screen (a
+  route change; the scratch run covers U1). The reviewer's `git status` in the
+  ignored `.cache/beetle/psxrecomp/beetle-psx` refreshed that checkout's index
+  stat cache (content unchanged; `build_beetle.sh` recreates the checkout).
+- Phase 4 change 1: round 2 NEEDS CHANGES on tree `9d7f44a` (staged diff
+  `1b8e5f50…`; report `phase4-1/r2/review-r2.md`), two Low, resolved in
+  round 3. R2-1: five pairs whose SCORE BONUS figure is the same on both
+  sides (zone 7 and U8 in both modes, U2 in SCPH-1001) were recorded as still
+  counting; their differing pixels are the light sweep or background. Read
+  from the digits (`r3/score_bonus.py`), the figure is the same in 24 pairs
+  and differs in 14; the scope, the results and U1 bullets, the hypotheses
+  and the commit message are corrected, and U1's one differing mid-replay
+  pixel in SCPH-1001 is recorded as a background dot, not counting. R2-2: the
+  sweep covers 49 of zone 7's 56 differing pixels at the stated shots, not
+  all of them, and zone 3's PILOT ABILITY row left out 42 of 832 pixels, not
+  of 790; both corrected. Suggestions adopted: `u1_mid.py` removes its
+  temporary crop; the commit message words the screen comparison as this
+  file does; the U1 bullet says its shot ranges come from the rule's
+  results-screen test; "final" is labelled derived; Engram #225 corrected.
+- Phase 4 change 1, round 3: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Every zone's DEMONSTRATION replay then runs
-under a committed route. No route reaches TRAINING lessons, ZONE PLAY zones,
-or SAVE REPLAY and LOAD REPLAY yet, which scripted menu input may reach, nor
-CAMPAIGN PLAY past zone 1, the ending and the credits, which need steering:
-scripted input without steering cleared only zone 1's first wave (change 3).
-For those, the user chose a spike first, in scratch. Its first step is done
-(`.cache/evidence/spike-replay/`): each of `REPLAY/REPLAY00.DAT` to
-`REPLAY18.DAT` (23,404 bytes) holds one zone's recorded input, an 8-byte
-input state per 30 fps game frame, run-length coded (`decode_replay.py`,
-`decode.log`). Each file's frame count, difficulty and level match its
-DEMONSTRATION entry's listed time, difficulty and LEVEL. Every recording
-steers with the analog stick, off centre in 82 to 99% of its frames
-(`stick_use.py` / `.log`), and routes carry only the 16 button bits, so the
-recordings cannot become route input without a framework change. The user
-chose to continue with the debug server's memory writes, time-boxed, in
-scratch and labelled harness-assisted. The campaign loop (0x8002F814) walks a
-17-step script at 0x8001232C: two briefings, nine zones, four between-zone
-movies (INTER1 to INTER4), END_ALL and the staff credits (STAFF320). The
-functions it calls save its script pointer and step on the stack; rewriting
-both while a step runs makes the loop continue after the chosen step
-(`spike_ending.py`, `spike_tour.py`). Skipping the zones that way, the four
-movies, END_ALL, the credits and the closing copyright screen ran with no miss
-(`runs/ending/`, `runs/tour/`, with contact sheets). A Start press on the
-copyright screen ended the campaign. The game then entered state 7, whose
-handler (`func_8002DC48`) calls the replay player's step (0x80077228), and the
-function at 0x800571B8 called the scene entry stored when the BRI1 briefing
-started (0x80120EAC). Other data filled the overlay area there (the word at
-0x80120EAC is a reserved opcode), so the runtime halted on an unknown dispatch
-(`runs/tour/postmortem.log`). The writes skipped every zone step, which
-normally runs between those scenes, so this may be an artifact of the harness
-(hypothesis); real play to the ending, or the same path under Beetle, would
-settle it. How to continue is the user's decision. Independent of that, one
-change each:
-
-- harvesting any misses with `psxrecomp/tools/collect_game_misses.py` (none so
-  far);
-- Phase 4, which needs a way to feed the same input to `psx-beetle`.
+After a PASS: commit and push. Every committed route then also runs on the
+Beetle oracle. Still unreached by any route: TRAINING lessons, ZONE PLAY
+zones, and SAVE REPLAY and LOAD REPLAY, which scripted menu input may reach;
+CAMPAIGN PLAY past zone 1, the ending and the credits, which need steering.
+Scripted input without steering cleared only zone 1's first wave (change 3),
+and the spike reached the ending only by rewriting the campaign script; its
+post-credits halt is unexplained. How to reach those is the user's decision:
+genuine play on the dev build while its debug server is watched for misses;
+injecting the recordings' stick values through the debug server's `set_input`
+axes (not frame-exact, so a replay may drift); or leaving them. Also the
+user's decision: whether to investigate, or report upstream, the missing
+exception stub at 0x80000000 in psx-runtime's SCPH-1001 mode (a framework
+change). Independent changes: harvesting misses with
+`psxrecomp/tools/collect_game_misses.py` (none so far); finding why Beetle
+reaches screens later than psx-runtime (for example by comparing when each
+CD read completes).

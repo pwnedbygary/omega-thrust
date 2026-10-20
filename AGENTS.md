@@ -248,6 +248,66 @@ python3 -B scripts/routes/test_routes.py      # route files: exactly the listed 
 Verify every route change in all three modes and with `test_routes.py`, and
 every runner change with both test files and every route in all three modes.
 
+## Beetle oracle
+
+`psx-beetle` is the framework's build of Beetle PSX, the oracle that accuracy
+claims are checked against (`psxrecomp/CLAUDE.md` §16).
+`scripts/build_beetle.sh` builds it out of tree in `.cache/beetle/` by the
+recipe in `psxrecomp/docs/beetle-linux.md`: archives of the framework commits
+that HEAD pins (the submodule checkout is never written to),
+beetle-psx-libretro at `5759277be50052b9f3f388578bf56cc7899d833f` with the
+framework's seven `docs/beetle_*.patch` applied in order, then
+`ninja psx-beetle`. The first run clones beetle-psx-libretro into
+`.cache/beetle/beetle-psx.git`, so it needs network access.
+
+`scripts/routes/beetle_route.py` plays a committed route on it in
+`lle-openbios` mode (the framework's `psxrecomp/bios/openbios.bin`) or
+`lle-scph1001` mode (`--bios`); Beetle has no HLE boot. psx-beetle has no
+`input_route_*` commands, so the driver keeps one debug connection open,
+follows the frame count, and sends each press, and each shot once its step has
+ended, together with a `ping` on the frame before. Every press and shot then
+lands on its exact route frame, counted from `--start` (default 60), or the run
+fails. A run also fails if the BIOS image does not have the sha256 in its
+framework profile (`psxrecomp/bios/OpenBIOS.toml` or `SCPH1001.toml`), if
+`beetle.log` does not report that image's SHA-1 for `system/scph5501.bin` (the
+name Beetle wants with this US disc; without it Beetle quietly boots its own,
+different OpenBIOS), or if psx-beetle exits early or the route times out. Both
+memory cards start as formatted blank cards, as psx-runtime formats missing
+ones, and `--card1` follows `run_route.py`'s rules. Beetle reads the cards from
+its working directory under the disc's name, `cwd/Omega Boost (USA).0.mcr` and
+`.1.mcr`. It saves a card the game changed back to that file about two
+emulated seconds after the game's last write to it, and on exit if it changed
+since (beetle-psx `libretro.cpp`, `mednafen/psx/frontio.cpp`), so read the
+cards only after psx-beetle has exited. The `dummy.*.mcr` lines in
+`beetle.log` come from a separate warn-only check
+(`psxrecomp/runtime/src/beetle_libretro.cpp:543-567`) of files it does not
+load. The driver writes the cards under Beetle's names and fails the run if
+psx-beetle writes any other file in `cwd/`. Runs are unpaced unless `--paced`.
+Unpaced, Beetle takes about 3 ms per frame on average, and that is all the
+time the driver has to answer each ping; if the host holds it back longer, an
+event lands a frame late and the run fails, so run it again (`--paced` gives
+every frame 1/59.94 s). Outputs go to `.cache/beetle-routes/<name>/<mode>/`
+under `run_route.py`'s reuse rules, with the driver's own marker. The debug
+port is 4382; run routes one at a time. The driver and its tests run on Linux
+only (`TCP_QUICKACK`, `/proc`).
+
+```sh
+bash scripts/build_beetle.sh                  # JOBS=N sets the parallel jobs
+python3 -B scripts/routes/beetle_route.py scripts/routes/<route>.json \
+  --mode lle-openbios
+python3 -B scripts/routes/beetle_route.py scripts/routes/<route>.json \
+  --mode lle-scph1001 --bios <SCPH-1001 v2.2 dump>
+# routes with card1_sha256 also take --card1 .cache/saves/all-zones.mcd
+python3 -B scripts/routes/test_beetle_route.py   # against a fake psx-beetle
+```
+
+Beetle's boot reaches the same screens as psx-runtime's on other frames, so
+compare screens and results along a route, not frame by frame. Verify every
+driver change with its tests and every route in both modes. A route change
+needs a Beetle run only when a claim that the route's screens or results are
+correct depends on it (`psxrecomp/CLAUDE.md` §15: never call a result correct
+without checking it against the oracle).
+
 ## Naming
 
 The project is Omega Thrust: window title "Omega Thrust", executable
