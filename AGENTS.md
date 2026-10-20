@@ -52,8 +52,9 @@ no ignore pattern matches them elsewhere. For the same reason, keep a store
 named by `PSX_OVERLAY_CAPTURES` outside the repository or under `.cache/`; the
 ignore pattern matches only the default `overlay_captures.*` names.
 
-`generated/` is committed but never hand-edited: change the seeds, or take a
-recompiler fix through a reviewed pin bump, then regenerate.
+`generated/` is committed but never hand-edited: change the seeds or
+`aot/overlays.json`, or take a recompiler fix through a reviewed pin bump, then
+regenerate.
 
 ## Verified commands
 
@@ -90,9 +91,37 @@ later runs are incremental (`--force-emitters` wipes and rebuilds it). The
 output is byte-identical across runs. The runtime builds use the system GCC and
 the CI template flags; `build-dev` adds the TCP debug server (127.0.0.1:4370).
 
-The runtime build writes one file inside the submodule, whenever it is missing
-or stale: the framework's `psxrecomp/runtime/include/overlay_codegen_hash.h`
-(`psxrecomp/runtime/runtime.cmake:1778`), which `psxrecomp/.gitignore:76`
+`generate` then builds the static overlay shard that `aot/overlays.json`
+declares (`static_output`). Working from the original disc only, never from
+overlay captures, it checks the disc SHA-1 and the loader instructions that set
+the overlay base, takes the 25 scene `.BIN` files whole at 0x80120000,
+translates the overlay functions it finds statically into C variants guarded by
+the CRC of the bytes they came from, and writes `generated/overlays_static.c`,
+`overlays_static_0000.c` to `overlays_static_0024.c` and `AOT_STATIC_AUDIT.json`
+(work files in `.cache/aot-static/`). It reuses the shard and prints
+`RESULT_STATIC=reused` only if the generation inputs recorded in the audit are
+unchanged (profile, `game.toml`, disc, recompiler binary and its cache tag,
+CPS mode, gcc path, framework tool hashes, mod packages) and the published
+files still match the audit's hashes
+(`psxrecomp/tools/aot_overlay_pipeline.py:932-1001`). Otherwise it rebuilds
+the shard, as `--force-aot-static` always does. The audit identifies the
+recompiler by the sha256 of its binary, so a recompiler binary that differs,
+or another gcc path (the audit records `/usr/bin/gcc`), triggers a rebuild;
+rebuilding the emitters from the same sources with the same toolchain gives
+the same binary, so a fresh checkout's `generate` and `--force-emitters` keep
+the shard. Every rebuild rewrites the audit: its `recipe_input_sha256` hashes
+an inventory of files in a new temporary work directory, so it changes every
+time, even when a forced rebuild with unchanged inputs writes the same C.
+`CMakeLists.txt` links the shard through `GAME_OVERLAY_STATIC_C` (see the
+comment there on where it may go), and configure fails if that and
+`static_output` disagree. Overlay code the shard does not cover still runs in
+the interpreter.
+
+The runtime build and the static overlay step write one file inside the
+submodule, whenever it is missing or stale: the framework's
+`psxrecomp/runtime/include/overlay_codegen_hash.h`
+(`psxrecomp/runtime/runtime.cmake:1778`,
+`psxrecomp/tools/aot_overlay_pipeline.py:902-920`), which `psxrecomp/.gitignore:76`
 ignores. It cannot be redirected without patching the submodule.
 `git -C psxrecomp status --porcelain --ignored` should list only that file.
 

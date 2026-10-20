@@ -45,6 +45,11 @@ psxrecomp_add_game_runtime(psx-runtime
     MAX_PLAYERS 1
     # LAUNCHER_BOXART "${CMAKE_CURRENT_SOURCE_DIR}/launcher_assets/img/boxart.tga"
     APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/psxrecomp.ico"
+    # Static overlay shard, written by generate from aot/overlays.json
+    # (static_output). Keep it above GEN_FULL_GLOB and CODEGEN_SETUP_SOURCES:
+    # after CODEGEN_SETUP_SOURCES it still configures, but the codegen host
+    # source is dropped and the link fails.
+    GAME_OVERLAY_STATIC_C "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays_static.c"
     # Committed game C (psxrecomp_cli.py generate; git add generated). Release
     # CI configures with -DPSXRECOMP_REQUIRE_GAME_C=ON so a checkout without
     # it fails instead of building a setup host.

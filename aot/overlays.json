@@ -1,0 +1,64 @@
+{
+  "schema": "psxrecomp AOT methods v1",
+  "game_id": "SCUS-94449",
+  "disc_hashes": {
+    "sha1": "772c58d8af1b69cfeb53e0763cab71ee431ed37b"
+  },
+  "checks": [
+    {
+      "method": "words",
+      "file": "SCUS_944.49",
+      "file_offset": "0x800",
+      "base": "0x80010000",
+      "values": {
+        "0x80075AF4": "0x3C028012",
+        "0x80075AF8": "0x24420000",
+        "0x80075AFC": "0x3C01800A",
+        "0x80075B00": "0xAC22C03C"
+      }
+    }
+  ],
+  "images": [
+    {
+      "method": "fixed_address_files",
+      "load_addr": "0x80120000",
+      "files": [
+        "BRI1/BRI1.BIN",
+        "BRI2/BRI2.BIN",
+        "MOVIE/MOVIE.BIN",
+        "S1/S1.BIN",
+        "S10/S10.BIN",
+        "S2/S2.BIN",
+        "S3/S3.BIN",
+        "S4/S4.BIN",
+        "S5/S5.BIN",
+        "S6/S6.BIN",
+        "S8/S8.BIN",
+        "S9/S9.BIN",
+        "TITLE/TITLE.BIN",
+        "TU/TU.BIN",
+        "U2/U2.BIN",
+        "U4/U4.BIN",
+        "U6/U6.BIN",
+        "U7/U7.BIN",
+        "U9/U9.BIN"
+      ]
+    },
+    {
+      "method": "fixed_address_files",
+      "load_addr": "0x80120000",
+      "allow_missing": true,
+      "files": [
+        "LOGO/LOGO.BIN",
+        "U1/U1.BIN",
+        "U3/U3.BIN",
+        "U5/U5.BIN",
+        "U8/U8.BIN",
+        "V5/V5.BIN"
+      ]
+    }
+  ],
+  "expected_records": 25,
+  "strict_bounds": true,
+  "static_output": "generated/overlays_static.c"
+}
