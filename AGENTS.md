@@ -95,8 +95,9 @@ the CI template flags; `build-dev` adds the TCP debug server (127.0.0.1:4370).
 
 `generate` then builds the static overlay shard that `aot/overlays.json`
 declares (`static_output`). Working from the original disc only, never from
-overlay captures, it checks the disc SHA-1 and the loader instructions that set
-the overlay base, takes the 25 scene `.BIN` files whole at 0x80120000,
+overlay captures, it checks the disc SHA-1 and four scene-loader instructions
+(0x80075AF4 to 0x80075B00, which put a scene's data at 0x80120000 when the
+scene has no `.BIN`), takes the 25 scene `.BIN` files whole at 0x80120000,
 translates the overlay functions it finds statically into C variants guarded by
 the CRC of the bytes they came from, and writes `generated/overlays_static.c`,
 `overlays_static_0000.c` to `overlays_static_0024.c` and `AOT_STATIC_AUDIT.json`
