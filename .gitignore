@@ -1,7 +1,8 @@
 # Scaffold .gitignore for a PSXRecomp game repository (New Project Layout).
 # Based on psxrecomp/tools/new_project_layout/templates/gitignore.in.
-# Differences: disc_probe.json and zone data dumps are ignored, and the
-# config, env, capture, image and memory card patterns are broader.
+# Differences: disc_probe.json, zone data dumps and zone packages are
+# ignored, and the config, env, capture, image and memory card patterns are
+# broader.
 
 # Build outputs
 /build/
@@ -28,8 +29,10 @@
 /saves/
 /prepared_disc/
 /disc/
-# Zone data dumped from the disc by scripts/zones/zone_data.py
+# Zone data dumped from the disc by scripts/zones/zone_data.py, and the mod
+# packages it builds from that data
 *.zone.toml
+*.psxmod
 .settings/
 
 # Disc / image / memcard formats

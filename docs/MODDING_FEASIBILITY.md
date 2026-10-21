@@ -4,7 +4,7 @@ Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
 Steps 1 and 2 of the recommended path (section 6) are now implemented, and
-the wave timeline part of step 3; nothing else here is. The evidence
+the wave timeline parts of steps 3 and 4; nothing else here is. The evidence
 (scripts, logs and saved web pages) is in `.cache/evidence/mod-research/`,
 which is ignored and exists only on the machine that did the research;
 evidence file names below are relative to it.
@@ -39,9 +39,11 @@ source.
 - Remixed zones: edit a zone's wave timeline and formation tables, which are
   data inside its `.BIN`, and ship them as same-size disc overlays. The
   timeline is decoded, and a tool turns it into editable text and back
-  (section 6, step 3); the formation records, used by four zones, are only
-  partly decoded, the other zones start their waves through their own code,
-  not yet read, and files cannot grow.
+  (section 6, step 3) and packages an edited one as a mod the game loads,
+  with the zone's precompiled code still running (step 4); the formation
+  records, used by four zones, are only partly decoded, the other zones
+  start their waves through their own code, not yet read, and files cannot
+  grow.
 - New zones: a new `.BIN` linked at 0x80120000 against the EXE's fixed
   addresses, plus models, textures and sound; a plugin adds its load case and
   result slot. The spare scene slots have no load case that retail code
@@ -221,8 +223,9 @@ checksums independently.
     1ST, 2ND, 3RD and 6TH ZONE's files call 0x80057F0C: 38 of the 121
     entries (30 of the 95 distinct callbacks) pass it a formation record
     from the zone's data and two counts, then call an overlay function once
-    per member. The commonest other call, 0x80063C5C (17 entries), starts a
-    timer task under the runner, which counts a word down each tick (update
+    per member. The commonest other call, 0x80063C5C (17 entries across the
+    fourteen zones, 11 of them in the ten without the formation call), starts
+    a timer task under the runner, which counts a word down each tick (update
     0x80063D04). A formation record starts with eight words: a pointer to
     20-byte steps, a second pointer, three words added to the player
     object's words at +0x34 to +0x3C (its position, hypothesis), and three
@@ -230,9 +233,10 @@ checksums independently.
     rest is not decoded, and the counts are instruction immediates in the
     callbacks, not data.
 
-  So timing and placement are data in the `.BIN`, behaviour is `.BIN` code
-  calling the EXE, and the model and texture files hold only models and
-  textures (agent, Derived).
+  So in the fourteen zones with a timeline, wave timing is data in the
+  `.BIN`, and so is placement in the four with the formation call; behaviour
+  is `.BIN` code calling the EXE, and the model and texture files hold only
+  models and textures (agent, Derived).
 
 ### The campaign
 
@@ -465,7 +469,7 @@ disc 1 (`cw_check.py` / `.log`).
 
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
 inside this repository and add no game data. Steps 1 and 2 are done (Phase 5
-changes 2 and 3), and step 3's timeline part (change 4).
+changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
 
 1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
    All Zones and Boost Levels", off by default) and its plugin
@@ -524,8 +528,40 @@ changes 2 and 3), and step 3's timeline part (change 4).
 4. Remix pack, medium to large. Edited timelines and formations for existing
    zones as same-size disc overlays, guarded by the stock hashes; a guarded
    EXE patch adjusts rating thresholds if needed.
-   - Hypothesis: data-only edits keep the static shard valid, because its
-     guard covers code bytes. Test it.
+   - The timeline part is done (Phase 5 change 5). `zone_data.py package`
+     turns an edited dump into a `.psxmod` whose one feature, off by
+     default, puts the edited table on the disc as a `disc_user` overlay,
+     guarded by the disc image's sha256 and the stock bytes' sha256
+     (`AGENTS.md`, Zone data). Scripted runs used a scratch remix of the
+     1ST ZONE: its first four waves, 60 ticks apart, then the end entry.
+     With the package installed and on, in all three boot modes, the game
+     loaded the remixed table, the zone ended with no input after CLEAR
+     TIME 0:11.10 (15 enemies spawned, none destroyed, rank B), and the
+     campaign went on to the 2ND ZONE; with the feature off, the stock zone
+     was still running at the same frames.
+   - Edits up to the end of a zone's table keep the static shard's variants
+     valid (Derived from the variants' code ranges). A variant runs only
+     while the CRC of its own code ranges matches (`overlay_loader.c`), and
+     in each of the fourteen zones with a timeline no matching variant
+     guards a byte before the table's end, so an edit to the table or to
+     the data before it leaves all of them valid (the 1,391 for the 1ST
+     ZONE match the remixed file too).
+   - The remix runs interpreted as much overlay code as the stock
+     boot-to-zone-1 route: 1,309 instructions in seven rows, one per
+     address. The five largest rows match that route's by address and
+     count, and the other two hold the remaining 15; the probes keep only
+     five rows, so earlier samples name those two, 0x80126160 in every run
+     and 0x801261AC in one. All seven rows existed while the briefing's file
+     was loaded, so the remixed zone added none. In the LLE SCPH-1001 remix
+     run the count was already final then, so that zone ran nothing in the
+     interpreter. In the other two remix runs the count's last step, 98 and
+     371 instructions (7% and 28% of it), falls between a sample with the
+     briefing loaded and one with the zone file loaded, so the samples
+     cannot tell whether those ran before the load or after it (Derived from
+     the probe samples).
+   - Still to do: formation edits (not decoded), a remix pack worth
+     playing, rating thresholds, and checking a remix against psx-beetle,
+     which runs no mods and would need a patched disc image.
 5. A new zone in a spare slot, large. Spike these three unknowns first:
    - whether the game's DsSearchFile finds a file whose directory record (in
      a directory sector's free space, an equal-length patch) points into
@@ -566,7 +602,9 @@ changes 2 and 3), and step 3's timeline part (change 4).
 - What the 8TH ZONE's runner does if its last wave is ever cleared before
   the zone ends: with no end entry, it would take the debug string after the
   table as an entry and call it (Derived; never seen).
-- Whether data-only edits keep the static shard's compiled variants in use.
+- Whether edits to a zone's data after its table keep the static shard's
+  variants in use; no matching variant guards a byte before the table's end
+  (step 4).
 - Whether the spike's crash after the credits also happens in genuine play. A
   full play-through answers it.
 

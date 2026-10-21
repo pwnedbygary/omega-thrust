@@ -18,6 +18,9 @@ the end entry: 90 ticks later the runner calls the zone clear routine
   zone_data.py build <file> [--out F]   write the zone file with the edited table
   zone_data.py check                    dump and rebuild every table; the bytes
                                         must come out identical
+  zone_data.py package <file> [--id I] [--name N] [--version V] [--out F]
+                                        write a mod package that makes the game
+                                        load the edited table
 
 A dump names the size and sha256 of the zone file it was read from, and build
 reads that file from the disc again and refuses any other. Build writes the
@@ -27,13 +30,27 @@ callbacks of the stock table, and the first entry must be a wave, because the
 constructor calls entry 0's callback without checking it. Dumps and zone files
 hold data from the disc, so they go under .cache/ (default .cache/zones/) or
 outside the repository, never elsewhere in it.
+
+A package is a .psxmod: a zip with manifest.toml at its root, which the
+launcher's Mods page installs. Its one feature, off by default, puts the
+edited table's slots on the disc in place of the stock ones (a disc_user
+overlay at the zone file's sector times 2048 plus the table's offset), so the
+game reads them when it loads the zone. The manifest names the sha256 of the
+data file that the cue sheet given with --disc names, which is what the
+runtime hashes when it mounts that cue, so the package applies only to that
+disc image; and the sha256 of the stock bytes it replaces, which the runtime
+checks before launch. The overlay holds data from the disc, so the same rule
+about where to write applies.
 """
 import argparse
 import hashlib
+import io
+import json
 import re
 import struct
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -45,6 +62,7 @@ CLEAR_ROUTINE = 0x80034104
 FORMATION = 0x80057F0C    # the call wave callbacks use to start a formation
 WAIT = -100               # a delay that waits only for the runner's children
 FORMAT = 1
+GAME_ID = "SCUS-94449"    # game.toml [game] id, which packages target
 SECTOR, HEADER, USER = 2352, 24, 2048  # MODE2/2352 form 1 sectors
 LABELS = {"S1": "1ST ZONE", "S2": "2ND ZONE", "S3": "3RD ZONE", "S4": "4TH ZONE",
           "S5": "5TH ZONE", "S6": "6TH ZONE", "S8": "7TH ZONE", "S9": "8TH ZONE",
@@ -118,6 +136,18 @@ class Disc:
 
     def read(self, lba, size):
         return self.sectors(lba, -(-size // USER))[:size]
+
+    def image_sha256(self):
+        """The sha256 of the data file, which the runtime matches against a
+        package's disc_sha256 when it mounts the cue (mod_runtime.cpp sha256_file)."""
+        digest = hashlib.sha256()
+        try:
+            with self.bin.open("rb") as f:
+                while chunk := f.read(1 << 20):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ZoneError(f"cannot read {self.bin}: {exc}")
+        return digest.hexdigest()
 
 
 def words(blob):
@@ -377,6 +407,85 @@ def write(out, data):
         raise ZoneError(f"cannot write {out}: {exc}")
 
 
+def valid_id(value):
+    """The framework's rule for package and feature ids (mod_packages.cpp)."""
+    return (len(value) <= 96 and re.fullmatch(r"[a-z0-9._-]+", value) is not None
+            and not value.startswith(".") and not value.endswith("."))
+
+
+def toml_string(value):
+    """JSON's escapes are valid TOML, but TOML also forbids a raw U+007F."""
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
+
+
+def package(stock, built, path, lba, image, image_sha256, pkg_id, version, name):
+    """manifest.toml, the overlay file's name and its bytes: the built table's
+    slots, put on the disc in place of the stock ones."""
+    _, address, waves, end = read_table(stock)
+    start, size = address - BASE, 8 * (len(waves) + (end is not None))
+    payload = built[start:start + size]
+    folder = path.split("/")[0]
+    member = f"{folder}.timeline.bin"
+    label = LABELS.get(folder, folder)
+    about = (f"Off by default. While on, the {label} plays an edited wave timeline"
+             f" ({path}, {size // 8} slots at 0x{address:08X}). Built for one disc"
+             f" image, {image.name}; the game must be started from that image.")
+    return "\n".join([
+        f"# Built by scripts/zones/zone_data.py from {path} on the player's disc.",
+        f"# {member} holds data from that disc: keep this package out of the",
+        "# repository.",
+        "format_version = 7",
+        f"id = {toml_string(pkg_id)}",
+        f"version = {toml_string(version)}",
+        f"name = {toml_string(name)}",
+        'author = "zone_data.py"',
+        f"description = {toml_string(f'An edited wave timeline for the {label}.')}",
+        'resolver = "declarative"',
+        'save_compatibility = "shared"',
+        "",
+        "# The runtime hashes the disc image it mounts (the data file a cue sheet",
+        "# names); the overlay applies only when that is this one.",
+        "[[target]]",
+        f"game_id = {toml_string(GAME_ID)}",
+        f"disc_sha256 = {toml_string(image_sha256)}",
+        "",
+        "[[feature]]",
+        'id = "timeline"',
+        f"name = {toml_string(name)}",
+        f"description = {toml_string(about)}",
+        'group = "Remix"',
+        "default_enabled = false",
+        "",
+        "[[overlay]]",
+        'feature = "timeline"',
+        'target = "disc_user"',
+        f"offset = {lba * USER + start}  # sector {lba} * 2048 + 0x{start:X}",
+        f"file = {toml_string(member)}",
+        f"sha256 = {toml_string(hashlib.sha256(payload).hexdigest())}",
+        "expected_sha256 = "
+        + toml_string(hashlib.sha256(stock[start:start + size]).hexdigest()),
+        ""]), member, payload
+
+
+def archive(members):
+    """A zip with stored entries and fixed times: the same input, the same bytes."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for name, data in members:
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            z.writestr(info, data)
+    return buf.getvalue()
+
+
+def load_dump(source):
+    try:
+        text = source.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ZoneError(f"cannot read {source}: {exc}")
+    return parse(text, source)
+
+
 def zone_blob(disc, files, path):
     if path not in files:
         raise ZoneError(f"{path} is not on the disc")
@@ -424,11 +533,7 @@ def cmd_dump(disc, files, args):
 
 def cmd_build(disc, files, args):
     source = Path(args.file)
-    try:
-        text = source.read_text()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ZoneError(f"cannot read {source}: {exc}")
-    doc = parse(text, source)
+    doc = load_dump(source)
     path = doc["file"]
     stock = zone_blob(disc, files, path)
     out = output_path(args.out or OUT_DIR / path.split("/")[1])
@@ -461,7 +566,36 @@ def cmd_check(disc, files, _args):
     return 0 if checked and same == checked else 1
 
 
+def cmd_package(disc, files, args):
+    source = Path(args.file)
+    doc = load_dump(source)
+    path = doc["file"]
+    stock = zone_blob(disc, files, path)
+    built = build(stock, doc, source)
+    folder = path.split("/")[0]
+    pkg_id = args.id or f"omega.remix.{folder.lower()}"
+    if not valid_id(pkg_id):
+        raise ZoneError(f"--id {pkg_id}: use lowercase letters, digits, '.', '-' and '_',"
+                        " at most 96 characters, not starting or ending with '.'")
+    if not re.fullmatch(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}", args.version):
+        raise ZoneError(f"--version {args.version}: use three numbers, such as 1.0.0")
+    name = args.name or f"{LABELS.get(folder, folder)} Remix"
+    try:
+        name.encode()
+    except UnicodeEncodeError:
+        raise ZoneError(f"--name {name!r} is not valid UTF-8 text")
+    out = output_path(args.out or OUT_DIR / f"{pkg_id}-{args.version}.psxmod")
+    manifest, member, payload = package(stock, built, path, files[path][0], disc.bin,
+                                        disc.image_sha256(), pkg_id, args.version, name)
+    write(out, archive([("manifest.toml", manifest.encode()), (member, payload)]))
+    same = " (the stock bytes)" if built == stock else ""
+    print(f"wrote {out}: {pkg_id} {args.version}, {member} replaces {len(payload)} bytes"
+          f" of {path}{same}; it applies only to a game started from {disc.bin}")
+    return 0
+
+
 def main():
+    sys.stdout.reconfigure(errors="backslashreplace")  # paths may hold bytes that are not UTF-8
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--disc", type=Path, default=DISC,
                         help="the game's cue sheet (default: %(default)s)")
@@ -476,8 +610,16 @@ def main():
     build_cmd.add_argument("--out", help="the zone file to write"
                            " (default: .cache/zones/<zone>.BIN)")
     sub.add_parser("check", help="dump and rebuild every table; the bytes must match")
+    pkg = sub.add_parser("package", help="write a .psxmod that loads an edited table")
+    pkg.add_argument("file", help="a dump, edited")
+    pkg.add_argument("--id", help="package id (default: omega.remix.<zone>)")
+    pkg.add_argument("--name", help="name on the Mods page (default: <zone> Remix)")
+    pkg.add_argument("--version", default="1.0.0", help="package version (default: %(default)s)")
+    pkg.add_argument("--out", help="the package to write"
+                     " (default: .cache/zones/<id>-<version>.psxmod)")
     args = parser.parse_args()
-    commands = {"list": cmd_list, "dump": cmd_dump, "build": cmd_build, "check": cmd_check}
+    commands = {"list": cmd_list, "dump": cmd_dump, "build": cmd_build, "check": cmd_check,
+                "package": cmd_package}
     try:
         disc = Disc(args.disc)
         return commands[args.command](disc, disc.zone_files(), args)

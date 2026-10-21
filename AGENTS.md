@@ -46,8 +46,8 @@ mkdir -p disc && chdman extractcd -i "<path>/Omega Boost.chd" \
   `.psxrecomp.env`, `.env`, build directories.
 - Memory card images and save files (`*.mcd`, `*.mcr`, `*.gme`), such as the
   unlocked save in `.cache/saves/`.
-- Zone data from `scripts/zones/zone_data.py`: its dumps (`*.zone.toml`) and
-  the zone files it builds hold data from the disc.
+- Zone data from `scripts/zones/zone_data.py`: its dumps (`*.zone.toml`), the
+  zone files it builds and its packages (`*.psxmod`) hold data from the disc.
 
 If `[runtime] overlay_capture_history` is ever enabled, put
 `overlay_capture_persist_dir` under `.cache/`: its
@@ -425,6 +425,7 @@ python3 scripts/zones/zone_data.py list      # zone files and their tables
 python3 scripts/zones/zone_data.py dump S1   # to .cache/zones/S1.zone.toml
 python3 scripts/zones/zone_data.py build .cache/zones/S1.zone.toml
 python3 scripts/zones/zone_data.py check     # dump and rebuild every table
+python3 scripts/zones/zone_data.py package .cache/zones/S1.zone.toml
 python3 -B scripts/zones/test_zone_data.py   # tests (the disc is optional)
 ```
 
@@ -434,10 +435,30 @@ other. It writes the table in place: the waves and the end entry must fit in
 the stock table's slots, a wave may use only the stock table's callbacks, and
 the first entry must be a wave, because the runner's constructor calls entry
 0 without checking it; slots left over become zero words. Delays count runner
-ticks, about one every two frames (30 a second). Dumps and built zone files
-hold data from the disc, so the tool writes them only under `.cache/` or
-outside the repository. No mod loads an edited zone file yet. Verify every
-change to the tool with its tests and `check`.
+ticks, about one every two frames (30 a second). Dumps, built zone files and
+packages hold data from the disc, so the tool writes them only under
+`.cache/` or outside the repository. Verify every change to the tool with its
+tests and `check`.
+
+`package` makes the game load an edited table. It writes a `.psxmod` (default
+`.cache/zones/<id>-<version>.psxmod`, id `omega.remix.` and the zone's folder
+in lowercase, such as `omega.remix.s1`): a zip with `manifest.toml` at its
+root, which the launcher's Mods page installs into
+`<exe>/mods/installed/<id>/<version>/`. Its one feature, `timeline` (group
+Remix, off by default), is a `disc_user` overlay (`MOD_PACKAGES.md`, "Native
+operations") that puts the edited table's slots on the disc in place of the
+stock ones, so the game reads them when it loads the zone; no plugin, hook
+site or regenerate is involved. The manifest names the sha256 of the disc
+image the runtime mounts, which for a cue sheet is the data file it names
+(`psxrecomp/runtime/src/mod_runtime.cpp` `sha256_file`), so with the feature
+on the runtime refuses to start from any other image; and the sha256 of the
+stock bytes under the overlay, which the runtime checks before launch,
+refusing to start if they differ. A table edit leaves the zone's precompiled
+code running: a static variant's guard is the CRC of its own code ranges, and
+in every zone with a timeline none of those ranges covers the table. To play
+a package headless, add it to a copy of the build as in "Mods": unpack it
+into the copy's `mods/installed/<id>/<version>/` and enable its feature in
+the copy's `mods/state.toml`.
 
 ## Naming
 
