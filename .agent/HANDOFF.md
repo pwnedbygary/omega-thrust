@@ -9,43 +9,36 @@ cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure.
 
-Current iteration, Phase 5 change 3 (the branching campaign prototype the
-user chose, step 2 of `docs/MODDING_FEASIBILITY.md` section 6), round 2.
-Invariant: two game-owned packages, both off by default, select trusted
-instruction plugins linked through `EXTRAS_SOURCES`, at two sites now listed
-in `game.toml` `[recompiler] mod_instruction_sites`. Regenerating adds the
-hook calls to two game shards and records the new `game.toml` in the static
-overlay audit; the shard's C is unchanged. `omega.gameplay.branching`
-(feature `branching`, "Branching Campaign (prototype)") hooks the campaign
-loop's step-limit check (0x8002FB2C). With an S grade on the 1ST ZONE the
-campaign plays the 3RD ZONE, then the 2ND ZONE, MOVIE IM 0 and the 4TH ZONE;
-with any other grade it keeps the stock order; every zone is played once.
-The hidden test package `omega.debug.zone-clear` (feature `zone-clear`)
-hooks the zone timeline runner (0x80071558) and ends a zone that uses it
-through the game's own clear path once the player is in play, graded low
-with nothing destroyed (D, or B in the 1ST ZONE) and S with its option
-`all-destroyed`; it has run in the 1ST to 4TH ZONE of CAMPAIGN PLAY only.
-Checked in all three boot modes from copies of the build with their own
-`mods/state.toml`: the S path with both on, and the stock order with low
-grades and with S grades while branching is off.
-With both off, all 22 committed routes pass in all three modes with the same
-overlay counts as before. `AGENTS.md` documents both packages, the hook-site
-rule and the audit's blind spot for instruction-only plugins, and adds `--out`
-and the copy's location to the feature-on recipe (change 2's first review
-suggestion). The doc records step 1's launcher check, step 2's results and
-the campaign facts checked on the way. This file records change 2's PASS and
-commit `9500812`, the launcher check and change 2's other review suggestions,
-and condenses change 2. Round 2 resolves review round 1's findings: the 8TH
-ZONE, U4 and U8 also call the clear routine from their own code, now recorded
-from a saved script, and every claim about the test clear is limited to the
-zones it ran in; the doc's record bullet is marked re-checked; a citation and
-the host-stall wording are corrected. Baseline: `9500812`. Out of scope: the
-zones that end outside the shared timeline (5TH, LAST, U5, U9, V5) for the
-test clear, and runs of the test clear in other zones; branches into extra
-zones (the result-record hazard in the doc); the whole
-campaign and its end under the branch; runner, driver, route and test
-changes; a committed feature-on route; framework and submodule changes; play
-sessions; CI, packaging.
+Current iteration, Phase 5 change 4 (the zone data tool the user chose: step
+3 of `docs/MODDING_FEASIBILITY.md` section 6, limited to the wave timeline),
+round 2. Invariant: `scripts/zones/zone_data.py`, standard library only,
+reads the zone files from the player's disc and, for each of the fourteen
+that pass a table to the timeline runner's constructor (0x80071624), writes
+the table as TOML (waves of callback and delay, the end entry's second word
+or `false`, and a note on each callback's calls), then builds the zone file
+back from that TOML: byte-identical when unedited, edits written in place.
+Build refuses another stock file, callbacks outside the stock table, more
+entries than the stock slots, an empty wave list, and `end = false` unless
+the stock table has no end entry and every slot is used; slots left over
+become zero words. The tool writes only under `.cache/` or outside the
+repository, and `*.zone.toml` is ignored. Its tests use synthetic zone files
+and a synthetic disc image, plus the player's disc when present, and fail
+when bugs are planted. A read-only watch of the live runner during the
+DEMONSTRATION replays of the fourteen zones confirms that the game runs the
+tables the tool finds, with their delays. `AGENTS.md` documents the tool and
+its never-commit rule and applies change 3's round-2 wording suggestion; the
+doc records the timeline's re-checked semantics and step 3's state; this
+file records change 3's PASS and commit `b2e4e6a` and condenses change 3.
+Round 2 resolves review round 1: the doc and this file now say that only
+four zones call 0x80057F0C and that the runner's children are the tasks the
+waves create, the 6TH ZONE's extra results shot is recorded, and a test
+isolates the refusal of `end = false` over a stock end entry; the tool also
+refuses `format = true` and reports unwritable outputs without a traceback.
+Baseline: `b2e4e6a`. Out of scope: the formation records and other tables,
+textures, models and sound banks; loading an edited zone file in the game
+(step 4); the zones without the shared runner; runner, driver, route and
+plugin changes; framework and submodule changes; play sessions; CI,
+packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -425,265 +418,206 @@ keyword's values. Review: round 1 PASS on tree `6a7d573` (staged diff
 `phase5-2/review-r1.md`. The full record is in
 `git show 9500812:.agent/HANDOFF.md`.
 
-## Phase 5 change 3 observations (`.cache/evidence/phase5-3/`)
+## Phase 5 change 3 (commit `b2e4e6a`)
 
-- The launcher check change 2 left open (`launcher/`; 2026-10-21, before this
-  change's edits). The recomp-ui launcher ran on a private Xvfb display from
-  a scratch copy of `build-dev` (binary `64f65d9d2f0a…`, no `settings.toml`
-  or `mods/state.toml`, its own `game.toml`), driven by xdotool clicks and
-  screenshots. Its Mods page lists "Unlock All Zones and Boost Levels" under
-  Cheats, unticked, with the manifest's description, version and author.
-  Ticking it writes nothing until the launcher closes. PLAY wrote
-  `mods/state.toml` (format 2) with the feature enabled, and the game it
-  started (HLE OpenBIOS) reported 64 plugin writes, the last at frame 422 as
-  in the headless runs, A[0..18] and B[0..13] set, A[19] and B[14..19]
-  clear, and no miss (`queries.log`, `shots/`). The launcher also wrote its
-  files and `multitap_analog` into the copy, as `AGENTS.md` says;
-  `build-dev` and tracked files were untouched.
-- The campaign loop, the results code and how a zone ends, read from the
-  disassembly (`dis_excerpts.sh` / `dis-excerpts.txt`, which rebuild it from
-  `disc/SCUS_944.49`; all 529 lines equal the same ranges of the spike's
-  listing, saved as `spike-excerpt.txt`). The doc's "The campaign" now gives
-  the addresses. In short: the loop keeps the script pointer in $s0 and the
-  step in $s1 and reaches the step-limit check at 0x8002FB2C only after a
-  step whose result word is 0 or 1, with both already advanced; the results
-  code writes a zone's record only while 0x800A7950 is 0 (campaign mode, by
-  the agent's reading) and grades the rating 0 (S) to 4 (D), against a start
-  value of 6; the destroy ratio is 0 while no enemy has spawned
-  (0x80057268); and a zone ends through 0x80034104, which the shared
-  timeline runner calls 90 frames after an empty entry.
-- Which zones reach that routine, and how (`clear_callers.py` /
-  `clear-callers.log`; it counts, in every scene `.BIN` and the EXE, the
-  `jal` to the routine and to the runner's constructor, `j` to the routine
-  and data words holding its address, and checks each call's argument; the
-  scene-to-file map comes from the EXE's path table, and the campaign script
-  ties scene 10 to step 12, the 8TH ZONE). Zones 1 to 4, 6 and 7, U1 to U3,
-  U6 and U7 call the runner's constructor once and the routine never. The 8TH
-  ZONE (`S9.BIN`), U4 and U8 call the constructor once and also call the
-  routine from their own code: one, two and one calls (S9 +0x15AC8, U4
-  +0x4830 and +0x5118, U8 +0xA460). The 5TH ZONE, the LAST ZONE, U5, U9 and
-  V5 call it once and have no runner. The EXE's only call is the runner's
-  (0x80071604); every call passes the player pointer from 0x8009C064, and no
-  file has a `j` to the routine or a data word holding its address. Round 1
-  said only the five zones without a runner call it themselves; its log
-  (`clear-callers-first.log`, from an unsaved command) listed only those
-  five and the 1ST ZONE.
-- Zone state in play (`explore/state-tz1.log`, from `title_to_zone1` in HLE
-  mode, logged by an earlier `probe_state.py` without the grade and counter
-  columns): scene index 3, the player object at 0x80134124 in state 0 at
-  load and 3 in play, 0x800A794A counting enemies spawned (5, 10, 15, 20, 26
-  by frame 7,534) and 0x800A794C kills (0, since the route does not fire).
-- Instruction hooks at the pin: registration and contract in
-  `mod_plugins.h:46-55` and `MOD_PACKAGES.md:964-979`; sites must be aligned
-  main-RAM addresses (`recompiler/src/config_loader.cpp:1712-1721`); the
-  generator emits `psx_mod_instruction(cpu, address, word);` before the
-  instruction (`code_generator.cpp:918-924`), and that call returns at once
-  while no active plugin hooks an instruction (`mod_runtime.cpp:2489-2491`).
-  The sites enter `overlay_codegen_config_hash` (`config_loader.cpp:82-83`),
-  which names the runtime's overlay cache (`main.cpp:15028-15030`). The
-  plugin audit lists registered ids without instruction or save-state
-  plugins (`mod_packages.cpp:1578-1585`), while plan resolution counts them
-  (`:1496-1502`).
-- Regenerating (`generate1.log`, `generate2.log`): two shards changed and the
-  total went from 2,371,078 to 2,371,081 lines. `_03` gets the call in both
-  of its copies of block 0x8002FB28 (the campaign loop's code is emitted in
-  two generated functions), `_26` once before 0x80071558. The static step
-  rebuilt the shard (25 of 25 images verified, 34,846 variants in 26 files)
-  with every C file unchanged; the audit changed only in
-  `game_toml_sha256`, the configuration part of `cache_tag` (`gcc15c8ed0` to
-  `gc9265efab`), `recipe_input_sha256` and `generation_inputs_sha256`. The
-  second run printed "0 updated" and `RESULT_STATIC=reused`, and
-  `generated/` was identical. The submodule shows only the ignored
-  `overlay_codegen_hash.h`.
-- Builds (`build-dev-first.log`, `build-dev.log`, `build-release.log`):
-  `build-dev/Omega_Thrust` is `da70e6c0dd92…` (it was `64f65d9d2f0a…`),
-  `build-release/Omega_Thrust` `943fb8039b6f…`. The rebuild after the
-  zone-clear plugin's comment and manifest description changed compiled that
-  one file and gave the same binary. So did reflowing five lines of the two
-  plugin sources to 80 columns, with no other change, after the first checks
-  run flagged them: both files compiled again and both builds gave the same
-  binaries (`build-dev-reflow.log`, `build-release-reflow.log`,
-  `reflow-binaries-*.sha256`). Both builds link both plugins (`nm`),
-  stage both new manifests unchanged, and warn only in `stb_image.h`. The
-  audit passes with 9 manifests, 9 declared ids and 7 registered ids: the two
-  instruction plugins are not counted (`plugin-audit-dev.log`).
-- Exploration (`explore/`, HLE, branching on and S clears, 45 cycles of a
-  shot and a Cross press after CAMPAIGN PLAY): scenes 3, 5, 4, then 6 after
-  MOVIE IM 0, then 7, with COMPLETED screens reading CLEAR TIME 0:05.03 and
-  similar, DESTROY RATIO 100% and RANK S (100pts)
-  (`explore-s-sheet1.png`). The clear never fired in the 5TH ZONE: the
-  player stayed in state 3 until killed, GAME OVER counted down its
-  continues, and a per-zone summary followed.
-- Feature-on runs (`branch_runs.sh` / `.log`, `runs/`, `branch_summary.py`
-  / `.log`): the scratch route `branch_check.json` (`gen_branch_check.py`:
-  CAMPAIGN PLAY as in `title_to_zone1`, then 32 cycles of a 300-frame wait
-  with a shot and a 6-frame Cross press; 109 steps, 15,726 frames), run by
-  the committed runner from copies of the build (`mod_view.sh`), with
-  `probe_state.py` logging the scene index, the player's state, the zone 1
-  to 4 grades and the plugin counters from RAM. All nine runs passed with no
-  miss and exit 0 (start frames 47 to 135), in all three boot modes:
-  - branching on, S clears: scenes 3, 5, 4, 6, 7 (the 1ST, 3RD, 2ND, 4TH and
-    5TH ZONE), grades S in zones 1 to 4, 3 redirects, 4 clears;
-  - branching on, clears with nothing destroyed: the stock order 3, 4, 5, 6,
-    7, grades B, D, D, D, no redirect, 4 clears;
-  - branching off, S clears: the stock order, grades S, no redirect.
-  The contact sheets (`runs/*_sheet.png`; S path in SCPH-1001 mode and the
-  low-grade run in HLE mode viewed) show MOVIE IM 0 after the 2ND ZONE on
-  both paths: before the 4TH ZONE on the S path, before the 3RD on the stock
-  path. The summary's first version expected D in the 1ST ZONE too
-  (`branch_summary-first.log`). Two shorter HLE runs that log all nine
-  record words (`records/`, `probe_records.py`) explain the B: with nothing
-  destroyed, the 1ST ZONE's destroy factor and rating are 2048 (0.5) where
-  the 2ND ZONE's are 0, both with a time factor of 4096 (1.0). In the S run
-  the running-score words of the 1ST, 3RD and 2ND ZONE's records, 0, 36,800
-  and 73,600, confirm that order. The runs used `da70e6c0dd92…`, the final
-  binary (the later reflow and comment edits rebuilt it byte-identical); only
-  the zone-clear manifest's descriptions changed after them.
-- Feature-off runs (`routes.sh` / `routes.log`, `routes/`, `probe/`): every
-  committed route in all three modes with the documented commands on
-  `build-dev` (`da70e6c0dd92…`), 09:39 to 11:31. 65 of the 66 runs passed
-  first time. `demo_zone_u4` in LLE OpenBIOS mode stopped at frame 2,678, in
-  the intro: the runtime's starvation watchdog reported 25,315,365 us without
-  a heartbeat and exited with code 2 (`failed/demo-zone-u4-lle-openbios/`:
-  `runtime.log`; `cwd/psx_last_run_report.json`, whose `exit_origin` is
-  `starvation_watchdog`; `cwd/starvation_dump.jsonl`). The watchdog allows
-  4 s by default (`psxrecomp/runtime/src/starvation_ring.c:61-79`); the
-  guest's cycle accounting checks it every 65,536 cycles and exits with
-  code 2 (`psx_cycles.c:259-261`, `:324-326`, `:364-367`;
-  `starvation_ring.c:255-277`). Userspace across the host had stalled: at
-  10:56:09 the journal shows tailscaled's "time jump detected (slept 27s)",
-  systemd killing coolercontrold after its 30 s watchdog timeout, and a USB
-  hub re-enumerating (`failed/host-journal-10-55.log`). In monotonic time
-  (`failed/host-journal-10-55-monotonic.log`) the dump's gap runs from
-  528,828.92 s to 528,854.24 s, and the kernel logged a USB disconnect at
-  528,837.99 s, inside it, so the kernel kept running. The dump's last ring
-  entry is 0.3 ms after the last heartbeat, so the guest did not run during
-  the gap, and the watchdog, checked as guest cycles advance, fired only when
-  the emulation resumed. So userspace stopped for 25 to 27 s and the runtime
-  aborted when it resumed (Derived; the cause of the stall is unknown). With
-  both features off, the new hook calls return at once
-  (`mod_runtime.cpp:2489-2491`). By then that run's card 1 held a copy of its
-  header frame in the write-test frame, where a full run ends with the game's
-  test pattern. I copied the attempt into `failed/` at 10:58; `rerun.sh`,
-  written later, kept the batch's summaries in `failed/batch-summaries/` and
-  ran the same command again (`rerun.log`): PASS, start frame 42, no miss,
-  exit 0. With it, all 66
-  runs pass (`routes_summary.log`): start frames 14 to 131, 2,052 shots with
-  none failed, the largest shot lag 17 frames, no miss, exit 0. In every run
-  the overlay instruction count and rows equal change 2's and no `omega.*`
-  counter exists (`probe_summary.log`), all 57 replay-mode pairs reach their
-  results screens (`clear_time_check.log`), and the card check finds no
-  problem (`card_check.log`). The save image and the binary were unchanged
-  (`inputs-*.sha256`, `rerun-inputs-*.sha256`), and
-  `build-dev/mods/state.toml` names neither new package.
+The branching campaign prototype the user chose (`AGENTS.md`, Mods; evidence
+in `.cache/evidence/phase5-3/`). Two packages, both off by default, run
+instruction plugins at sites listed in `game.toml` `[recompiler]
+mod_instruction_sites`. `omega.gameplay.branching` hooks the campaign loop's
+step-limit check (0x8002FB2C): after an S on the 1ST ZONE the campaign plays
+the 3RD ZONE, then the 2ND ZONE, MOVIE IM 0 and the 4TH ZONE. The hidden test
+package `omega.debug.zone-clear` hooks the timeline runner (0x80071558) and
+ends a zone through the game's own clear path, graded low with nothing
+destroyed (D in zones 2 to 4, B in the 1ST ZONE, whose destroy factor is 0.5
+at a ratio of 0; `records/`) and S with its `all-destroyed` option.
+Regenerating added the three hook calls (`_03` twice, `_26` once) and rebuilt
+the static shard with the same C; the audit changed only in its input
+hashes. The launcher check change 2 left open passed: on a private X display,
+from a copy of the build, the Mods page lists the unlock package under
+Cheats, and PLAY wrote it into `mods/state.toml` and started the game with
+A[0..18] and B[0..13] set (`launcher/`). With the test clear on, in all
+three boot modes (scratch route `branch_check.json`), the S path played
+scenes 3, 5, 4, 6 and 7 with three redirects, and low grades or branching
+off kept the stock order. With both off, all 66 route runs passed with
+change 2's overlay counts and no plugin counter. One of them
+(`demo_zone_u4`, LLE OpenBIOS) had first been aborted by the runtime's
+starvation watchdog after userspace on the host stalled for 25 to 27 s
+(`failed/`, with the host journal) and passed when run again
+(`rerun.log`). The 8TH ZONE (`S9.BIN`), U4 and U8 call the clear
+routine from their own code as well as through the runner, and the 5TH ZONE,
+the LAST ZONE, U5, U9 and V5 have no runner (`clear_callers.py` / `.log`);
+the test clear ran only in the 1ST to 4TH ZONE. The audit does not count
+instruction-only plugins (`mod_packages.cpp:1578-1585`). Review: round 2 PASS
+on tree `aeccb7e` (staged diff `cc2fcbf3…`), after round 1 NEEDS CHANGES (see
+Review and commit state). The full record is in
+`git show b2e4e6a:.agent/HANDOFF.md`.
 
-## Phase 5 change 3 changes
+## Phase 5 change 4 observations (`.cache/evidence/phase5-4/`)
 
-- `game.toml`: `[recompiler] mod_instruction_sites = ["0x8002FB2C",
-  "0x80071558"]`, with a comment naming both sites and their plugins.
-- `generated/`: regenerated. `SCUS_944.49_full_03.c` (two lines) and
-  `SCUS_944.49_full_26.c` (one) call `psx_mod_instruction` at the sites, and
-  `AOT_STATIC_AUDIT.json` records the new inputs.
-- `src/mods/omega_branching.c` (new): the trusted instruction plugin
-  `omega.branching` at 0x8002FB2C (expected word 0x2E220011,
-  `sltiu $v0, $s1, 17`). It acts only if the script holds the stock scene
-  indices at steps 1, 2 and 4. With the step about to run in $s1: after the
-  1ST ZONE with grade S and the 2ND ZONE unplayed, it moves to step 4 (the
-  3RD ZONE); after the 3RD ZONE with the 2ND unplayed, to step 2; after
-  MOVIE IM 0 with the 3RD played, to step 5 (the 4TH ZONE). A zone counts as
-  played when its record's grade is 0 to 4. It sets $s0 to match and counts
-  each redirect as `omega.branching.redirects`.
-- `src/mods/omega_zone_clear.c` (new): the trusted instruction plugin
-  `omega.zone-clear` at 0x80071558 (expected word 0x8E02000C,
-  `lw $v0, 0xC($s0)`). When the runner's countdown is 0 and the player
-  object is in state 3, it sets the countdown to 1, so the runner calls the
-  clear routine in that update. With `all-destroyed` it first waits for a
-  spawned enemy and copies the spawned count over the destroyed count. It
-  counts each clear as `omega.zone-clear.clears`. Its header comment says
-  runs have checked it in the 1ST to 4TH ZONE of CAMPAIGN PLAY and names the
-  zones it cannot clear and the three where it is untested.
-- `mods/preloaded/packages/omega.gameplay.branching/1.0.0/manifest.toml`
-  (new): format 7, target `SCUS-94449`, the feature `branching` ("Branching
-  Campaign (prototype)", group Gameplay, off by default) and the `[[plugin]]`
-  `omega.branching`.
-- `mods/preloaded/packages/omega.debug.zone-clear/1.0.0/manifest.toml`
-  (new): format 7, target `SCUS-94449`, the hidden feature `zone-clear`
-  ("Clear Zones Instantly (testing)", group Debug, off by default) with the
-  boolean option `all-destroyed` (default false), and the `[[plugin]]`
-  `omega.zone-clear`. Its descriptions claim only zones on the shared
-  timeline and name the zones checked.
-- `CMakeLists.txt`: both sources added to `EXTRAS_SOURCES`.
-- `AGENTS.md`, Mods: the audit's blind spot for instruction-only plugins and
-  the hook-site rule; both packages; the feature-on recipe now puts the copy
-  under `.cache/` or outside the repository and passes `--out` (change 2's
-  review suggestion 1). Routes: what exit code 2 with a starvation dump means,
-  and when to run again.
-- `docs/MODDING_FEASIBILITY.md`: "The campaign" gains the loop's advance and
-  check, the result word and the record write with addresses (re-checked),
-  the grade thresholds, and how a zone ends, with how each zone reaches the
-  clear routine. Step 1 records the launcher check; step 2 is marked done
-  with its results; section 7's unknowns are updated.
-- `.agent/HANDOFF.md`: this scope; the change 1 section now says the Phase 3
-  change 4 section "still says" the old wording (change 2's suggestion 6);
-  Phase 5 change 2 condensed with suggestions 3 to 5 applied; these
-  sections; the hypotheses (suggestion 2); the review state; the next
-  action.
-- Round 2 (after review round 1): the 8TH ZONE's, U4's and U8's own calls to
-  the clear routine are recorded in the doc, this file, `AGENTS.md`, the
-  plugin's header comment and the package's descriptions, which now claim the
-  test clear only for zones on the shared timeline and only as checked in the
-  1ST to 4TH ZONE; the doc's record bullet is labelled re-checked, with the
-  disassembly's field names; the `mod_runtime.cpp` citation and the
-  host-stall wording are corrected; and the review's suggestions are applied
-  (review state below).
-- Untracked (ignored): the evidence in `.cache/evidence/phase5-3/` (round 2
-  added `clear_callers.py`, `clear-callers-first.log`, `spike-excerpt.txt`,
-  `failed/host-journal-10-55-monotonic.log`, `review-r1.md` and `r2/`), and
-  `phase5-2/review-r1.md`.
+- The timeline runner, read from the EXE's disassembly (change 3's
+  `phase5-3/dis-excerpts.txt` holds 0x80071544 to 0x80071694; task create,
+  0x8007A198, and 0x80057F0C were disassembled the same way in scratch). The
+  constructor (0x80071624) takes the table in $a1, creates a task through
+  0x8007A198 with the update 0x80071544, stores the table, index 0 and entry
+  0's delay, and calls entry 0's callback without checking it. Each update:
+  while the countdown word (+0xC) is set it counts down, and at 0 calls
+  0x80034104 with the player and zeroes the task's update word (data - 0x10),
+  which ends the task. Otherwise a delay of -100 moves on only when the
+  task's first-child word (data - 0x14) is 0, and any other delay counts down
+  once per update and moves on when it would go below 0 or as soon as that
+  word is 0. Moving on reads the next 8-byte entry: a callback of 0 sets the
+  countdown to 90; any other is called with the runner, and its delay
+  stored. Task create allocates a 24-byte header before the data, appends
+  the task to its parent's child list (data - 0x14 holds the first child)
+  and stores the update at data - 0x10. Wave callbacks pass the runner as
+  the parent of the tasks they start: 0x80057F0C's formation groups, and
+  0x80063C5C's timers (a 4-byte task with update 0x80063D04, which counts
+  its word down and ends below 0).
+- Tables (scratch `find_timelines.py`, then the tool): fourteen zone files
+  call the constructor once, with the table built by `lui` and `addiu` next
+  to the call. Waves (of them "clear") and slots: 1ST ZONE 9 (4) in 10, 2ND
+  14 (6) in 15, 3RD 23 (5) in 24, 4TH 15 (12) in 16, 6TH 19 (4) in 20, 7TH 24
+  (9) in 25, 8TH 3 (2) in 3, U1, U2, U3, U4 and U6 2 (1) in 3, U7 3 (1) in 4,
+  U8 1 (1) in 2. Every end entry's second word is -100. The 8TH ZONE's table
+  has no end entry: its three entries run into the debug string "(%4d)".
+  Each table ends the zone's data, followed directly by code or a debug
+  string, so none can grow in place. A callback usually starts with a stack
+  frame, but one in the 3RD ZONE and one in the 6TH do not, so the tool reads
+  entries up to an end entry or a word that is not an aligned address in the
+  file.
+- What the callbacks call (the dumps' notes; recounted in round 2): only the
+  1ST, 2ND, 3RD and 6TH ZONE's files call 0x80057F0C (5, 3, 15 and 10
+  `jal`s). There, 38 of the 121 table entries (30 of the 95 distinct
+  callbacks) pass it a formation record from the zone's data and two
+  counts, then call an overlay function once per member. The other ten
+  timeline zones never call it; their callbacks call other EXE or overlay
+  functions, the commonest 0x80063C5C (17 entries), which starts a timer
+  task under the runner. 0x80057F0C creates a 0x50-byte task (update
+  0x80058300), copies the record's first two words, adds words 2 to 4 to
+  the player object's words at + 0x34 to + 0x3C (its position, hypothesis)
+  and passes words 5 to 7 to 0x80078014. Word 0 points to 20-byte steps, of
+  which it reads the halfwords at + 0x10 and + 0x12. In the 1ST ZONE, the
+  record at 0x80121F18 points to steps at 0x80121E8C and a second table at
+  0x80121EF0; of the five 20-byte blocks between them, the fourth has
+  0x8000 at + 0x12 (hypothesis: the last step's flag, weakened by the fifth
+  block). The counts are instruction immediates in the callbacks. Formation
+  records are not decoded further in this change.
+- The live runner (`runner_watch.py`, `watch_routes.sh` / `.log` and
+  `watch_routes-zone1.log`, `watch_summary.py` / `.log`, `watch-runs/`; HLE
+  OpenBIOS, `build-dev`, port 4374, the DEMONSTRATION route of each of the
+  fourteen zones, the unlocked-zone ones with the save; 12:57 to 13:20). All
+  14 routes passed, and every replay reached its results screen
+  (`clear_time_check.log`): at the same shots as in Phase 3 change 5 in 13
+  zones, and in the 6TH ZONE also at t14400, a shot taken 5 frames after its
+  step (change 5's: 9 and 11 frames) that caught the last frames of the
+  COMPLETED screen. In every zone the watcher found the runner by its
+  update word, pointing at the table the tool reports, and the summary
+  finds no violation in 5,649 samples: indices rise one at a time, except
+  five entries shorter than a poll passed between two samples (polls came a
+  median 24 frames apart, 19 to 29 for the middle 80%); each timed delay
+  stays between 0 and the table's value; each "clear" entry holds -100; and
+  the end entry's countdown stays within 1 to 90. The runner ticked 0.493
+  times per frame over 15,403 frames of timed entries in twelve zones (U1
+  and U8 gave no timed entry sampled twice), 0.445 to 0.498 per zone; the
+  lower figures come from spans of 130 to 262 frames in U2, U3, U6 and U7,
+  and whether those zones also run slower is not separated. Timed
+  entries moved on early with up to 43 ticks left, as the child-task rule
+  predicts when a wave is destroyed. The runner reached its end entry's
+  countdown in zones 1 to 4, 6 and 7, U1 to U3, U6 and U7. In the 8TH ZONE
+  and U4 it was still waiting at its last wave when the zone ended, and in
+  U8 it never left its only wave while the replay reached its results
+  screen, so those three ended through their own code (Derived); the 8TH
+  ZONE's runner never read past its table. The summary's first two versions
+  (output not saved) counted a replay's new runner at the same heap address
+  as a violation (it now starts a new life on a drop, a rescan or an index
+  reset to 0) and flagged entries passed between polls. The tool the watch
+  imported, `zone_data-at-watch.py` (copied at 13:07, during the batch; the
+  tool was last written at 12:54 before the batch, seen in the terminal,
+  and next at 13:21, after the last route), differs from the staged one
+  only in docstring and comment text and the plural in `list`. The first
+  zone 1 run's output went only to the terminal; the saved zone 1 run is
+  the one at 13:18.
 
-## Phase 5 change 3 checks
+## Phase 5 change 4 changes
 
-- `checks-p5-3.sh` / `.log` (staged tree; it computes the index tree in a
-  scratch object directory and runs no runtime): all pass. Nothing unstaged
-  or untracked, and only the intended paths change. The generated diff is the
-  three hook-call lines and the audit's input fields; the shard's C is
-  unchanged, and `generated/` equals the index. Both plugins' expected words
-  equal the disc's. The handoff's header and its Phase 0 to Phase 4 change 2
-  sections equal HEAD. There is no placeholder, doubled blank line, added
-  line over 80 columns or local path. The three gates pass, the pins equal
-  `framework_pins.txt`, the submodules are clean (`psxrecomp` ignores only
-  `overlay_codegen_hash.h`), no tracked file is ignored, and the new files
-  are not. Both builds link both plugins and stage both manifests unchanged,
-  every input is older than `build-dev`'s binary, the only warnings are in
-  `stb_image.h`, and the plugin audit passes (and fails on the framework's
-  catalog alone). The staged plugin sources equal their pre-reflow copies
-  (`pre-reflow/`) apart from whitespace, and the binaries equal the hashes
-  from before the reflow. It prints the framework lines this change relies
-  on. Its first run (`checks-p5-3-first.log`) flagged the five long C lines
-  and one long handoff line, now reflowed.
-  `dis_excerpts.sh`, `branch_summary.py` and `gen_branch_check.py` reproduce
-  their outputs. For the feature-off batch it shows the failed run's log,
-  report, dump timing and card frame, the journal lines, the watchdog's
-  source, the re-run and the unchanged inputs, and `probe_summary.py`,
-  `clear_time_check.py` and `card_check.py` reproduce their logs. The three
-  route test files pass and leave nothing behind, nothing listens on ports
-  4370 to 4389, and `git diff --cached --check` is clean.
-- Round 2, `r2/checks-p5-3-r2.sh` / `.log` (staged tree; it rebuilds round
+- `scripts/zones/zone_data.py` (new): `list`, `dump`, `build` and `check`, as
+  in `AGENTS.md`, Zone data. It reads the cue sheet and the image's ISO 9660
+  tree itself. It finds the table by tracing $a1 at the constructor call back
+  through straight-line `lui`, `addiu`, `ori` and moves (the call's delay
+  slot first), and its notes list each callback's `jal` targets up to its
+  first `jr $ra`, with the three arguments of 0x80057F0C. Since round 2 it
+  refuses `format = true` (read as 1 before) and reports an output it
+  cannot write in one line.
+- `scripts/zones/test_zone_data.py` (new): 25 tests on synthetic 512-byte
+  zone files (a table, a constructor call, three callbacks) and a synthetic
+  MODE2/2352 image, through the module and the command line, plus a round
+  trip of the player's disc when `disc/` holds it. Round 2 gave the
+  synthetic code literal EXE addresses and added cases for an `ori` trace,
+  a branch before the call, a load over a traceable value (it was a load
+  alone), a table address in the file's last 7 bytes,
+  callback 0, `end = false` over a stock end entry with every slot used,
+  `format = true`, an end word out of range, a disc without an ISO volume,
+  an unwritable output and outputs under `.cache/`.
+- `.gitignore`: `*.zone.toml`, named in the header.
+- `AGENTS.md`: the never-commit list names the tool's dumps and zone files; a
+  Zone data section; the starvation paragraph says the emulation stopped for
+  at least the gap minus 4 s (change 3's round-2 suggestion 1).
+- `docs/MODDING_FEASIBILITY.md`: "Scenes and files" gains the re-checked
+  wave timeline (runner, tables, the formation call, the live watch); the
+  zone-end bullet now counts the countdown in runner ticks (90, about 3 s)
+  rather than frames; the intro, the brief answer and section 6 mark step 3's
+  timeline part done; section 7 names the undecoded formation parts, the
+  other ten zones' waves and the 8TH ZONE's table. Round 2: only four zones
+  call 0x80057F0C, the runner's children are the tasks the waves create
+  (0x80063C5C's timers among them), the rate comes from twelve zones,
+  "own code" and "HLE mode" are labelled, and step 1's launcher check says
+  A[0..18] and B[0..13] where it said every flag.
+- `.agent/HANDOFF.md`: this scope; change 3 condensed (its round-2
+  suggestion 2, two short lines left by a reflow, went with the rewritten
+  scope and the condensed sections); these sections; the hypotheses; the
+  review state; the next action.
+- Untracked (ignored): the evidence in `.cache/evidence/phase5-4/`.
+
+## Phase 5 change 4 checks
+
+- Round 1, `checks-p5-4.sh` / `.log` (staged tree; it computes the index
+  tree in a scratch object directory, writes dumps and test files only to
+  scratch, and runs no runtime): all pass. Nothing is unstaged or untracked, and
+  only the six intended paths change. The handoff's header and its Phase 0
+  to Phase 5 change 2 sections equal HEAD. There is no placeholder, doubled
+  blank line, heading without a blank line before it, added Markdown line
+  over 80 columns, local path or stale wording. The three gates pass, the
+  pins equal `framework_pins.txt`, the submodules are clean (`psxrecomp`
+  ignores only `overlay_codegen_hash.h`), no tracked file is ignored, the
+  two new files are not, and zone dumps are ignored anywhere. pyflakes is
+  clean. On the disc, `check` rebuilds all 14 tables identically, every dump
+  parses and holds no local path, and the independent tracer
+  `find_timelines.py` reproduces its log and finds the same table
+  addresses, and the same entry counts for the 13 tables with an end entry.
+  The tool's 20 tests pass, the player's-disc test included; `mutations.py`
+  reproduces its log, with every planted bug caught; the three route test
+  files pass; nothing is left behind, and no `__pycache__` appears.
+  `dis_excerpts.sh` reproduces its output. The watch logs show every route
+  passing, `watch_summary.py` reproduces its log, and the tool the watch
+  imported differs from the staged one only in text. Nothing listens on
+  ports 4370 to 4389, and `git diff --cached --check` is clean.
+- Round 2, `r2/checks-p5-4-r2.sh` / `.log` (staged tree; it rebuilds round
   1's tree from its frozen index entries, both trees in a scratch object
-  directory): all pass. Against round 1 only this file, `AGENTS.md`, the
-  doc, the zone-clear plugin and its manifest change; `generated/`,
-  `game.toml`, `CMakeLists.txt` and the branching files do not. The round-1
-  checks above hold again, and also: `clear_callers.py` reproduces
-  `clear-callers.log`; the disassembly without its headers equals
-  `spike-excerpt.txt`; both plugins' code equals the pre-reflow copies once
-  comments and whitespace are removed; the round-2 rebuild compiled only
-  `omega_zone_clear.c`, with no warning, and left both binaries
-  byte-identical (`r2/binaries-*.sha256`); the framework lines it prints
-  include `mod_runtime.cpp:2489-2491`; the journal's lines appear in
-  monotonic time; no stale wording from round 1 remains outside the quoted
-  findings and a preserved Phase 3 line; every heading has a blank line
-  before it; and the commit draft has one placeholder, no line over 72
-  columns and no local path.
+  directory): all pass. Against round 1, the handoff, the doc, the tool and
+  its tests change, and `AGENTS.md` and `.gitignore` do not; the tool's diff
+  is the docstring and dump-comment wording, the `format` check and the
+  guarded writes. The round-1 checks hold again, and also: no stale wording
+  from round 1 remains outside the quoted finding; the recount gives 38 of
+  121 entries (30 of 95 distinct callbacks) naming 0x80057F0C, all in S1,
+  S2, S3 and S6, whose files hold 5, 3, 15 and 10 `jal`s to it, and 17
+  entries naming 0x80063C5C; the 25 tests pass, and `mutations.py`
+  reproduces its log with 24 of 24 planted bugs caught, the `end = false`
+  one by its new test alone; the excerpts, now with the timer task's two
+  functions, reproduce; every one of the 5,649 watch samples equals the
+  staged tool's tables; the poll spacing is a median 24 frames (19 to 29);
+  and the 6TH ZONE's results shots are t13800 and t14100 in change 5's runs
+  and also t14400 in this batch, whose t14400 shot came 5 frames after its
+  step (11 and 9 in change 5's runs).
 
 ## Hypotheses and unknowns
 
@@ -755,11 +689,11 @@ keyword's values. Review: round 1 PASS on tree `6a7d573` (staged diff
 - Modding: the open questions are in `docs/MODDING_FEASIBILITY.md`, section
   7. Its claims marked "agent" come from a research agent's static reading of
   the disc and were not re-checked, except the two flag arrays and that the
-  screens follow them (change 2) and the campaign loop's advance, result word
-  and records (change 3, now marked re-checked there). The launcher's Mods
-  page lists the unlock package and turns it on (change 3 observations); the
-  two packages of change 3 have not been seen there, and the test one is
-  hidden.
+  screens follow them (change 2), the campaign loop's advance, result word
+  and records (change 3) and the wave timeline (change 4), all marked
+  re-checked there. The launcher's Mods page lists the unlock package and
+  turns it on (change 3); the two packages of change 3 have not been seen
+  there, and the test one is hidden.
 - Branching prototype (change 3): with zones cleared instantly, the S path
   and the stock order hold up to the start of the 5TH ZONE in all three boot
   modes. The rest of the campaign, its end and the unlock rules after a
@@ -774,6 +708,18 @@ keyword's values. Review: round 1 PASS on tree `6a7d573` (staged diff
   V5, which end in their own overlay code (that needs hooks there); the 8TH
   ZONE, U4 and U8 have the runner but also call the clear routine from their
   own code, and how a forced clear meets that is untested.
+- Zone data tool (change 4): the game reads the tables the tool decodes, in
+  the DEMONSTRATION replays of the fourteen zones, in HLE mode only (change 4
+  observations). No edited zone file has run in the game: loading one needs a
+  disc overlay or a plugin (step 4 of the doc's path), and whether the static
+  shard still runs a zone whose data changed is untested (hypothesis: yes,
+  because its guards cover code bytes). The 8TH ZONE's table has no end
+  entry: if its last wave were ever cleared before the zone's own code ends
+  the zone, the runner would take the debug string after the table as an
+  entry (Derived; never seen). The formation records' steps and second
+  table, and what the callbacks' two counts mean, are not decoded, nor how
+  the waves of the ten timeline zones that never call 0x80057F0C place
+  their enemies.
 
 ## Review and commit state
 
@@ -852,57 +798,76 @@ keyword's values. Review: round 1 PASS on tree `6a7d573` (staged diff
   native code; the GameFAQs comparison had no saved source); commit
   `390a09b`, pushed to the private `origin/master`. Reports:
   `phase5-1/review-r1.md`, `phase5-1/r2/review-r2.md`. Round 2's five
-  wording suggestions are applied in this change: four in the doc, one in
-  the change 1 section above.
+  wording suggestions were applied in change 2: four in the doc, one in the
+  change 1 section above.
 - Phase 5 change 2: round 1 PASS on tree `6a7d573` (staged diff
   `180a2cf5…`) with no findings; commit `9500812`, pushed to the private
   `origin/master`. Report: `phase5-2/review-r1.md`. Its six wording
-  suggestions are applied in this change: `--out` and the copy's location in
+  suggestions were applied in change 3: `--out` and the copy's location in
   `AGENTS.md`'s feature-on recipe; the DEMONSTRATION and per-index scope of
   the unlock claims (hypotheses above); the 64 writes recorded as derived;
   "commonly do not carry" a loose EXE; the `EXTRAS_SOURCES` placement
   reason; "still says" in the change 1 section. Its limitation, the
-  launcher, is closed by the check in the change 3 observations.
-- Phase 5 change 3, round 1: NEEDS CHANGES on tree `6a643ec` (staged diff
-  `f94f48bd…`); report `phase5-3/review-r1.md`. Findings and resolutions:
-  - Medium: the 8TH ZONE (`S9.BIN`), U4 and U8 also call the clear routine
-    from their own code, which the doc, this file and the cited log missed,
-    and the test clear was claimed for every runner zone though it ran only
-    in zones 1 to 4. Resolved: `clear_callers.py` gives both counts for every
-    `.BIN` and the EXE and checks each call's argument; the doc, this file,
-    `AGENTS.md`, the plugin comment and the package descriptions record the
-    three zones and limit the claim to the zones run.
-  - Low 1: this file said the doc marks the records re-checked, but the doc
-    still said "agent", with the agent's field names. Resolved in the doc.
-  - Low 2: `mod_runtime.cpp:2488-2490` missed the early return at line 2491.
-    Resolved (`:2489-2491`); the round-2 check script prints those lines.
-  - Low 3: "the whole host stopped" overstated the evidence (the kernel
-    logged a USB disconnect inside the gap), and `AGENTS.md`'s "no guest
-    activity after the last heartbeat" missed one ring entry 0.287 ms after
-    it. Resolved: userspace stalled, and `AGENTS.md` now asks for a ring that
-    ends within a few milliseconds of the last heartbeat.
-  - Suggestions adopted: "Its rules read only…"; the same-C claim limited to
-    the two EXE sites; "the runtime's exit code 2", and that a gap far above
-    4 s means the emulation stopped; where a mod view must go; the 33/272
-    figure attributed to change 2's reviewer's probe; the copy into `failed/`
-    at 10:58, before `rerun.sh` existed; the spike excerpt saved in the
-    evidence; the commit draft aligned with these fixes.
-- Phase 5 change 3, round 2: pending delta re-review.
+  launcher, was closed by change 3's launcher check.
+- Phase 5 change 3: round 2 PASS on tree `aeccb7e` (staged diff
+  `cc2fcbf3…`) with no findings, after round 1 NEEDS CHANGES on tree
+  `6a643ec` (one Medium: the 8TH ZONE, U4 and U8 also call the clear routine
+  from their own code, and the test clear had been claimed for every runner
+  zone; three Low: the doc's record bullet still marked "agent", a citation
+  one line off, and "the whole host stopped"); commit `b2e4e6a`, pushed to
+  the private `origin/master`. Reports: `phase5-3/review-r1.md`,
+  `phase5-3/r2/review-r2.md`. Round 2's suggestions: "for at least the gap
+  minus 4 s" in `AGENTS.md` (applied in change 4); two short lines left by a
+  reflow in this file (gone with the condensed sections); the commit
+  draft's verdict (filled in the commit).
+- Phase 5 change 4, round 1: NEEDS CHANGES on tree `180c490` (staged diff
+  `6411ddab…`); report `phase5-4/review-r1.md`. Findings and resolutions:
+  - Medium: the doc and this file said most wave callbacks call 0x80057F0C,
+    but only the 1ST, 2ND, 3RD and 6TH ZONE's files do (38 of 121 entries),
+    and they called the runner's children groups, though 0x80063C5C's timers
+    are children too. Resolved in the doc, this file and the tool's
+    docstring and dump comment, after a recount (the `jal`s in each file,
+    the dumps' notes, 0x80063C5C and 0x80063D04 disassembled); the next
+    action no longer plans zone data around 0x80057F0C alone.
+  - Low: "the same shots as in Phase 3 change 5" was false for the 6TH
+    ZONE's extra results shot at t14400. Resolved, with the shot lags.
+  - Low: no test isolated the refusal of `end = false` over a stock end
+    entry. Resolved: `test_end_false_cannot_replace_a_stock_end_entry`
+    alone catches the planted bug (`mutations.py`).
+  - Suggestions adopted: the rate's twelve zones; "Derived" and "HLE mode"
+    in the doc; A[0..18] and B[0..13] in change 3's section; the measured
+    poll spacing; the player position labelled a hypothesis here; the fifth
+    block after the 0x8000 flag; literal addresses in the tests, a test of
+    outputs under `.cache/` and a callback-0 refusal; one-line errors for
+    unwritable outputs; `format = true` refused. Each of the reviewer's
+    other uncaught mutations now fails a test: `ori`, loads and branches in
+    the trace, the clear routine's address, the file-end bound, `.cache/`
+    refused, the end word's range, callback 0 and the ISO check
+    (`mutations.py`, 24 mutations).
+- Phase 5 change 4, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. The next step is the user's choice. Follow-ups
-to the prototype: branches into the extra zones (each needs its result
-record redirected or protected, see the doc's hazards); a test clear for the
-zones that end in their own code (hooks in overlay code), and runs of the
-test clear in the other runner zones, the 8TH ZONE, U4 and U8 included; a
-committed feature-on route (a runner option for a run directory with its own
-`mods/state.toml`); a whole campaign with instant clears, which would also
-show whether the spike's post-credits halt happens with every zone loaded.
-Or step 3 of section 6, the zone data tools. The branching option can be
-tried in the play copy: `play.sh` refreshes `.cache/play/build/` from
-`build-dev/`, `mods/bundled/` included, and its Mods page should list
-"Branching Campaign (prototype)" under Gameplay.
+After a PASS: commit and push. The next step is the user's choice. For zone
+data: decode how waves place their enemies. In the 1ST, 2ND, 3RD and 6TH
+ZONE that is the formation records passed to 0x80057F0C (the steps that
+word 0 points to, the second table, the two counts; through 0x80057F0C, its
+update 0x80058300 and the per-member spawn functions); the other ten
+timeline zones go through their own overlay code, which needs reading zone
+by zone. Then step 4, a first remix: an edited timeline loaded through a
+guarded same-size disc overlay or a plugin and played to its results
+screen, which would also show whether the static shard keeps running a
+zone whose data changed.
+Follow-ups to the branching prototype stay open: branches into the extra
+zones (each needs its result record redirected or protected, see the doc's
+hazards); a test clear for the zones that end in their own code, and runs
+of it in the other runner zones; a committed feature-on route (a runner
+option for a run directory with its own `mods/state.toml`); a whole campaign
+with instant clears, which would also show whether the spike's post-credits
+halt happens with every zone loaded. The branching option can be tried in
+the play copy: `play.sh` refreshes `.cache/play/build/` from `build-dev/`,
+`mods/bundled/` included, and its Mods page should list "Branching Campaign
+(prototype)" under Gameplay.
 
 Play continues from the play copy: `play/play.sh <session dir> <SCPH-1001
 dump>` (in `.cache/evidence/phase4-2/`) refreshes `.cache/play/build/` from

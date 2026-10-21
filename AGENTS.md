@@ -46,6 +46,8 @@ mkdir -p disc && chdman extractcd -i "<path>/Omega Boost.chd" \
   `.psxrecomp.env`, `.env`, build directories.
 - Memory card images and save files (`*.mcd`, `*.mcr`, `*.gme`), such as the
   unlocked save in `.cache/saves/`.
+- Zone data from `scripts/zones/zone_data.py`: its dumps (`*.zone.toml`) and
+  the zone files it builds hold data from the disc.
 
 If `[runtime] overlay_capture_history` is ever enabled, put
 `overlay_capture_persist_dir` under `.cache/`: its
@@ -223,10 +225,10 @@ The runtime's exit code 2 (the runner then exits 1) with a
 without a heartbeat (`psxrecomp/runtime/src/starvation_ring.c:61-79`,
 `:255-277`). The runtime checks it as guest cycles advance
 (`psxrecomp/runtime/src/psx_cycles.c:364-367`), so a reported gap far above
-4 s means the emulation itself stopped for that long. A host stall triggers
-it too: if the host journal shows one at that moment and the dump's ring
-ends within a few milliseconds of the last heartbeat, copy the run's outputs
-aside (a new run deletes them) and run it again.
+4 s means the emulation itself stopped for at least the gap minus 4 s. A host
+stall triggers it too: if the host journal shows one at that moment and the
+dump's ring ends within a few milliseconds of the last heartbeat, copy the
+run's outputs aside (a new run deletes them) and run it again.
 
 The committed routes are `title_to_zone1.json` (boot to zone-1 gameplay),
 `menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY),
@@ -406,6 +408,36 @@ migration"), and pass `--binary`, a free `--port` and `--out` to
 route's feature-off outputs in `.cache/routes/<name>/<mode>/`. psx-beetle runs
 no plugins, so a mod's effect can be checked against it only through what the
 game saves, such as a card saved with the feature on.
+
+## Zone data
+
+`scripts/zones/zone_data.py` (Python standard library only) turns a zone's
+wave timeline into editable text and back, byte for byte, reading the zone
+files from the player's disc (`--disc`, default `disc/Omega Boost (USA).cue`).
+A zone file, `<DIR>/<DIR>.BIN`, loads whole at 0x80120000. Fourteen of them
+pass a table to the game's shared timeline runner: 8-byte entries of a wave
+callback and a delay, ending in an end entry everywhere but the 8TH ZONE
+(`docs/MODDING_FEASIBILITY.md`, "Scenes and files"). The 5TH ZONE, the LAST
+ZONE, U5, U9, V5 and the files that are not zones have no such table.
+
+```sh
+python3 scripts/zones/zone_data.py list      # zone files and their tables
+python3 scripts/zones/zone_data.py dump S1   # to .cache/zones/S1.zone.toml
+python3 scripts/zones/zone_data.py build .cache/zones/S1.zone.toml
+python3 scripts/zones/zone_data.py check     # dump and rebuild every table
+python3 -B scripts/zones/test_zone_data.py   # tests (the disc is optional)
+```
+
+A dump names the stock file's size and sha256, and `build` (default output
+`.cache/zones/<DIR>.BIN`) reads that file from the disc again and refuses any
+other. It writes the table in place: the waves and the end entry must fit in
+the stock table's slots, a wave may use only the stock table's callbacks, and
+the first entry must be a wave, because the runner's constructor calls entry
+0 without checking it; slots left over become zero words. Delays count runner
+ticks, about one every two frames (30 a second). Dumps and built zone files
+hold data from the disc, so the tool writes them only under `.cache/` or
+outside the repository. No mod loads an edited zone file yet. Verify every
+change to the tool with its tests and `check`.
 
 ## Naming
 

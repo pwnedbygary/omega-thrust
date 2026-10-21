@@ -3,10 +3,11 @@
 Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
-Steps 1 and 2 of the recommended path (section 6) are now implemented;
-nothing else here is. The evidence (scripts, logs and saved web pages) is in
-`.cache/evidence/mod-research/`, which is ignored and exists only on the
-machine that did the research; evidence file names below are relative to it.
+Steps 1 and 2 of the recommended path (section 6) are now implemented, and
+the wave timeline part of step 3; nothing else here is. The evidence
+(scripts, logs and saved web pages) is in `.cache/evidence/mod-research/`,
+which is ignored and exists only on the machine that did the research;
+evidence file names below are relative to it.
 
 Labels: Observation (seen in source, disc files or command output), Derived
 (worked out from named observations), Reference (external pages), Hypothesis,
@@ -37,7 +38,10 @@ source.
   reach each branch without live play.
 - Remixed zones: edit a zone's wave timeline and formation tables, which are
   data inside its `.BIN`, and ship them as same-size disc overlays. The
-  formats are not decoded yet, and files cannot grow.
+  timeline is decoded, and a tool turns it into editable text and back
+  (section 6, step 3); the formation records, used by four zones, are only
+  partly decoded, the other zones start their waves through their own code,
+  not yet read, and files cannot grow.
 - New zones: a new `.BIN` linked at 0x80120000 against the EXE's fixed
   addresses, plus models, textures and sound; a plugin adds its load case and
   result slot. The spare scene slots have no load case that retail code
@@ -191,12 +195,40 @@ checksums independently.
   - U1: 2.2 KB of data, then 5.6 KB of code.
   - Overlays call EXE functions at fixed addresses with no import table: S1
     calls 56 of them, TITLE 77.
-- The wave timeline is a table of {callback, delay} entries that EXE code runs
-  (agent):
-  - A delay of -100 waits until the wave is destroyed, and a null callback ends
-    the zone.
-  - S1 has five timed waves and four wait-for-clear entries; U1 has one
-    encounter.
+- The wave timeline (re-checked in Phase 5 change 4: the EXE's runner and
+  task code, the tables on the disc, and the runner in the running game;
+  evidence in `.cache/evidence/phase5-4/`):
+  - Fourteen zones pass a table to the runner's constructor (0x80071624):
+    the 1ST to 4TH and 6TH to 8TH ZONE, U1 to U4 and U6 to U8. The 5TH
+    ZONE, the LAST ZONE, U5, U9 and V5 have no runner.
+  - An entry is 8 bytes: a callback in the zone's code, which starts a wave,
+    and a delay. The constructor runs entry 0 at once, without checking it.
+    The runner ticks about once every two frames (0.493 ticks per frame over
+    the timed entries sampled in twelve zones' replays; U1 and U8 gave
+    none), and moves to the next entry when the delay runs out, or as soon
+    as it has no child task left: the tasks the wave callbacks create are
+    its children. A delay of -100 waits only for that. A callback of 0 is
+    the end entry: 90 ticks later the runner calls the clear routine and
+    removes itself.
+  - The 1ST ZONE's table has five timed waves and four of -100, as the agent
+    found. U1 to U4 and U6 have two waves, U7 three and U8 one. The 8TH
+    ZONE's table has no end entry: its three entries run into a debug
+    string. In the replays (HLE mode) the runner reached the end entry in
+    eleven zones; in the 8TH ZONE, U4 and U8 it was still waiting at its
+    last wave when the zone ended, through its own code (Derived), so the
+    8TH ZONE's runner never read past its table.
+  - The callbacks start their waves through EXE or overlay code. Only the
+    1ST, 2ND, 3RD and 6TH ZONE's files call 0x80057F0C: 38 of the 121
+    entries (30 of the 95 distinct callbacks) pass it a formation record
+    from the zone's data and two counts, then call an overlay function once
+    per member. The commonest other call, 0x80063C5C (17 entries), starts a
+    timer task under the runner, which counts a word down each tick (update
+    0x80063D04). A formation record starts with eight words: a pointer to
+    20-byte steps, a second pointer, three words added to the player
+    object's words at +0x34 to +0x3C (its position, hypothesis), and three
+    passed to 0x80078014 (their values look like angles, hypothesis). The
+    rest is not decoded, and the counts are instruction immediates in the
+    callbacks, not data.
 
   So timing and placement are data in the `.BIN`, behaviour is `.BIN` code
   calling the EXE, and the model and texture files hold only models and
@@ -250,8 +282,9 @@ checksums independently.
   - Zones 1 to 4, 6 and 7, U1 to U3, U6 and U7 have no call of their own and
     reach it through the shared wave timeline runner (one constructor call
     each; constructor 0x80071624, update 0x80071544, which holds the EXE's
-    only call): an empty entry starts a 90-frame countdown, and the routine
-    runs when it ends.
+    only call): an end entry (callback 0) starts a countdown of 90 runner
+    ticks, about 3 s at one tick every two frames (see "Scenes and files"),
+    and the routine runs when it ends.
   - The 8TH ZONE, U4 and U8 have the runner and also call the routine from
     their own code (one, two and one calls).
   - The 5TH ZONE, the LAST ZONE, U5, U9 and V5 have no runner and call it
@@ -432,7 +465,7 @@ disc 1 (`cw_check.py` / `.log`).
 
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
 inside this repository and add no game data. Steps 1 and 2 are done (Phase 5
-changes 2 and 3).
+changes 2 and 3), and step 3's timeline part (change 4).
 
 1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
    All Zones and Boost Levels", off by default) and its plugin
@@ -449,8 +482,8 @@ changes 2 and 3).
    - This proves the build wiring, the package catalog and the plugin
      registration. The launcher's Mods page lists the package under Cheats,
      unticked. Ticking it and pressing PLAY wrote the selection to
-     `mods/state.toml`, and the game then ran with every flag set (the
-     launcher driven on a private X display from a copy of the build;
+     `mods/state.toml`, and the game then ran with A[0..18] and B[0..13] set
+     (the launcher driven on a private X display from a copy of the build;
      `.cache/evidence/phase5-3/launcher/`).
 2. Branching prototype, medium. Done (Phase 5 change 3).
    - The package `omega.gameplay.branching` ("Branching Campaign
@@ -480,6 +513,14 @@ changes 2 and 3).
 3. Zone data tools, medium. Python tools that read the player's disc: decode
    each zone's timeline and formation tables, extract the textures (standard
    TIMs), export models for viewing, and list sound banks.
+   - The timeline part is done (Phase 5 change 4).
+     `scripts/zones/zone_data.py` writes the wave timeline of each of the
+     fourteen zones with the shared runner as TOML and builds the zone file
+     back from it: byte-identical when unedited, edits written in place
+     (`AGENTS.md`, Zone data). A read-only watch of the game during those
+     zones' DEMONSTRATION replays (HLE mode) shows the runner reading the
+     tables the tool finds, with their delays.
+   - Still to do: the formation records, textures, models and sound banks.
 4. Remix pack, medium to large. Edited timelines and formations for existing
    zones as same-size disc overlays, guarded by the stock hashes; a guarded
    EXE patch adjusts rating thresholds if needed.
@@ -518,7 +559,13 @@ changes 2 and 3).
 - How the 5TH ZONE, the LAST ZONE, U5, U9 and V5 decide when to call the
   clear routine, and when the 8TH ZONE, U4 and U8 call it from their own
   code as well as through the runner.
-- The OMD record format in detail; the formation table format.
+- The OMD record format in detail; the formation records beyond their first
+  eight words (the steps and the second table), and what the callbacks' two
+  counts mean; and how the waves of the ten timeline zones that never call
+  0x80057F0C place their enemies.
+- What the 8TH ZONE's runner does if its last wave is ever cleared before
+  the zone ends: with no end entry, it would take the debug string after the
+  table as an entry and call it (Derived; never seen).
 - Whether data-only edits keep the static shard's compiled variants in use.
 - Whether the spike's crash after the credits also happens in genuine play. A
   full play-through answers it.
