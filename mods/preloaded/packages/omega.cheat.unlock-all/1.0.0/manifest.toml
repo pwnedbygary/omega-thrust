@@ -1,0 +1,24 @@
+format_version = 7
+id = "omega.cheat.unlock-all"
+version = "1.0.0"
+name = "Unlock All Zones and Boost Levels"
+author = "Omega Thrust"
+description = "Opens every zone and boost level without a save that has them."
+resolver = "declarative"
+save_compatibility = "shared"
+
+# The plugin writes this EXE's own unlock flags, and the build is compiled
+# for this EXE alone.
+[[target]]
+game_id = "SCUS-94449"
+
+[[feature]]
+id = "unlock-all"
+name = "Unlock All Zones and Boost Levels"
+description = "Disabled by default. While on, every zone is open in ZONE PLAY and DEMONSTRATION, including the 7th, 8th and last zones, U1 to U9 and V5, and every boost level from 1 to 9 and A to E is unlocked. The game keeps these unlocks in the environment data that LOAD/SAVE writes, so saving while this is on keeps them in that save after you turn it off."
+group = "Cheats"
+default_enabled = false
+
+[[plugin]]
+feature = "unlock-all"
+id = "omega.unlock-all"

@@ -322,6 +322,44 @@ needs a Beetle run only when a claim that the route's screens or results are
 correct depends on it (`psxrecomp/CLAUDE.md` §15: never call a result correct
 without checking it against the oracle).
 
+## Mods
+
+The game's own mod catalog is `mods/preloaded/packages/`. Every build stages
+it, with the framework's builtin `psx.*` packages, into `<exe>/mods/bundled/`
+(`psxrecomp/docs/MOD_PACKAGES.md`). Trusted plugins are C sources in
+`src/mods/`, linked through `EXTRAS_SOURCES` in `CMakeLists.txt`, and a
+package selects a plugin by its id. An enabled feature whose plugin id nothing
+registers fails before launch, and the audit fails if a linked plugin is named
+by no manifest:
+
+```sh
+env -u APPIMAGE build-dev/Omega_Thrust --audit-mod-plugins \
+  psxrecomp/mods/builtin mods/preloaded
+```
+
+`omega.cheat.unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
+off by default) runs the plugin `omega.unlock-all`
+(`src/mods/omega_unlock_all.c`). While its feature is on, at every emulated
+VBlank once the game has started, the plugin sets the zone flags A[0..18] and
+the boost-level flags B[0..13] (`docs/MODDING_FEASIBILITY.md`, "Unlocks and
+the save") and counts each byte it writes as `omega.unlock-all.writes` (debug
+command `mod_counters`). The game saves these flags with its LOAD/SAVE
+environment data, so a save made while the feature is on keeps the unlocks.
+
+The runtime reads the feature selection from `<exe>/mods/state.toml`, and
+every launch writes it back. Routes and the Beetle comparison run with every
+feature off, so `build-dev/mods/state.toml` must enable none. To try a
+feature, enable it on the launcher's Mods page in the play copy
+(`.cache/play/build/`). For a headless run with a feature on, copy
+`build-dev/Omega_Thrust` (a copy, not a symlink: `run_route.py` resolves
+`--binary`) with `bios/`, `assets/`, `game_options.toml`,
+`psx_game_version.txt` and `mods/bundled/` into a directory outside
+`build-dev/`, write its own `mods/state.toml` (format in `MOD_PACKAGES.md`,
+"State and migration"), and pass `--binary` and a free `--port` to
+`run_route.py`. psx-beetle runs no plugins, so a mod's effect can be checked
+against it only through what the game saves, such as a card saved with the
+feature on.
+
 ## Naming
 
 The project is Omega Thrust: window title "Omega Thrust", executable

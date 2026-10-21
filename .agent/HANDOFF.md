@@ -9,21 +9,29 @@ cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure.
 
-Current iteration, Phase 5 change 1 (docs: the modding feasibility research),
-round 2, which resolves round 1's three findings. Invariant:
-`docs/MODDING_FEASIBILITY.md` records the research of 2026-10-20 (what the
-framework at the pin lets a mod do; how Omega Boost's scenes, campaign,
-unlocks and save work; Colony Wars' mission structure; prior art; rights; a
-recommended path; unknowns), with every claim labelled by its evidence and
-backed by the evidence in `.cache/evidence/mod-research/`. `AGENTS.md`
-describes the static overlay step's loader check as what it is: the four
-checked instructions put a scene's data at 0x80120000 only when the scene has
-no `.BIN`. This file records Phase 4 change 2's round-2 PASS and commit
-`a005f9e`, applies that round's four wording suggestions, records the comment
-on psxrecomp #721, corrects the change 4 record's loader wording, and
-condenses Phase 4 into one section per change. Baseline: `a005f9e`. Out of
-scope: any mod, plugin or package; code, route, runner, driver, framework,
-submodule and `generated/` changes; further play sessions; CI, packaging.
+Current iteration, Phase 5 change 2 (the "unlock all zones and boost levels"
+mod the user chose), round 1. Invariant: the game-owned package
+`omega.cheat.unlock-all` (format 7, target SCUS-94449; feature `unlock-all`,
+"Unlock All Zones and Boost Levels", group Cheats, off by default) selects the
+trusted plugin `omega.unlock-all` (`src/mods/omega_unlock_all.c`, linked
+through `EXTRAS_SOURCES`). While the feature is on, at every emulated VBlank
+once the game has started, the plugin sets the zone flags A[0..18] and the
+boost-level flags B[0..13] to 1, writing only bytes that differ and counting
+each write. With the feature on, ZONE PLAY shows every zone and level OPENED
+and DEMONSTRATION every entry SELECT OK, and a save made then holds the flags
+with a correct checksum; loading that save with the feature off opens the same
+on psx-runtime in all three boot modes and on psx-beetle in both of its modes.
+With the feature off the plugin writes nothing, the game's own save is
+unchanged, and all 22 committed routes pass in all three modes. The plugin
+audit passes with the game's catalog and fails without it. `AGENTS.md`
+documents the catalog, the plugin, the audit and how to run with a feature on
+without touching `build-dev/mods/state.toml`; the doc records step 1 as done
+and takes change 1's four round-2 doc suggestions; this file records change
+1's round-2 PASS and commit `390a09b`, takes that round's handoff suggestion
+and condenses change 1. Baseline: `390a09b`. Out of scope: runner, driver,
+route and test changes; a committed feature-on route; other mods; framework,
+submodule and `generated/` changes; play sessions (the launcher's Mods page);
+CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -342,145 +350,179 @@ round 2's four wording suggestions are applied in this section (the
 card-marker citation, the frame rates, the 0x80120370 citation, the probe
 runs' frames). The full record is in `git show a005f9e:.agent/HANDOFF.md`.
 
-## Phase 5 change 1 observations (`.cache/evidence/mod-research/`)
+## Phase 5 change 1 (commit `390a09b`)
 
-- The user asked for modding research: new levels, branching paths, unlocks,
-  an eventual fan sequel or remake, and Colony Wars' free roaming in Omega
-  Boost's engine; they have all four Colony Wars discs. Three read-only
-  research agents covered the framework's mod system, Omega Boost's internals,
-  and Colony Wars with prior art. Their claims were checked against the
-  pinned source, the disc and the web (`framework-check.txt`,
-  `verify_internals.py` / `.log`, `internals/` with the internals agent's
-  scripts and table dumps, `cw_check.py` / `.log`, `gamehacking-codes.txt`).
-  This change added `prior-art.log` and `plugin-linking.log` (GitHub API
-  queries), `cmake-repeat-keyword.log` (a CMake 4.4.4 test of the call shape
-  plugin sources would use), `time-extension-article.txt` (the interview the
-  write-up quotes) and `loader-dis.txt`; round 2 added `precedents.log` (README
-  lines of three reference titles), `time-extension-date.log` (the
-  interview's publication date) and `level_labels.sh` / `.log` with
-  `level-labels/` (the zone list's LEVEL labels). The write-up, from the draft
-  `FEASIBILITY.md`, is `docs/MODDING_FEASIBILITY.md`.
-- The LEVEL labels (round 2): the change 5 route runs' `12-zone-cursor.png`
-  shots show each unlocked-save zone's level in the zone list, the same in all
-  three boot modes. Each label is the zone's DEMONSTRATION level value plus 1
-  for values 0 to 8, and value 10 shows B and 12 shows D
-  (`internals/tables-rerun.txt`). U1's label, unclear in Phase 3 change 5,
-  reads B at 3x: its last glyph has a flat left side, where 8TH's "8" has
-  notched corners on both sides (`level-labels/glyphs-8-u1-u3.png`).
-- The GameFAQs cheats page now answers scripted fetches with HTTP 403, and no
-  earlier record saved its unlock list (the Phase 3 change 3 record names the
-  page, not its conditions), so the write-up no longer compares the unlock
-  rules with it.
-- The loader check, correcting `AGENTS.md` and the Phase 3 change 4 section
-  above, which say the checked words set the overlay base: in the scene
-  loader, 0x80075AE4 loads the scene's `.BIN` path, and 0x80075AEC branches
-  past the checked words (0x80075AF4 to 0x80075B00) when that path is not
-  null. So those words run only for a scene without a `.BIN`: they store
-  0x80120000 as its data address to 0x8009C03C, and the next instruction
-  (0x80075B04) stores it to field +0x10 of the loader's state block. With a
-  `.BIN`, 0x80075BE0 to 0x80075BFC store the file's end plus 16, rounded down
-  to a multiple of 16, in that field (`loader-dis.txt`). The check still pins
-  loader code beside the overlay load, so the shard's guard is unchanged in
-  strength (derived).
-- On psxrecomp #721 the user's account posted a comment on 2026-10-20: the
-  issue's frame-1200 RAM comparison may catch Beetle before its game starts,
-  because Beetle's SCPH-1001 boot runs about 440 frames behind, and the card
-  bytes are the like-for-like evidence (`phase4-2/upstream/issue-3-comment-1.md`
-  and `.url`). Issues #719, #720 and #721 are open.
-- The user's decisions after the research: the next change is a small
-  "unlock all zones and boost levels" mod option, to prove the plugin, package
-  and launcher wiring; the write-up goes into the repository as
-  `docs/MODDING_FEASIBILITY.md`, with the `AGENTS.md` wording fix.
+Docs: the modding research the user asked for (new levels, branching paths,
+unlocks, an eventual fan sequel or remake, Colony Wars' free roaming in Omega
+Boost's engine), done on 2026-10-20 by three read-only research agents (the
+framework's mod system, Omega Boost's internals, Colony Wars with prior art)
+and checked against the pinned source, the disc and the web. The write-up is
+`docs/MODDING_FEASIBILITY.md`; its evidence is in
+`.cache/evidence/mod-research/` (among others `framework-check.txt`,
+`verify_internals.py` / `.log`, `internals/`, `cw_check.py` / `.log`,
+`gamehacking-codes.txt`, `prior-art.log`, `plugin-linking.log`,
+`cmake-repeat-keyword.log`, `time-extension-article.txt`,
+`time-extension-date.log`, `loader-dis.txt`, `precedents.log`, and
+`level_labels.sh` / `.log` with `level-labels/`). The zone list's LEVEL labels
+in change 5's `12-zone-cursor.png` shots are each zone's DEMONSTRATION level
+value plus 1 for values 0 to 8, B for 10 and D for 12, the same in all three
+boot modes; U1's, which only the draft left unclear, reads B in the 10x glyph
+comparison with 8TH's "8" (`level-labels/glyphs-8-u1-u3.png`). The GameFAQs
+cheats page now answers scripted fetches with HTTP 403 and no record saved
+its unlock list, so the write-up does not compare the unlock rules with it.
+`AGENTS.md` and the Phase 3 change 4 section above said the four words the
+static overlay step checks set the overlay base. The scene loader branches
+past them (0x80075AEC) when the scene has a `.BIN`, so they run only for a
+scene without one, putting its data at 0x80120000; with a `.BIN` the data
+goes after the file (`loader-dis.txt`). `AGENTS.md` now says so; the check
+still pins loader code beside the overlay load. The user's account posted a
+comment on psxrecomp #721: the issue's frame-1200 comparison may catch Beetle
+before its game starts, and the card bytes are the like-for-like evidence
+(`phase4-2/upstream/issue-3-comment-1.md`). The user then chose the "unlock
+all zones and boost levels" mod as the next change. Review: round 1 NEEDS
+CHANGES (three Low, all in the doc), round 2 PASS on tree `034e6be` with no
+findings. The full record is in `git show 390a09b:.agent/HANDOFF.md`.
 
-## Phase 5 change 1 changes
+## Phase 5 change 2 observations (`.cache/evidence/phase5-2/`)
 
-- `docs/MODDING_FEASIBILITY.md` (new): the write-up in the invariant. Against
-  the draft, beyond rewording, reflowing and turning long URLs into reference
-  links:
-  - the answer in brief is a two-column table with one bullet per goal;
-  - packages in this repository are directories, not `.psxmod` archives, and
-    carry no native code, while their EXE patches can change game code;
-  - the plugin registration and linking claims cite the source and the saved
-    logs, the interpreter cost cites its comment, and only a package's static
-    declarative edits compile ahead of time;
-  - a mod's memory goes only into save states, and option values persist in
-    `mods/state.toml`, which plugins only read;
-  - the precedents quote saved README lines (round 1 had added "with
-    permission" without a saved source);
-  - the loader bullet gives both data addresses; SOUND_TEST and the gallery
-    have init cases, reached only from unreachable states; the hazards give
-    each index's range;
-  - the boost-level mapping rests on the LEVEL labels of all 13 unlocked-save
-    zones and Thunder2's code, and the unlock rules are listed from the table
-    dump; the draft compared them with GameFAQs, and round 1 had extended the
-    labels to zones 7, 8 and LAST;
-  - the TITLE code sets every zone, level and clear flag (the draft: every
-    flag), and "the rules cannot produce the save" is labelled agent and
-    derived; the first cheat set is one set of authors' (the draft: one
-    author's), and the 0x2F0 offset is a hypothesis (the draft: unknown);
-  - the interview is quoted as Yasuhara worded it, with its date and his
-    sequel remark; `LEEDS.STX` is labelled agent; the prior-art facts come
-    from `prior-art.log`; the scale figures give their years, and OpenMW's
-    comes from its AUTHORS file; the rights bullets cite their sources;
-  - the draft's corrections section is dropped (its `AGENTS.md` and record
-    corrections are in this change, and the rest concerned Engram notes).
-- `AGENTS.md`: the static overlay step checks four scene-loader instructions,
-  which put a scene's data at 0x80120000 when it has no `.BIN`.
-- `.agent/HANDOFF.md`: this scope; Phase 4 condensed into one section per
-  change, with change 2's round-2 wording suggestions applied; the Phase 5
-  change 1 sections; the hypotheses (the 0x80120370 citation, the unlocked
-  save's flags and checksum, the modding unknowns); the review state; the
-  next action. The header and the Phase 0 to Phase 3 change 5 and spike
-  sections are unchanged.
-- Round 2, for review round 1: in the doc, the persistence bullet (finding
-  1), "no native code" (finding 2), and the boost levels and unlock rules
-  without the GameFAQs comparison (finding 3); the precedents' sources, the
-  LEVEL-label citation (now all 13 zones), the hazards per index, the
-  compiled package subset, the interpreter figure's source and the labels on
-  "the rules cannot produce the save" (suggestions 1 to 6); the interview's
-  date. In this file: the loader's +0x10 store (suggestion 7), U1's Beetle
-  results pair (8), the card directory and `xpad` wording (9), this list and
-  the draft differences (10), the new observations, the round 2 checks and
-  the review state.
-- Untracked (ignored): the evidence files added under
-  `.cache/evidence/mod-research/` and `.cache/evidence/phase5-1/`.
+- The framework at the pin: a VBlank plugin runs at every emulated VBlank for
+  each plugin id the resolved plan activates
+  (`psxrecomp/runtime/src/mod_runtime.cpp:2184-2193`).
+  `psx_mod_game_started()` returns `fntrace_is_game_started()`
+  (`:2195-2197`). `psx_mod_write_byte` is a host store (`:2312-2314`,
+  `memory.c:2509-2513`): it takes the guest store path but is never
+  cache-isolated (`memory.c:1797-1801`). A package targets a game by
+  `game_id`, and by `exe_sha256` or `disc_sha256` only if it sets them
+  (`mod_packages.cpp:682-684`); release installs carry no loose EXE to hash
+  (`mod_runtime.cpp:1328-1333`). `save_compatibility` is parsed and
+  validated (`mod_packages.cpp:1724-1725`, `:1745-1746`), and nothing else
+  in the runtime's sources or recomp-ui reads it. The plugin audit
+  (`--audit-mod-plugins`, `main.cpp:14226-14250`) runs as a ctest only under
+  `BUILD_TESTING` (`runtime.cmake:1360-1371`), so this change runs it by
+  hand. `psxrecomp_add_game_runtime` forwards its unparsed arguments and then
+  adds its own `EXTRAS_SOURCES` (`runtime.cmake:2727`, `:2747-2751`), and
+  repeated keyword values accumulate (Phase 5 change 1's CMake test). The
+  closest precedent, MegaManX4Recomp's cheat packages (`reference/`), are
+  format 5 manifests in group Cheats, off by default, whose plugin uses
+  function-entry hooks.
+- Builds (`build-dev.log`, `build-release.log`): the new package directory
+  re-ran CMake (a globbed path changed), and the build staged 7 packages (1
+  game-owned, 6 framework-owned) into `mods/bundled/`, compiled
+  `src/mods/omega_unlock_all.c` and relinked. `build-dev/Omega_Thrust` is
+  now `64f65d9d2f0a…` (it was `07ff31595b9c…`), `build-release/Omega_Thrust`
+  `dde8de1bf342…`. Both link `omega_register_unlock_all` and
+  `unlock_all_vblank`, and both staged manifests equal the source. The audit
+  passes with the framework and game catalogs (7 manifests, 7 declared ids,
+  7 registered ids) and fails with the framework's alone, which leaves
+  `omega.unlock-all` undeclared, so it sees the plugin (`plugin-audit.log`).
+- Feature off, every committed route (`routes.sh` / `routes.log`): the 22
+  routes in all three modes with the documented commands on the new
+  `build-dev`, whose `mods/state.toml` names no package of this change. All
+  66 runs pass, with matching banners, no miss, every screenshot taken,
+  start frames 21 to 142 and shot lags up to 18 frames
+  (`routes_summary.log`); the save image and the binary did not change
+  (`inputs-before.sha256`, `inputs-after.sha256`). In every run the plugin's
+  counter stays 0, and the interpreter's overlay instruction and row counts
+  equal change 5 round 2's (`probe_summary.log`, `probe/`). All 19 replays
+  reach their results screens in all three modes (`clear_time_check.log`),
+  and `card_check.py` finds no problem: card 1 of the card routes differs
+  from the save only in the write-test frame (`card_check.log`). The
+  `memcard` route saves the game's own card, `42dd8d89acd1…`, as before.
+- Feature on (`mod_runs.sh` / `mod_runs.log`, outputs in `runs/`). Two run
+  directories outside the build (`mod_view.sh`) hold copies of `build-dev`'s
+  binary, `bios/`, `assets/`, `game_options.toml`, `psx_game_version.txt`
+  and `mods/bundled/`, and a `mods/state.toml` that names the package with
+  the feature on or off. Two scratch routes (`gen_mod_routes.py`,
+  `routes-mod/`): `unlock-on` (198 steps, 16,598 frames) walks ZONE PLAY's
+  level and zone lists and the DEMONSTRATION list, then saves to card 1;
+  `unlock-saved` loads card 1 first, then walks the same lists. The runs use
+  port 4372, and `probe.py` samples the plugin counter and the flags. In
+  each of the three modes:
+  - `unlock-on` with the feature on passes. The plugin counted 64 writes,
+    the last during boot (frames 422, 720 and 1,047), and at the last sample
+    A[0..18] and B[0..13] are set and neither clear flag
+    (`mod_probe_summary.log`). In the screenshots (`status_check.py` /
+    `.log`, which match each status word against crops read on screen),
+    every zone and level is OPENED, ZONE PLAY's header says SELECT OK in all
+    32 zone and level shots, and all 19 DEMONSTRATION entries say SELECT OK.
+  - With the feature off the same route passes, the counter stays 0, only
+    A[0] and B[0] are set, the screens show only 1ST ZONE and level 1 OPENED
+    (the header SELECT OK only for that pair) and the rest CLOSED or
+    DISABLE, and DEMONSTRATION entries 1 to 6 say SELECT OK, as Phase 3
+    change 2 found.
+  - The feature-on save is the same card in all three modes
+    (`2fefb5154ef4…`). It holds A[0..18] and B[0..13] and no clear flag, and
+    its checksum holds: 0x09F245F2, the GameFAQs save's 0x09F244F2 plus
+    0x100 for B[13] (`card_flags.py`, first checked on both known cards).
+    The feature-off save is the game's own `42dd8d89acd1…`.
+  - `unlock-saved` with the feature off and that card passes: every zone,
+    level and entry is open, the counter stays 0, and card 1 is unchanged.
+  - psx-beetle, which runs no plugins, plays `unlock-saved` with the same
+    cards in both of its modes, every press on its frame, and shows every
+    zone and level OPENED and every entry SELECT OK.
+  - The on and off runs' interpreter totals differ by under 0.1%, with the
+    same 1,446 overlay instructions (`runs/*-probe.json`).
+- 64 writes is more than the 33 flags, so something reset some of them
+  during boot after the plugin first set them; which code did is not traced.
 
-## Phase 5 change 1 checks
+## Phase 5 change 2 changes
 
-- `phase5-1/checks-p5-1.sh` / `.log` (staged tree): all pass. Only the doc,
-  `AGENTS.md` and this file change; the header and the Phase 0 to spike
-  sections of this file equal HEAD; there is no placeholder, doubled blank
-  line, added line over 80 columns (link definitions aside) or local path, and
-  every reference link in the doc is defined and used; the three gates pass,
-  the pins and submodules are unchanged and clean, and only psxrecomp's
-  `overlay_codegen_hash.h` is ignored there; every evidence file the doc and
-  this file cite exists, and the framework lines the doc cites are printed
-  and match. Re-run from the evidence: `verify_internals.py`, the
-  repeated-keyword CMake test, the loader disassembly
-  (`phase5-1/dis_loader.sh`, from the disc alone) and `cw_check.py` on Colony
-  Wars disc 1 reproduce their logs; the four words `aot/overlays.json` checks
-  equal the disc's; the interview quotes are in the saved article; the two
-  prior-art facts re-queried from GitHub match; the change 2 facts behind
-  round 2's suggestions hold; the three upstream issues are open, and the
-  posted #721 comment equals its draft; the three test files pass and leave
-  nothing behind; no listener is left; `git diff --cached --check` is clean.
-- Round 2, `phase5-1/r2/checks-p5-1-r2.sh` / `.log` (staged tree; it computes
-  the index tree in a scratch object directory with optional git locks off,
-  so a read-only reviewer can run it): all pass. Against the round-1 tree
-  only the doc and this file change. The round-1 checks pass again, and: the
-  doc no longer has the GameFAQs unlock comparison, "carry data only",
-  "cannot carry code" or the undated interview year; the framework lines
-  behind the three fixes are printed (`MOD_PACKAGES.md:27`, `:865-866`,
-  `:954-957`, `AOT_SHARDING.md:138-139`, `:163-164`,
-  `dirty_ram_interp.h:118-119`, and `mod_plugins.h`'s two option calls, both
-  reads, and six write calls, all to guest RAM); the record arithmetic gives
-  each index's range; `level_labels.sh`, re-run in scratch, gives the same
-  shot hashes and pixels; the cheat lines, the interview's date (saved and
-  re-queried) and the README quotes (in `precedents.log` and re-queried)
-  match; a scripted fetch of the GameFAQs cheats page gets HTTP 403; the
-  Phase 4 facts behind suggestions 8 and 9 hold. A first run found three
-  added lines in this file over 80 columns and `level_labels.sh` failing on
-  an absolute output path; both are fixed.
+- `src/mods/omega_unlock_all.c` (new): the trusted plugin `omega.unlock-all`.
+  At every VBlank once the game has started it writes 1 to each of A[0..18]
+  (0x800A7E20) and B[0..13] (0x800A7E34) that is not already 1, and counts
+  each write as `omega.unlock-all.writes` (debug command `mod_counters`).
+  A[19] and B[14], which no screen shows, are left alone.
+- `mods/preloaded/packages/omega.cheat.unlock-all/1.0.0/manifest.toml`
+  (new): format 7, target `SCUS-94449` with no EXE or disc hash (the plugin
+  changes no disc data, and release installs have no loose EXE), one
+  feature, `unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
+  off by default), whose description says a save made while it is on keeps
+  the unlocks, and the `[[plugin]]` `omega.unlock-all`.
+- `CMakeLists.txt`: `EXTRAS_SOURCES` with the plugin, above `GEN_FULL_GLOB`,
+  where a multi-value keyword would take it as one of its own values.
+- `AGENTS.md`: a "Mods" section: the catalog and plugin layout, the audit
+  command, what the package does, and how to try a feature (the play copy's
+  Mods page, or a headless run from a copied build with its own
+  `mods/state.toml`), with `build-dev/mods/state.toml` enabling none.
+- `docs/MODDING_FEASIBILITY.md`: step 1 of the recommended path is marked
+  done, with its results. Change 1's four round-2 doc suggestions: the
+  resource-path citation and "guest memory" (RAM, SPU RAM and VRAM); the
+  cheat's two writes, with the boost-level reading labelled an inference;
+  A[19] and B[14] as an unknown; the X6 Tweaks wording, from the README
+  lines now saved in `mod-research/precedents.log`.
+- `.agent/HANDOFF.md`: this scope; Phase 5 change 1 condensed, with its
+  round-2 handoff suggestion applied (U1's label was unclear only in the
+  draft, and the glyph comparison is at 10x); these sections; the
+  hypotheses; the review state; the next action.
+- Untracked (ignored): the evidence in `.cache/evidence/phase5-2/` and the
+  README lines appended to `.cache/evidence/mod-research/precedents.log`.
+
+## Phase 5 change 2 checks
+
+- `phase5-2/checks-p5-2.sh` / `.log` (staged tree; the index tree is
+  computed in a scratch object directory, and the script runs no runtime):
+  all pass. Only the six intended paths change; the header and the Phase 0
+  to Phase 4 change 2 sections of this file equal HEAD; there is no
+  placeholder, doubled blank line, added line over 80 columns or local
+  path, and the doc no longer says nothing is implemented. The three gates
+  pass, the pins and submodules are unchanged and clean, only psxrecomp's
+  `overlay_codegen_hash.h` is ignored there, and neither new file is
+  ignored. `build-dev` is newer than the three build inputs; both builds
+  link the plugin and stage the manifest unchanged; the audit passes for
+  both and fails with the framework catalog alone; the framework lines
+  above are printed. From the runs' outputs: 66 feature-off runs started
+  and passed, the save image and binary did not change,
+  `build-dev/mods/state.toml` names no package of this change, the plugin
+  counter is 0 in every run, and the overlay counters equal change 5 round
+  2's; `probe_summary.py`, `clear_time_check.py`, `card_check.py`,
+  `mod_probe_summary.py` and `status_check.py` reproduce their logs;
+  `card_flags.py` passes on the six `unlock-on` cards, the game's own save
+  and the GameFAQs save; each `unlock-saved` run left card 1 unchanged; the
+  generator reproduces both scratch routes. The three route test files pass
+  and leave nothing behind; no listener is left; `git diff --cached --check`
+  is clean. The first run (`checks-p5-2-first.log`) found one line naming
+  "omega" in `build-dev/mods/state.toml`: the HD-texture pack path, which
+  contains the repository's name. The check now looks for the package id.
 
 ## Hypotheses and unknowns
 
@@ -507,8 +549,9 @@ runs' frames). The full record is in `git show a005f9e:.agent/HANDOFF.md`.
   but no clear flag). Its bytes are the zone flags A[0..18] and boost-level
   flags B[0..12] of the environment save, and its checksum, the 32-bit sum of
   the block's 68 words at +0x200, holds (re-checked on both card images, Phase
-  5 change 1). That the game verifies the checksum, and that the menus read
-  exactly those flags, are the agent's static reading, not traced.
+  5 change 1). The unlock mod (change 2) shows that ZONE PLAY and
+  DEMONSTRATION follow those flags and that a save keeps them; that the game
+  verifies the checksum is still the agent's static reading, not traced.
 - Overlay code now runs from the static shard, except a few PCs that still go
   to the interpreter (0x80120370 in every route; 0x80135EFC in `menus`,
   `memcard` and the 13 unlocked-zone routes, 1,182 instructions in each of
@@ -547,7 +590,9 @@ runs' frames). The full record is in `git show a005f9e:.agent/HANDOFF.md`.
   which no filter setting reaches while `build-dev/` holds no `settings.toml`.
 - Modding: the open questions are in `docs/MODDING_FEASIBILITY.md`, section
   7. Its claims marked "agent" come from a research agent's static reading of
-  the disc and were not re-checked; nothing in it has been run as a mod yet.
+  the disc and were not re-checked, except those the unlock mod exercises
+  (change 2). Whether the launcher's Mods page lists the package and turns
+  it on is not yet seen: the checks set the selection in `mods/state.toml`.
 
 ## Review and commit state
 
@@ -619,24 +664,25 @@ runs' frames). The full record is in `git show a005f9e:.agent/HANDOFF.md`.
   `phase4-2/r2/review-r2.md`. Round 2's four wording suggestions are applied
   in the change 2 section above. The comment on #721 that round 1 left to the
   user was posted (Phase 5 change 1 observations).
-- Phase 5 change 1: round 1 NEEDS CHANGES on tree `03d7a5f` (three Low, all
-  in the doc: the persistence claim ignored that option values persist in
-  `mods/state.toml`; "cannot carry code" misstated a citation that says
-  native code; the GameFAQs comparison had no saved source). Report:
-  `phase5-1/review-r1.md`. All ten suggestions are adopted (round 2 in the
-  changes above). Round 2: pending delta re-review.
+- Phase 5 change 1: round 2 PASS on tree `034e6be` (staged diff `fa055e21…`)
+  with no findings, after round 1 NEEDS CHANGES on tree `03d7a5f` (three Low,
+  all in the doc: the persistence claim ignored that option values persist
+  in `mods/state.toml`; "cannot carry code" misstated a citation that says
+  native code; the GameFAQs comparison had no saved source); commit
+  `390a09b`, pushed to the private `origin/master`. Reports:
+  `phase5-1/review-r1.md`, `phase5-1/r2/review-r2.md`. Round 2's five
+  wording suggestions are applied in this change: four in the doc, one in
+  the change 1 section above.
+- Phase 5 change 2, round 1: pending.
 
 ## Next action
 
-After a PASS: commit and push. Then Phase 5 change 2, the unlock option the
-user chose (`docs/MODDING_FEASIBILITY.md`, section 6, step 1): a game-owned
-plugin in `src/mods/`, linked through `EXTRAS_SOURCES`, and a package in
-`mods/preloaded/packages/` whose off-by-default feature sets the zone flags
-A[0..18] and the boost-level flags B[0..13] each frame while it is on. Open
-questions for that change: how a headless run turns a feature on without
-leaving it on in `build-dev/mods/state.toml`; whether the route runner needs
-an option for it (a runner change re-runs every route in three modes); and
-the check that every route is unchanged with the feature off.
+After a PASS: commit and push. The next step is the user's choice; section 6
+of `docs/MODDING_FEASIBILITY.md` proposes the branching prototype (step 2).
+The unlock option can be tried in the play copy: `play.sh` refreshes
+`.cache/play/build/` from `build-dev/`, `mods/bundled/` included, and the
+launcher's Mods page should list "Unlock All Zones and Boost Levels" under
+Cheats.
 
 Play continues from the play copy: `play/play.sh <session dir> <SCPH-1001
 dump>` (in `.cache/evidence/phase4-2/`) refreshes `.cache/play/build/` from

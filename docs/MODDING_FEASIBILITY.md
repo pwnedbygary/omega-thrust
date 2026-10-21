@@ -3,10 +3,10 @@
 Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
-Nothing here is implemented yet. The evidence (scripts, logs and saved web
-pages) is in `.cache/evidence/mod-research/`, which is ignored and exists only
-on the machine that did the research; evidence file names below are relative
-to it.
+Step 1 of the recommended path (section 6) is now implemented; nothing else
+here is. The evidence (scripts, logs and saved web pages) is in
+`.cache/evidence/mod-research/`, which is ignored and exists only on the
+machine that did the research; evidence file names below are relative to it.
 
 Labels: Observation (seen in source, disc files or command output), Derived
 (worked out from named observations), Reference (external pages), Hypothesis,
@@ -26,9 +26,9 @@ source.
 | Free flight through a world | Remake scale |
 | Fan sequel or remake | Depends on the route (section 6) |
 
-- Unlocks: a plugin writes the game's unlock flags, or a guarded EXE patch
-  edits the unlock-rule table. A new kind of unlock condition needs EXE and
-  TITLE.BIN code changes.
+- Unlocks: a plugin writes the game's unlock flags (done: section 6, step 1),
+  or a guarded EXE patch edits the unlock-rule table. A new kind of unlock
+  condition needs EXE and TITLE.BIN code changes.
 - Branching campaign: a plugin hook in the campaign loop picks the next step
   from the finished zone's results, which are in RAM when the loop resumes.
   The script has no condition field, a branch must keep the scene entry
@@ -117,8 +117,9 @@ Checked against the pinned source (`framework-check.txt`).
     (`psxrecomp/runtime/include/mod_memory.h:55-62`).
   - The player's option values and resource paths persist in
     `mods/state.toml` (`MOD_PACKAGES.md:27`, `:865`). A plugin can read them
-    (`psxrecomp/runtime/include/mod_plugins.h:309-335`) but has no call that
-    changes them; its write calls target guest RAM (`:121-171`).
+    (`psxrecomp/runtime/include/mod_plugins.h:309-343`) but has no call that
+    changes them; its write calls target guest memory: RAM (`:121-171`), SPU
+    RAM (`:178`) and VRAM (`:184`).
   - So progress a mod adds during play, such as a branch the player took,
     belongs in bytes the game itself saves (Derived).
 - Rules: per-game shims are "the legitimate tool of the *enhancement* phase"
@@ -128,8 +129,8 @@ Checked against the pinned source (`framework-check.txt`).
 - Precedents (Reference; README lines saved in `precedents.log`):
   - [MegaManX6Recomp][mmx6] preloads "15 package families with 203
     independently configurable, default-disabled feature rows", adapted from
-    the Mega Man X6 Tweaks ROM hack, whose author "explicitly granted
-    permission".
+    acediez's Mega Man X6 Tweaks, a project with a Romhacking.net thread,
+    whose author "explicitly granted permission".
   - [MegaManX4Recomp][mmx4] has an X + Zero co-op mod.
   - [Tomba2Recomp][tomba2] has a Debug Menu, withheld from its bundled
     catalog because it "causes severe slowdown".
@@ -258,8 +259,9 @@ checksums independently.
     LEVEL 1 (V5), 3 showed 4 (U4), 4 showed 5 (U5, U7), 6 and 7 showed 7 and
     8 (zones 7 and 8), 8 showed 9 (LAST, U2, U6, U8, U9), 10 showed B (U1)
     and 12 showed D (U3).
-  - Thunder2's "Boost Level E" code writes 13 to the current boost level at
-    0x800A7EE0 (`gamehacking-codes.txt`).
+  - Thunder2's "Boost Level E" code writes 3 to 0x800A7EC8 and 13 to
+    0x800A7EE0 (`gamehacking-codes.txt`). That 0x800A7EE0 holds the boost
+    level in play is an inference.
   - So values 0 to 8 are levels 1 to 9 and 9 to 13 are levels A to E, and
     B[9] to B[13] unlock levels A to E. ViperByte's codes on the same site
     name B[0] "Level 2" up to B[12] "Level E", one level off.
@@ -394,16 +396,24 @@ disc 1 (`cw_check.py` / `.log`).
 ## 6. Recommended path
 
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
-inside this repository and add no game data. Step 1 is the next change.
+inside this repository and add no game data. Step 1 is done (Phase 5 change
+2).
 
-1. Mod plumbing, small. A game-owned plugin and package with an "unlock every
-   zone and boost level" option, which sets A and B each frame while it is on.
-   - The game saves the flags with the player's environment save, so the
-     unlock sticks once the player saves. The option text must say so.
-   - This proves the build wiring, the package catalog, the launcher option
-     and the plugin registration.
-   - Checks: all 22 routes are unchanged with the mod off; a new route shows
-     all 19 ZONE PLAY zones open without the GameFAQs save.
+1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
+   All Zones and Boost Levels", off by default) and its plugin
+   `omega.unlock-all` (`src/mods/omega_unlock_all.c`) set A[0..18] and
+   B[0..13] at every VBlank while the feature is on (`AGENTS.md`, Mods).
+   - With it on, ZONE PLAY shows every zone and level OPENED and every
+     DEMONSTRATION entry SELECT OK. A save made then holds those flags with a
+     correct checksum, and loading it with the feature off, on psx-runtime
+     and on psx-beetle, opens the same (scratch routes: psx-runtime in its
+     three boot modes, psx-beetle in its two; the evidence is in
+     `.cache/evidence/phase5-2/`).
+   - With it off, the plugin writes nothing, the game's own save is
+     unchanged, and every committed route still passes in all three modes.
+   - This proves the build wiring, the package catalog and the plugin
+     registration. The launcher's Mods page lists bundled packages
+     (`MOD_PACKAGES.md`); seeing this one there is left to a play session.
 2. Branching prototype, medium.
    - An instruction hook at the campaign loop's step advance chooses the next
      step by a rule on the finished zone's result record, for example its
@@ -444,6 +454,8 @@ inside this repository and add no game data. Step 1 is the next change.
 - Whether new files can be added through a patched directory sector plus
   appended sectors (step 5).
 - The TITLE 14-input unlock code; what "Debug Display" shows.
+- What A[19] and B[14] unlock: the play-time rule sets them, but no zone or
+  level label shows them.
 - How results, AP and the unlock rules behave with more or fewer than nine
   campaign zones.
 - The OMD record format in detail; the formation table format.
