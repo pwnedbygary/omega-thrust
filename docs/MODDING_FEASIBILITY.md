@@ -3,8 +3,8 @@
 Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
-Step 1 of the recommended path (section 6) is now implemented; nothing else
-here is. The evidence (scripts, logs and saved web pages) is in
+Steps 1 and 2 of the recommended path (section 6) are now implemented;
+nothing else here is. The evidence (scripts, logs and saved web pages) is in
 `.cache/evidence/mod-research/`, which is ignored and exists only on the
 machine that did the research; evidence file names below are relative to it.
 
@@ -30,9 +30,11 @@ source.
   or a guarded EXE patch edits the unlock-rule table. A new kind of unlock
   condition needs EXE and TITLE.BIN code changes.
 - Branching campaign: a plugin hook in the campaign loop picks the next step
-  from the finished zone's results, which are in RAM when the loop resumes.
-  The script has no condition field, a branch must keep the scene entry
-  pointer and the result slots consistent, and testing needs campaign play.
+  from the finished zone's results, which are in RAM when the loop resumes
+  (prototype done: section 6, step 2). The script has no condition field,
+  and a branch must keep the scene entry pointer and the result slots
+  consistent. A test option that clears zones instantly lets scripted runs
+  reach each branch without live play.
 - Remixed zones: edit a zone's wave timeline and formation tables, which are
   data inside its `.BIN`, and ship them as same-size disc overlays. The
   formats are not decoded yet, and files cannot grow.
@@ -208,21 +210,54 @@ checksums independently.
   MOVIE IM 3, Z9, MOVIE ENDING and MOVIE STAFFROLL.
   - The kind selects a briefing, zone or movie handler.
   - The script has no condition field and no difficulty.
-- The loop (0x8002F814) keeps the script pointer and step only in registers;
-  the limit of 17 is an immediate in its code (agent; consistent with the
-  earlier spike that rewrote them).
+- The loop (0x8002F814) keeps the script pointer in $s0 and the step in $s1,
+  and the limit of 17 is an immediate in its code (re-checked). After a step
+  whose result word is 0 or 1, it adds 8 to $s0 (0x8002FA94 or 0x8002FAB0)
+  and 1 to $s1 (0x8002FB28), then loops while $s1 is below 17 (0x8002FB2C to
+  0x8002FB30). The branching prototype hooks that check (section 6).
 - A zone step sets the current scene index (0x800A7C30) and difficulty
   (0x800A7C34), then runs the zone loop. After each step, the result word
   0x800A7954 decides what follows: 0 or 1 the next step, 2 game over, 5 back
-  to the title (agent).
-- Zone results are kept only in campaign mode, at 0x800A7AA8 + (index - 3) x
-  0x24 (agent). Each record holds the clear time, time score, enemies,
-  enemies destroyed, destroy ratio and score, combined rating, grade and
-  score.
+  to the title (re-checked, 0x8002FA78 to 0x8002FABC).
+- Zone results go to records of 0x24 bytes at 0x800A7AA8 + (index - 3) x
+  0x24, of which the campaign loop initialises nine at its start
+  (re-checked). The results code writes a zone's record only while
+  0x800A7950 is 0 (0x800466B4 to 0x80046740, re-checked); the agent reads
+  that as campaign mode only. In order, the record's nine words hold: the
+  clear time in frames; a time factor; the enemies spawned and destroyed (the
+  halfwords at 0x800A794A and 0x800A794C); the destroy ratio; a destroy
+  factor; the rating; the grade; and the score at 0x8009C048. The factors and
+  the rating are 4.12 fixed point.
   - Campaign-wide fields follow at +0x148: pilot rank, continues left and
-    others.
+    others (agent).
   - AP is the mean of the nine ratings, computed after the campaign or a game
-    over.
+    over (agent).
+  - The rating is the destroy factor times the time factor. The grade is 0 for
+    a rating of 0xE67 or more (90%), 1 from 0xB34 (70%), 2 from 0x667 (40%),
+    3 from 0x334 (20%) and 4 below that (0x80046614 to 0x8004665C). The
+    campaign starts every record's grade at 6. Results screens showed RANK S
+    at 98 and 100 points, A at 79 and C at 37, so 0 to 4 are S, A, B, C and D
+    (Derived).
+  - The destroy factor depends on the zone. Cleared quickly with nothing
+    destroyed, the 1ST ZONE's record held a destroy factor and rating of 0.5
+    (grade B) and the 2ND ZONE's 0 (grade D), both with a time factor of 1.0
+    (`.cache/evidence/phase5-3/records/`).
+- A zone ends through the clear routine 0x80034104, called with the player
+  object (pointer at 0x8009C064), which it moves from state 3, in play, to 6
+  (7 in scene indices 9 and 10). Calls to it, counted in every scene `.BIN`
+  and the EXE (`.cache/evidence/phase5-3/clear_callers.py` and
+  `clear-callers.log`, re-checked):
+  - Zones 1 to 4, 6 and 7, U1 to U3, U6 and U7 have no call of their own and
+    reach it through the shared wave timeline runner (one constructor call
+    each; constructor 0x80071624, update 0x80071544, which holds the EXE's
+    only call): an empty entry starts a 90-frame countdown, and the routine
+    runs when it ends.
+  - The 8TH ZONE, U4 and U8 have the runner and also call the routine from
+    their own code (one, two and one calls).
+  - The 5TH ZONE, the LAST ZONE, U5, U9 and V5 have no runner and call it
+    from their own code (one call each).
+  - Every call passes the player pointer, and no file has a `j` to the
+    routine or a data word holding its address.
 - Hazards (Derived from the record layout):
   - There are only nine result records of 0x24 bytes each, indexed by the
     scene index minus 3. A U-zone or V5 played inside the campaign would write
@@ -396,8 +431,8 @@ disc 1 (`cw_check.py` / `.log`).
 ## 6. Recommended path
 
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
-inside this repository and add no game data. Step 1 is done (Phase 5 change
-2).
+inside this repository and add no game data. Steps 1 and 2 are done (Phase 5
+changes 2 and 3).
 
 1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
    All Zones and Boost Levels", off by default) and its plugin
@@ -412,14 +447,36 @@ inside this repository and add no game data. Step 1 is done (Phase 5 change
    - With it off, the plugin writes nothing, the game's own save is
      unchanged, and every committed route still passes in all three modes.
    - This proves the build wiring, the package catalog and the plugin
-     registration. The launcher's Mods page lists bundled packages
-     (`MOD_PACKAGES.md`); seeing this one there is left to a play session.
-2. Branching prototype, medium.
-   - An instruction hook at the campaign loop's step advance chooses the next
-     step by a rule on the finished zone's result record, for example its
-     grade.
-   - A debug-only option that ends the current zone as cleared lets routes
-     test each branch without live play.
+     registration. The launcher's Mods page lists the package under Cheats,
+     unticked. Ticking it and pressing PLAY wrote the selection to
+     `mods/state.toml`, and the game then ran with every flag set (the
+     launcher driven on a private X display from a copy of the build;
+     `.cache/evidence/phase5-3/launcher/`).
+2. Branching prototype, medium. Done (Phase 5 change 3).
+   - The package `omega.gameplay.branching` ("Branching Campaign
+     (prototype)", off by default) runs an instruction plugin at the step
+     check (0x8002FB2C). An S on the 1ST ZONE leads to the 3RD ZONE, then
+     back to the 2ND ZONE and MOVIE IM 0, and on to the 4TH ZONE; any other
+     grade keeps the stock order. Every zone is played once, so all nine
+     records are written, and the rules read only the records.
+   - The hidden test package `omega.debug.zone-clear` hooks the shared
+     timeline runner (0x80071558). It ends a zone through the game's own
+     clear path once the player is in play; runs have checked it in the 1ST
+     to 4TH ZONE of CAMPAIGN PLAY. With nothing destroyed the zone grades low
+     (D in zones 2 to 4, B in the 1ST ZONE), and S when every spawned enemy
+     is counted as destroyed. It does not reach the 5TH ZONE, the LAST ZONE,
+     U5, U9 or V5, and it is untested in the 8TH ZONE, U4 and U8, which also
+     call the clear routine from their own code.
+   - Results: scripted runs with the test clear on (a scratch route, in all
+     three boot modes; `.cache/evidence/phase5-3/`) played the 1ST, 3RD and
+     2ND ZONE, MOVIE IM 0, then the 4TH and 5TH ZONE when the 1ST ZONE graded
+     S, and the stock order when it graded B; with the branching feature off
+     the order stayed stock. With both features off, every committed route
+     still passes in all three modes with the same overlay interpreter counts
+     as before, and neither plugin redirects or clears anything.
+   - Next for branching: extra zones as branch targets need their result
+     records redirected or protected (hazards above), and a campaign run to
+     its end under a branch.
 3. Zone data tools, medium. Python tools that read the player's disc: decode
    each zone's timeline and formation tables, extract the textures (standard
    TIMs), export models for viewing, and list sound banks.
@@ -458,6 +515,9 @@ inside this repository and add no game data. Step 1 is done (Phase 5 change
   level label shows them.
 - How results, AP and the unlock rules behave with more or fewer than nine
   campaign zones.
+- How the 5TH ZONE, the LAST ZONE, U5, U9 and V5 decide when to call the
+  clear routine, and when the 8TH ZONE, U4 and U8 call it from their own
+  code as well as through the runner.
 - The OMD record format in detail; the formation table format.
 - Whether data-only edits keep the static shard's compiled variants in use.
 - Whether the spike's crash after the credits also happens in genuine play. A

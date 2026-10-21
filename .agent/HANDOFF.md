@@ -9,29 +9,43 @@ cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure.
 
-Current iteration, Phase 5 change 2 (the "unlock all zones and boost levels"
-mod the user chose), round 1. Invariant: the game-owned package
-`omega.cheat.unlock-all` (format 7, target SCUS-94449; feature `unlock-all`,
-"Unlock All Zones and Boost Levels", group Cheats, off by default) selects the
-trusted plugin `omega.unlock-all` (`src/mods/omega_unlock_all.c`, linked
-through `EXTRAS_SOURCES`). While the feature is on, at every emulated VBlank
-once the game has started, the plugin sets the zone flags A[0..18] and the
-boost-level flags B[0..13] to 1, writing only bytes that differ and counting
-each write. With the feature on, ZONE PLAY shows every zone and level OPENED
-and DEMONSTRATION every entry SELECT OK, and a save made then holds the flags
-with a correct checksum; loading that save with the feature off opens the same
-on psx-runtime in all three boot modes and on psx-beetle in both of its modes.
-With the feature off the plugin writes nothing, the game's own save is
-unchanged, and all 22 committed routes pass in all three modes. The plugin
-audit passes with the game's catalog and fails without it. `AGENTS.md`
-documents the catalog, the plugin, the audit and how to run with a feature on
-without touching `build-dev/mods/state.toml`; the doc records step 1 as done
-and takes change 1's four round-2 doc suggestions; this file records change
-1's round-2 PASS and commit `390a09b`, takes that round's handoff suggestion
-and condenses change 1. Baseline: `390a09b`. Out of scope: runner, driver,
-route and test changes; a committed feature-on route; other mods; framework,
-submodule and `generated/` changes; play sessions (the launcher's Mods page);
-CI, packaging.
+Current iteration, Phase 5 change 3 (the branching campaign prototype the
+user chose, step 2 of `docs/MODDING_FEASIBILITY.md` section 6), round 2.
+Invariant: two game-owned packages, both off by default, select trusted
+instruction plugins linked through `EXTRAS_SOURCES`, at two sites now listed
+in `game.toml` `[recompiler] mod_instruction_sites`. Regenerating adds the
+hook calls to two game shards and records the new `game.toml` in the static
+overlay audit; the shard's C is unchanged. `omega.gameplay.branching`
+(feature `branching`, "Branching Campaign (prototype)") hooks the campaign
+loop's step-limit check (0x8002FB2C). With an S grade on the 1ST ZONE the
+campaign plays the 3RD ZONE, then the 2ND ZONE, MOVIE IM 0 and the 4TH ZONE;
+with any other grade it keeps the stock order; every zone is played once.
+The hidden test package `omega.debug.zone-clear` (feature `zone-clear`)
+hooks the zone timeline runner (0x80071558) and ends a zone that uses it
+through the game's own clear path once the player is in play, graded low
+with nothing destroyed (D, or B in the 1ST ZONE) and S with its option
+`all-destroyed`; it has run in the 1ST to 4TH ZONE of CAMPAIGN PLAY only.
+Checked in all three boot modes from copies of the build with their own
+`mods/state.toml`: the S path with both on, and the stock order with low
+grades and with S grades while branching is off.
+With both off, all 22 committed routes pass in all three modes with the same
+overlay counts as before. `AGENTS.md` documents both packages, the hook-site
+rule and the audit's blind spot for instruction-only plugins, and adds `--out`
+and the copy's location to the feature-on recipe (change 2's first review
+suggestion). The doc records step 1's launcher check, step 2's results and
+the campaign facts checked on the way. This file records change 2's PASS and
+commit `9500812`, the launcher check and change 2's other review suggestions,
+and condenses change 2. Round 2 resolves review round 1's findings: the 8TH
+ZONE, U4 and U8 also call the clear routine from their own code, now recorded
+from a saved script, and every claim about the test clear is limited to the
+zones it ran in; the doc's record bullet is marked re-checked; a citation and
+the host-stall wording are corrected. Baseline: `9500812`. Out of scope: the
+zones that end outside the shared timeline (5TH, LAST, U5, U9, V5) for the
+test clear, and runs of the test clear in other zones; branches into extra
+zones (the result-record hazard in the doc); the whole
+campaign and its end under the branch; runner, driver, route and test
+changes; a committed feature-on route; framework and submodule changes; play
+sessions; CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -370,159 +384,306 @@ boot modes; U1's, which only the draft left unclear, reads B in the 10x glyph
 comparison with 8TH's "8" (`level-labels/glyphs-8-u1-u3.png`). The GameFAQs
 cheats page now answers scripted fetches with HTTP 403 and no record saved
 its unlock list, so the write-up does not compare the unlock rules with it.
-`AGENTS.md` and the Phase 3 change 4 section above said the four words the
-static overlay step checks set the overlay base. The scene loader branches
-past them (0x80075AEC) when the scene has a `.BIN`, so they run only for a
-scene without one, putting its data at 0x80120000; with a `.BIN` the data
-goes after the file (`loader-dis.txt`). `AGENTS.md` now says so; the check
-still pins loader code beside the overlay load. The user's account posted a
-comment on psxrecomp #721: the issue's frame-1200 comparison may catch Beetle
-before its game starts, and the card bytes are the like-for-like evidence
-(`phase4-2/upstream/issue-3-comment-1.md`). The user then chose the "unlock
-all zones and boost levels" mod as the next change. Review: round 1 NEEDS
-CHANGES (three Low, all in the doc), round 2 PASS on tree `034e6be` with no
-findings. The full record is in `git show 390a09b:.agent/HANDOFF.md`.
+`AGENTS.md` said, and the Phase 3 change 4 section above still says, that the
+four words the static overlay step checks set the overlay base. The scene
+loader branches past them (0x80075AEC) when the scene has a `.BIN`, so they
+run only for a scene without one, putting its data at 0x80120000; with a
+`.BIN` the data goes after the file (`loader-dis.txt`). `AGENTS.md` now says
+so; the check still pins loader code beside the overlay load. The user's
+account posted a comment on psxrecomp #721: the issue's frame-1200 comparison
+may catch Beetle before its game starts, and the card bytes are the
+like-for-like evidence (`phase4-2/upstream/issue-3-comment-1.md`). The user
+then chose the "unlock all zones and boost levels" mod as the next change.
+Review: round 1 NEEDS CHANGES (three Low, all in the doc), round 2 PASS on
+tree `034e6be` with no findings. The full record is in
+`git show 390a09b:.agent/HANDOFF.md`.
 
-## Phase 5 change 2 observations (`.cache/evidence/phase5-2/`)
+## Phase 5 change 2 (commit `9500812`)
 
-- The framework at the pin: a VBlank plugin runs at every emulated VBlank for
-  each plugin id the resolved plan activates
-  (`psxrecomp/runtime/src/mod_runtime.cpp:2184-2193`).
-  `psx_mod_game_started()` returns `fntrace_is_game_started()`
-  (`:2195-2197`). `psx_mod_write_byte` is a host store (`:2312-2314`,
-  `memory.c:2509-2513`): it takes the guest store path but is never
-  cache-isolated (`memory.c:1797-1801`). A package targets a game by
-  `game_id`, and by `exe_sha256` or `disc_sha256` only if it sets them
-  (`mod_packages.cpp:682-684`); release installs carry no loose EXE to hash
-  (`mod_runtime.cpp:1328-1333`). `save_compatibility` is parsed and
-  validated (`mod_packages.cpp:1724-1725`, `:1745-1746`), and nothing else
-  in the runtime's sources or recomp-ui reads it. The plugin audit
-  (`--audit-mod-plugins`, `main.cpp:14226-14250`) runs as a ctest only under
-  `BUILD_TESTING` (`runtime.cmake:1360-1371`), so this change runs it by
-  hand. `psxrecomp_add_game_runtime` forwards its unparsed arguments and then
-  adds its own `EXTRAS_SOURCES` (`runtime.cmake:2727`, `:2747-2751`), and
-  repeated keyword values accumulate (Phase 5 change 1's CMake test). The
-  closest precedent, MegaManX4Recomp's cheat packages (`reference/`), are
-  format 5 manifests in group Cheats, off by default, whose plugin uses
-  function-entry hooks.
-- Builds (`build-dev.log`, `build-release.log`): the new package directory
-  re-ran CMake (a globbed path changed), and the build staged 7 packages (1
-  game-owned, 6 framework-owned) into `mods/bundled/`, compiled
-  `src/mods/omega_unlock_all.c` and relinked. `build-dev/Omega_Thrust` is
-  now `64f65d9d2f0a…` (it was `07ff31595b9c…`), `build-release/Omega_Thrust`
-  `dde8de1bf342…`. Both link `omega_register_unlock_all` and
-  `unlock_all_vblank`, and both staged manifests equal the source. The audit
-  passes with the framework and game catalogs (7 manifests, 7 declared ids,
-  7 registered ids) and fails with the framework's alone, which leaves
-  `omega.unlock-all` undeclared, so it sees the plugin (`plugin-audit.log`).
-- Feature off, every committed route (`routes.sh` / `routes.log`): the 22
-  routes in all three modes with the documented commands on the new
-  `build-dev`, whose `mods/state.toml` names no package of this change. All
-  66 runs pass, with matching banners, no miss, every screenshot taken,
-  start frames 21 to 142 and shot lags up to 18 frames
-  (`routes_summary.log`); the save image and the binary did not change
-  (`inputs-before.sha256`, `inputs-after.sha256`). In every run the plugin's
-  counter stays 0, and the interpreter's overlay instruction and row counts
-  equal change 5 round 2's (`probe_summary.log`, `probe/`). All 19 replays
-  reach their results screens in all three modes (`clear_time_check.log`),
-  and `card_check.py` finds no problem: card 1 of the card routes differs
-  from the save only in the write-test frame (`card_check.log`). The
-  `memcard` route saves the game's own card, `42dd8d89acd1…`, as before.
-- Feature on (`mod_runs.sh` / `mod_runs.log`, outputs in `runs/`). Two run
-  directories outside the build (`mod_view.sh`) hold copies of `build-dev`'s
-  binary, `bios/`, `assets/`, `game_options.toml`, `psx_game_version.txt`
-  and `mods/bundled/`, and a `mods/state.toml` that names the package with
-  the feature on or off. Two scratch routes (`gen_mod_routes.py`,
-  `routes-mod/`): `unlock-on` (198 steps, 16,598 frames) walks ZONE PLAY's
-  level and zone lists and the DEMONSTRATION list, then saves to card 1;
-  `unlock-saved` loads card 1 first, then walks the same lists. The runs use
-  port 4372, and `probe.py` samples the plugin counter and the flags. In
-  each of the three modes:
-  - `unlock-on` with the feature on passes. The plugin counted 64 writes,
-    the last during boot (frames 422, 720 and 1,047), and at the last sample
-    A[0..18] and B[0..13] are set and neither clear flag
-    (`mod_probe_summary.log`). In the screenshots (`status_check.py` /
-    `.log`, which match each status word against crops read on screen),
-    every zone and level is OPENED, ZONE PLAY's header says SELECT OK in all
-    32 zone and level shots, and all 19 DEMONSTRATION entries say SELECT OK.
-  - With the feature off the same route passes, the counter stays 0, only
-    A[0] and B[0] are set, the screens show only 1ST ZONE and level 1 OPENED
-    (the header SELECT OK only for that pair) and the rest CLOSED or
-    DISABLE, and DEMONSTRATION entries 1 to 6 say SELECT OK, as Phase 3
-    change 2 found.
-  - The feature-on save is the same card in all three modes
-    (`2fefb5154ef4…`). It holds A[0..18] and B[0..13] and no clear flag, and
-    its checksum holds: 0x09F245F2, the GameFAQs save's 0x09F244F2 plus
-    0x100 for B[13] (`card_flags.py`, first checked on both known cards).
-    The feature-off save is the game's own `42dd8d89acd1…`.
-  - `unlock-saved` with the feature off and that card passes: every zone,
-    level and entry is open, the counter stays 0, and card 1 is unchanged.
-  - psx-beetle, which runs no plugins, plays `unlock-saved` with the same
-    cards in both of its modes, every press on its frame, and shows every
-    zone and level OPENED and every entry SELECT OK.
-  - The on and off runs' interpreter totals differ by under 0.1%, with the
-    same 1,446 overlay instructions (`runs/*-probe.json`).
-- 64 writes is more than the 33 flags, so something reset some of them
-  during boot after the plugin first set them; which code did is not traced.
+The opt-in mod the user chose to prove the plugin, package and launcher
+wiring: the package `omega.cheat.unlock-all` and its VBlank plugin
+`omega.unlock-all` set the zone flags A[0..18] and the boost-level flags
+B[0..13] while the feature is on (`AGENTS.md`, Mods; evidence in
+`.cache/evidence/phase5-2/`). With the feature off, all 66 route runs passed,
+the plugin wrote nothing, and the overlay counts equalled Phase 3 change 5
+round 2's. With it on, from copies of the build with their own
+`mods/state.toml` (scratch routes `unlock-on` and `unlock-saved`), ZONE PLAY
+showed every zone and level OPENED and DEMONSTRATION every entry SELECT OK in
+all three boot modes. A save made then holds the flags with a correct
+checksum (0x09F245F2, the GameFAQs save's 0x09F244F2 plus 0x100 for B[13]),
+and loaded with the feature off it opened the same on psx-runtime and, in
+both of its modes, on psx-beetle. The plugin counted 64 writes, the last
+during boot; in HLE mode 33 by VBlank 272 and 31 more by VBlank 422 (change
+2's reviewer's probe; Derived: consistent with one boot-time reset of every
+flag except the two the game sets itself; the writer is not traced). A
+package targets a game by `game_id`, and by an EXE or disc hash only if it
+sets one; release installs commonly do not carry a loose EXE to hash
+(`psxrecomp/runtime/src/mod_runtime.cpp:1329`). `EXTRAS_SOURCES` sits above
+`GEN_FULL_GLOB`, since after a multi-value keyword it would be read as that
+keyword's values. Review: round 1 PASS on tree `6a7d573` (staged diff
+`180a2cf5…`) with no findings; the report, not saved at the time, is now in
+`phase5-2/review-r1.md`. The full record is in
+`git show 9500812:.agent/HANDOFF.md`.
 
-## Phase 5 change 2 changes
+## Phase 5 change 3 observations (`.cache/evidence/phase5-3/`)
 
-- `src/mods/omega_unlock_all.c` (new): the trusted plugin `omega.unlock-all`.
-  At every VBlank once the game has started it writes 1 to each of A[0..18]
-  (0x800A7E20) and B[0..13] (0x800A7E34) that is not already 1, and counts
-  each write as `omega.unlock-all.writes` (debug command `mod_counters`).
-  A[19] and B[14], which no screen shows, are left alone.
-- `mods/preloaded/packages/omega.cheat.unlock-all/1.0.0/manifest.toml`
-  (new): format 7, target `SCUS-94449` with no EXE or disc hash (the plugin
-  changes no disc data, and release installs have no loose EXE), one
-  feature, `unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
-  off by default), whose description says a save made while it is on keeps
-  the unlocks, and the `[[plugin]]` `omega.unlock-all`.
-- `CMakeLists.txt`: `EXTRAS_SOURCES` with the plugin, above `GEN_FULL_GLOB`,
-  where a multi-value keyword would take it as one of its own values.
-- `AGENTS.md`: a "Mods" section: the catalog and plugin layout, the audit
-  command, what the package does, and how to try a feature (the play copy's
-  Mods page, or a headless run from a copied build with its own
-  `mods/state.toml`), with `build-dev/mods/state.toml` enabling none.
-- `docs/MODDING_FEASIBILITY.md`: step 1 of the recommended path is marked
-  done, with its results. Change 1's four round-2 doc suggestions: the
-  resource-path citation and "guest memory" (RAM, SPU RAM and VRAM); the
-  cheat's two writes, with the boost-level reading labelled an inference;
-  A[19] and B[14] as an unknown; the X6 Tweaks wording, from the README
-  lines now saved in `mod-research/precedents.log`.
-- `.agent/HANDOFF.md`: this scope; Phase 5 change 1 condensed, with its
-  round-2 handoff suggestion applied (U1's label was unclear only in the
-  draft, and the glyph comparison is at 10x); these sections; the
-  hypotheses; the review state; the next action.
-- Untracked (ignored): the evidence in `.cache/evidence/phase5-2/` and the
-  README lines appended to `.cache/evidence/mod-research/precedents.log`.
+- The launcher check change 2 left open (`launcher/`; 2026-10-21, before this
+  change's edits). The recomp-ui launcher ran on a private Xvfb display from
+  a scratch copy of `build-dev` (binary `64f65d9d2f0a…`, no `settings.toml`
+  or `mods/state.toml`, its own `game.toml`), driven by xdotool clicks and
+  screenshots. Its Mods page lists "Unlock All Zones and Boost Levels" under
+  Cheats, unticked, with the manifest's description, version and author.
+  Ticking it writes nothing until the launcher closes. PLAY wrote
+  `mods/state.toml` (format 2) with the feature enabled, and the game it
+  started (HLE OpenBIOS) reported 64 plugin writes, the last at frame 422 as
+  in the headless runs, A[0..18] and B[0..13] set, A[19] and B[14..19]
+  clear, and no miss (`queries.log`, `shots/`). The launcher also wrote its
+  files and `multitap_analog` into the copy, as `AGENTS.md` says;
+  `build-dev` and tracked files were untouched.
+- The campaign loop, the results code and how a zone ends, read from the
+  disassembly (`dis_excerpts.sh` / `dis-excerpts.txt`, which rebuild it from
+  `disc/SCUS_944.49`; all 529 lines equal the same ranges of the spike's
+  listing, saved as `spike-excerpt.txt`). The doc's "The campaign" now gives
+  the addresses. In short: the loop keeps the script pointer in $s0 and the
+  step in $s1 and reaches the step-limit check at 0x8002FB2C only after a
+  step whose result word is 0 or 1, with both already advanced; the results
+  code writes a zone's record only while 0x800A7950 is 0 (campaign mode, by
+  the agent's reading) and grades the rating 0 (S) to 4 (D), against a start
+  value of 6; the destroy ratio is 0 while no enemy has spawned
+  (0x80057268); and a zone ends through 0x80034104, which the shared
+  timeline runner calls 90 frames after an empty entry.
+- Which zones reach that routine, and how (`clear_callers.py` /
+  `clear-callers.log`; it counts, in every scene `.BIN` and the EXE, the
+  `jal` to the routine and to the runner's constructor, `j` to the routine
+  and data words holding its address, and checks each call's argument; the
+  scene-to-file map comes from the EXE's path table, and the campaign script
+  ties scene 10 to step 12, the 8TH ZONE). Zones 1 to 4, 6 and 7, U1 to U3,
+  U6 and U7 call the runner's constructor once and the routine never. The 8TH
+  ZONE (`S9.BIN`), U4 and U8 call the constructor once and also call the
+  routine from their own code: one, two and one calls (S9 +0x15AC8, U4
+  +0x4830 and +0x5118, U8 +0xA460). The 5TH ZONE, the LAST ZONE, U5, U9 and
+  V5 call it once and have no runner. The EXE's only call is the runner's
+  (0x80071604); every call passes the player pointer from 0x8009C064, and no
+  file has a `j` to the routine or a data word holding its address. Round 1
+  said only the five zones without a runner call it themselves; its log
+  (`clear-callers-first.log`, from an unsaved command) listed only those
+  five and the 1ST ZONE.
+- Zone state in play (`explore/state-tz1.log`, from `title_to_zone1` in HLE
+  mode, logged by an earlier `probe_state.py` without the grade and counter
+  columns): scene index 3, the player object at 0x80134124 in state 0 at
+  load and 3 in play, 0x800A794A counting enemies spawned (5, 10, 15, 20, 26
+  by frame 7,534) and 0x800A794C kills (0, since the route does not fire).
+- Instruction hooks at the pin: registration and contract in
+  `mod_plugins.h:46-55` and `MOD_PACKAGES.md:964-979`; sites must be aligned
+  main-RAM addresses (`recompiler/src/config_loader.cpp:1712-1721`); the
+  generator emits `psx_mod_instruction(cpu, address, word);` before the
+  instruction (`code_generator.cpp:918-924`), and that call returns at once
+  while no active plugin hooks an instruction (`mod_runtime.cpp:2489-2491`).
+  The sites enter `overlay_codegen_config_hash` (`config_loader.cpp:82-83`),
+  which names the runtime's overlay cache (`main.cpp:15028-15030`). The
+  plugin audit lists registered ids without instruction or save-state
+  plugins (`mod_packages.cpp:1578-1585`), while plan resolution counts them
+  (`:1496-1502`).
+- Regenerating (`generate1.log`, `generate2.log`): two shards changed and the
+  total went from 2,371,078 to 2,371,081 lines. `_03` gets the call in both
+  of its copies of block 0x8002FB28 (the campaign loop's code is emitted in
+  two generated functions), `_26` once before 0x80071558. The static step
+  rebuilt the shard (25 of 25 images verified, 34,846 variants in 26 files)
+  with every C file unchanged; the audit changed only in
+  `game_toml_sha256`, the configuration part of `cache_tag` (`gcc15c8ed0` to
+  `gc9265efab`), `recipe_input_sha256` and `generation_inputs_sha256`. The
+  second run printed "0 updated" and `RESULT_STATIC=reused`, and
+  `generated/` was identical. The submodule shows only the ignored
+  `overlay_codegen_hash.h`.
+- Builds (`build-dev-first.log`, `build-dev.log`, `build-release.log`):
+  `build-dev/Omega_Thrust` is `da70e6c0dd92…` (it was `64f65d9d2f0a…`),
+  `build-release/Omega_Thrust` `943fb8039b6f…`. The rebuild after the
+  zone-clear plugin's comment and manifest description changed compiled that
+  one file and gave the same binary. So did reflowing five lines of the two
+  plugin sources to 80 columns, with no other change, after the first checks
+  run flagged them: both files compiled again and both builds gave the same
+  binaries (`build-dev-reflow.log`, `build-release-reflow.log`,
+  `reflow-binaries-*.sha256`). Both builds link both plugins (`nm`),
+  stage both new manifests unchanged, and warn only in `stb_image.h`. The
+  audit passes with 9 manifests, 9 declared ids and 7 registered ids: the two
+  instruction plugins are not counted (`plugin-audit-dev.log`).
+- Exploration (`explore/`, HLE, branching on and S clears, 45 cycles of a
+  shot and a Cross press after CAMPAIGN PLAY): scenes 3, 5, 4, then 6 after
+  MOVIE IM 0, then 7, with COMPLETED screens reading CLEAR TIME 0:05.03 and
+  similar, DESTROY RATIO 100% and RANK S (100pts)
+  (`explore-s-sheet1.png`). The clear never fired in the 5TH ZONE: the
+  player stayed in state 3 until killed, GAME OVER counted down its
+  continues, and a per-zone summary followed.
+- Feature-on runs (`branch_runs.sh` / `.log`, `runs/`, `branch_summary.py`
+  / `.log`): the scratch route `branch_check.json` (`gen_branch_check.py`:
+  CAMPAIGN PLAY as in `title_to_zone1`, then 32 cycles of a 300-frame wait
+  with a shot and a 6-frame Cross press; 109 steps, 15,726 frames), run by
+  the committed runner from copies of the build (`mod_view.sh`), with
+  `probe_state.py` logging the scene index, the player's state, the zone 1
+  to 4 grades and the plugin counters from RAM. All nine runs passed with no
+  miss and exit 0 (start frames 47 to 135), in all three boot modes:
+  - branching on, S clears: scenes 3, 5, 4, 6, 7 (the 1ST, 3RD, 2ND, 4TH and
+    5TH ZONE), grades S in zones 1 to 4, 3 redirects, 4 clears;
+  - branching on, clears with nothing destroyed: the stock order 3, 4, 5, 6,
+    7, grades B, D, D, D, no redirect, 4 clears;
+  - branching off, S clears: the stock order, grades S, no redirect.
+  The contact sheets (`runs/*_sheet.png`; S path in SCPH-1001 mode and the
+  low-grade run in HLE mode viewed) show MOVIE IM 0 after the 2ND ZONE on
+  both paths: before the 4TH ZONE on the S path, before the 3RD on the stock
+  path. The summary's first version expected D in the 1ST ZONE too
+  (`branch_summary-first.log`). Two shorter HLE runs that log all nine
+  record words (`records/`, `probe_records.py`) explain the B: with nothing
+  destroyed, the 1ST ZONE's destroy factor and rating are 2048 (0.5) where
+  the 2ND ZONE's are 0, both with a time factor of 4096 (1.0). In the S run
+  the running-score words of the 1ST, 3RD and 2ND ZONE's records, 0, 36,800
+  and 73,600, confirm that order. The runs used `da70e6c0dd92…`, the final
+  binary (the later reflow and comment edits rebuilt it byte-identical); only
+  the zone-clear manifest's descriptions changed after them.
+- Feature-off runs (`routes.sh` / `routes.log`, `routes/`, `probe/`): every
+  committed route in all three modes with the documented commands on
+  `build-dev` (`da70e6c0dd92…`), 09:39 to 11:31. 65 of the 66 runs passed
+  first time. `demo_zone_u4` in LLE OpenBIOS mode stopped at frame 2,678, in
+  the intro: the runtime's starvation watchdog reported 25,315,365 us without
+  a heartbeat and exited with code 2 (`failed/demo-zone-u4-lle-openbios/`:
+  `runtime.log`; `cwd/psx_last_run_report.json`, whose `exit_origin` is
+  `starvation_watchdog`; `cwd/starvation_dump.jsonl`). The watchdog allows
+  4 s by default (`psxrecomp/runtime/src/starvation_ring.c:61-79`); the
+  guest's cycle accounting checks it every 65,536 cycles and exits with
+  code 2 (`psx_cycles.c:259-261`, `:324-326`, `:364-367`;
+  `starvation_ring.c:255-277`). Userspace across the host had stalled: at
+  10:56:09 the journal shows tailscaled's "time jump detected (slept 27s)",
+  systemd killing coolercontrold after its 30 s watchdog timeout, and a USB
+  hub re-enumerating (`failed/host-journal-10-55.log`). In monotonic time
+  (`failed/host-journal-10-55-monotonic.log`) the dump's gap runs from
+  528,828.92 s to 528,854.24 s, and the kernel logged a USB disconnect at
+  528,837.99 s, inside it, so the kernel kept running. The dump's last ring
+  entry is 0.3 ms after the last heartbeat, so the guest did not run during
+  the gap, and the watchdog, checked as guest cycles advance, fired only when
+  the emulation resumed. So userspace stopped for 25 to 27 s and the runtime
+  aborted when it resumed (Derived; the cause of the stall is unknown). With
+  both features off, the new hook calls return at once
+  (`mod_runtime.cpp:2489-2491`). By then that run's card 1 held a copy of its
+  header frame in the write-test frame, where a full run ends with the game's
+  test pattern. I copied the attempt into `failed/` at 10:58; `rerun.sh`,
+  written later, kept the batch's summaries in `failed/batch-summaries/` and
+  ran the same command again (`rerun.log`): PASS, start frame 42, no miss,
+  exit 0. With it, all 66
+  runs pass (`routes_summary.log`): start frames 14 to 131, 2,052 shots with
+  none failed, the largest shot lag 17 frames, no miss, exit 0. In every run
+  the overlay instruction count and rows equal change 2's and no `omega.*`
+  counter exists (`probe_summary.log`), all 57 replay-mode pairs reach their
+  results screens (`clear_time_check.log`), and the card check finds no
+  problem (`card_check.log`). The save image and the binary were unchanged
+  (`inputs-*.sha256`, `rerun-inputs-*.sha256`), and
+  `build-dev/mods/state.toml` names neither new package.
 
-## Phase 5 change 2 checks
+## Phase 5 change 3 changes
 
-- `phase5-2/checks-p5-2.sh` / `.log` (staged tree; the index tree is
-  computed in a scratch object directory, and the script runs no runtime):
-  all pass. Only the six intended paths change; the header and the Phase 0
-  to Phase 4 change 2 sections of this file equal HEAD; there is no
-  placeholder, doubled blank line, added line over 80 columns or local
-  path, and the doc no longer says nothing is implemented. The three gates
-  pass, the pins and submodules are unchanged and clean, only psxrecomp's
-  `overlay_codegen_hash.h` is ignored there, and neither new file is
-  ignored. `build-dev` is newer than the three build inputs; both builds
-  link the plugin and stage the manifest unchanged; the audit passes for
-  both and fails with the framework catalog alone; the framework lines
-  above are printed. From the runs' outputs: 66 feature-off runs started
-  and passed, the save image and binary did not change,
-  `build-dev/mods/state.toml` names no package of this change, the plugin
-  counter is 0 in every run, and the overlay counters equal change 5 round
-  2's; `probe_summary.py`, `clear_time_check.py`, `card_check.py`,
-  `mod_probe_summary.py` and `status_check.py` reproduce their logs;
-  `card_flags.py` passes on the six `unlock-on` cards, the game's own save
-  and the GameFAQs save; each `unlock-saved` run left card 1 unchanged; the
-  generator reproduces both scratch routes. The three route test files pass
-  and leave nothing behind; no listener is left; `git diff --cached --check`
-  is clean. The first run (`checks-p5-2-first.log`) found one line naming
-  "omega" in `build-dev/mods/state.toml`: the HD-texture pack path, which
-  contains the repository's name. The check now looks for the package id.
+- `game.toml`: `[recompiler] mod_instruction_sites = ["0x8002FB2C",
+  "0x80071558"]`, with a comment naming both sites and their plugins.
+- `generated/`: regenerated. `SCUS_944.49_full_03.c` (two lines) and
+  `SCUS_944.49_full_26.c` (one) call `psx_mod_instruction` at the sites, and
+  `AOT_STATIC_AUDIT.json` records the new inputs.
+- `src/mods/omega_branching.c` (new): the trusted instruction plugin
+  `omega.branching` at 0x8002FB2C (expected word 0x2E220011,
+  `sltiu $v0, $s1, 17`). It acts only if the script holds the stock scene
+  indices at steps 1, 2 and 4. With the step about to run in $s1: after the
+  1ST ZONE with grade S and the 2ND ZONE unplayed, it moves to step 4 (the
+  3RD ZONE); after the 3RD ZONE with the 2ND unplayed, to step 2; after
+  MOVIE IM 0 with the 3RD played, to step 5 (the 4TH ZONE). A zone counts as
+  played when its record's grade is 0 to 4. It sets $s0 to match and counts
+  each redirect as `omega.branching.redirects`.
+- `src/mods/omega_zone_clear.c` (new): the trusted instruction plugin
+  `omega.zone-clear` at 0x80071558 (expected word 0x8E02000C,
+  `lw $v0, 0xC($s0)`). When the runner's countdown is 0 and the player
+  object is in state 3, it sets the countdown to 1, so the runner calls the
+  clear routine in that update. With `all-destroyed` it first waits for a
+  spawned enemy and copies the spawned count over the destroyed count. It
+  counts each clear as `omega.zone-clear.clears`. Its header comment says
+  runs have checked it in the 1ST to 4TH ZONE of CAMPAIGN PLAY and names the
+  zones it cannot clear and the three where it is untested.
+- `mods/preloaded/packages/omega.gameplay.branching/1.0.0/manifest.toml`
+  (new): format 7, target `SCUS-94449`, the feature `branching` ("Branching
+  Campaign (prototype)", group Gameplay, off by default) and the `[[plugin]]`
+  `omega.branching`.
+- `mods/preloaded/packages/omega.debug.zone-clear/1.0.0/manifest.toml`
+  (new): format 7, target `SCUS-94449`, the hidden feature `zone-clear`
+  ("Clear Zones Instantly (testing)", group Debug, off by default) with the
+  boolean option `all-destroyed` (default false), and the `[[plugin]]`
+  `omega.zone-clear`. Its descriptions claim only zones on the shared
+  timeline and name the zones checked.
+- `CMakeLists.txt`: both sources added to `EXTRAS_SOURCES`.
+- `AGENTS.md`, Mods: the audit's blind spot for instruction-only plugins and
+  the hook-site rule; both packages; the feature-on recipe now puts the copy
+  under `.cache/` or outside the repository and passes `--out` (change 2's
+  review suggestion 1). Routes: what exit code 2 with a starvation dump means,
+  and when to run again.
+- `docs/MODDING_FEASIBILITY.md`: "The campaign" gains the loop's advance and
+  check, the result word and the record write with addresses (re-checked),
+  the grade thresholds, and how a zone ends, with how each zone reaches the
+  clear routine. Step 1 records the launcher check; step 2 is marked done
+  with its results; section 7's unknowns are updated.
+- `.agent/HANDOFF.md`: this scope; the change 1 section now says the Phase 3
+  change 4 section "still says" the old wording (change 2's suggestion 6);
+  Phase 5 change 2 condensed with suggestions 3 to 5 applied; these
+  sections; the hypotheses (suggestion 2); the review state; the next
+  action.
+- Round 2 (after review round 1): the 8TH ZONE's, U4's and U8's own calls to
+  the clear routine are recorded in the doc, this file, `AGENTS.md`, the
+  plugin's header comment and the package's descriptions, which now claim the
+  test clear only for zones on the shared timeline and only as checked in the
+  1ST to 4TH ZONE; the doc's record bullet is labelled re-checked, with the
+  disassembly's field names; the `mod_runtime.cpp` citation and the
+  host-stall wording are corrected; and the review's suggestions are applied
+  (review state below).
+- Untracked (ignored): the evidence in `.cache/evidence/phase5-3/` (round 2
+  added `clear_callers.py`, `clear-callers-first.log`, `spike-excerpt.txt`,
+  `failed/host-journal-10-55-monotonic.log`, `review-r1.md` and `r2/`), and
+  `phase5-2/review-r1.md`.
+
+## Phase 5 change 3 checks
+
+- `checks-p5-3.sh` / `.log` (staged tree; it computes the index tree in a
+  scratch object directory and runs no runtime): all pass. Nothing unstaged
+  or untracked, and only the intended paths change. The generated diff is the
+  three hook-call lines and the audit's input fields; the shard's C is
+  unchanged, and `generated/` equals the index. Both plugins' expected words
+  equal the disc's. The handoff's header and its Phase 0 to Phase 4 change 2
+  sections equal HEAD. There is no placeholder, doubled blank line, added
+  line over 80 columns or local path. The three gates pass, the pins equal
+  `framework_pins.txt`, the submodules are clean (`psxrecomp` ignores only
+  `overlay_codegen_hash.h`), no tracked file is ignored, and the new files
+  are not. Both builds link both plugins and stage both manifests unchanged,
+  every input is older than `build-dev`'s binary, the only warnings are in
+  `stb_image.h`, and the plugin audit passes (and fails on the framework's
+  catalog alone). The staged plugin sources equal their pre-reflow copies
+  (`pre-reflow/`) apart from whitespace, and the binaries equal the hashes
+  from before the reflow. It prints the framework lines this change relies
+  on. Its first run (`checks-p5-3-first.log`) flagged the five long C lines
+  and one long handoff line, now reflowed.
+  `dis_excerpts.sh`, `branch_summary.py` and `gen_branch_check.py` reproduce
+  their outputs. For the feature-off batch it shows the failed run's log,
+  report, dump timing and card frame, the journal lines, the watchdog's
+  source, the re-run and the unchanged inputs, and `probe_summary.py`,
+  `clear_time_check.py` and `card_check.py` reproduce their logs. The three
+  route test files pass and leave nothing behind, nothing listens on ports
+  4370 to 4389, and `git diff --cached --check` is clean.
+- Round 2, `r2/checks-p5-3-r2.sh` / `.log` (staged tree; it rebuilds round
+  1's tree from its frozen index entries, both trees in a scratch object
+  directory): all pass. Against round 1 only this file, `AGENTS.md`, the
+  doc, the zone-clear plugin and its manifest change; `generated/`,
+  `game.toml`, `CMakeLists.txt` and the branching files do not. The round-1
+  checks above hold again, and also: `clear_callers.py` reproduces
+  `clear-callers.log`; the disassembly without its headers equals
+  `spike-excerpt.txt`; both plugins' code equals the pre-reflow copies once
+  comments and whitespace are removed; the round-2 rebuild compiled only
+  `omega_zone_clear.c`, with no warning, and left both binaries
+  byte-identical (`r2/binaries-*.sha256`); the framework lines it prints
+  include `mod_runtime.cpp:2489-2491`; the journal's lines appear in
+  monotonic time; no stale wording from round 1 remains outside the quoted
+  findings and a preserved Phase 3 line; every heading has a blank line
+  before it; and the commit draft has one placeholder, no line over 72
+  columns and no local path.
 
 ## Hypotheses and unknowns
 
@@ -549,9 +710,12 @@ findings. The full record is in `git show 390a09b:.agent/HANDOFF.md`.
   but no clear flag). Its bytes are the zone flags A[0..18] and boost-level
   flags B[0..12] of the environment save, and its checksum, the 32-bit sum of
   the block's 68 words at +0x200, holds (re-checked on both card images, Phase
-  5 change 1). The unlock mod (change 2) shows that ZONE PLAY and
-  DEMONSTRATION follow those flags and that a save keeps them; that the game
-  verifies the checksum is still the agent's static reading, not traced.
+  5 change 1). With A[0..18] and B[0..13] all set, the unlock mod (change 2)
+  opens every ZONE PLAY zone and level and every DEMONSTRATION entry
+  (entries 1 to 6 are open without any flag), and a save keeps them. It sets
+  both arrays at once, so which A[i] opens which zone, and whether ZONE PLAY
+  needs B[value], is untested. That the game verifies the checksum is still
+  the agent's static reading, not traced.
 - Overlay code now runs from the static shard, except a few PCs that still go
   to the interpreter (0x80120370 in every route; 0x80135EFC in `menus`,
   `memcard` and the 13 unlocked-zone routes, 1,182 instructions in each of
@@ -590,9 +754,26 @@ findings. The full record is in `git show 390a09b:.agent/HANDOFF.md`.
   which no filter setting reaches while `build-dev/` holds no `settings.toml`.
 - Modding: the open questions are in `docs/MODDING_FEASIBILITY.md`, section
   7. Its claims marked "agent" come from a research agent's static reading of
-  the disc and were not re-checked, except those the unlock mod exercises
-  (change 2). Whether the launcher's Mods page lists the package and turns
-  it on is not yet seen: the checks set the selection in `mods/state.toml`.
+  the disc and were not re-checked, except the two flag arrays and that the
+  screens follow them (change 2) and the campaign loop's advance, result word
+  and records (change 3, now marked re-checked there). The launcher's Mods
+  page lists the unlock package and turns it on (change 3 observations); the
+  two packages of change 3 have not been seen there, and the test one is
+  hidden.
+- Branching prototype (change 3): with zones cleared instantly, the S path
+  and the stock order hold up to the start of the 5TH ZONE in all three boot
+  modes. The rest of the campaign, its end and the unlock rules after a
+  reordered start are not run; the order rejoins at the 4TH ZONE and all
+  nine records are written, so the end should not differ (hypothesis). The
+  plugin keeps no state, so a save state taken during the reordered steps
+  should resume correctly (untested). The branch under live play is
+  untested. An instant clear grades the zone from the counts at that moment,
+  so a clear after the player has destroyed some enemies grades between the
+  zone's low grade and S. The test clear has run only in the 1ST to 4TH ZONE
+  of CAMPAIGN PLAY. It cannot reach the 5TH ZONE, the LAST ZONE, U5, U9 or
+  V5, which end in their own overlay code (that needs hooks there); the 8TH
+  ZONE, U4 and U8 have the runner but also call the clear routine from their
+  own code, and how a forced clear meets that is untested.
 
 ## Review and commit state
 
@@ -673,16 +854,55 @@ findings. The full record is in `git show 390a09b:.agent/HANDOFF.md`.
   `phase5-1/review-r1.md`, `phase5-1/r2/review-r2.md`. Round 2's five
   wording suggestions are applied in this change: four in the doc, one in
   the change 1 section above.
-- Phase 5 change 2, round 1: pending.
+- Phase 5 change 2: round 1 PASS on tree `6a7d573` (staged diff
+  `180a2cf5…`) with no findings; commit `9500812`, pushed to the private
+  `origin/master`. Report: `phase5-2/review-r1.md`. Its six wording
+  suggestions are applied in this change: `--out` and the copy's location in
+  `AGENTS.md`'s feature-on recipe; the DEMONSTRATION and per-index scope of
+  the unlock claims (hypotheses above); the 64 writes recorded as derived;
+  "commonly do not carry" a loose EXE; the `EXTRAS_SOURCES` placement
+  reason; "still says" in the change 1 section. Its limitation, the
+  launcher, is closed by the check in the change 3 observations.
+- Phase 5 change 3, round 1: NEEDS CHANGES on tree `6a643ec` (staged diff
+  `f94f48bd…`); report `phase5-3/review-r1.md`. Findings and resolutions:
+  - Medium: the 8TH ZONE (`S9.BIN`), U4 and U8 also call the clear routine
+    from their own code, which the doc, this file and the cited log missed,
+    and the test clear was claimed for every runner zone though it ran only
+    in zones 1 to 4. Resolved: `clear_callers.py` gives both counts for every
+    `.BIN` and the EXE and checks each call's argument; the doc, this file,
+    `AGENTS.md`, the plugin comment and the package descriptions record the
+    three zones and limit the claim to the zones run.
+  - Low 1: this file said the doc marks the records re-checked, but the doc
+    still said "agent", with the agent's field names. Resolved in the doc.
+  - Low 2: `mod_runtime.cpp:2488-2490` missed the early return at line 2491.
+    Resolved (`:2489-2491`); the round-2 check script prints those lines.
+  - Low 3: "the whole host stopped" overstated the evidence (the kernel
+    logged a USB disconnect inside the gap), and `AGENTS.md`'s "no guest
+    activity after the last heartbeat" missed one ring entry 0.287 ms after
+    it. Resolved: userspace stalled, and `AGENTS.md` now asks for a ring that
+    ends within a few milliseconds of the last heartbeat.
+  - Suggestions adopted: "Its rules read only…"; the same-C claim limited to
+    the two EXE sites; "the runtime's exit code 2", and that a gap far above
+    4 s means the emulation stopped; where a mod view must go; the 33/272
+    figure attributed to change 2's reviewer's probe; the copy into `failed/`
+    at 10:58, before `rerun.sh` existed; the spike excerpt saved in the
+    evidence; the commit draft aligned with these fixes.
+- Phase 5 change 3, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. The next step is the user's choice; section 6
-of `docs/MODDING_FEASIBILITY.md` proposes the branching prototype (step 2).
-The unlock option can be tried in the play copy: `play.sh` refreshes
-`.cache/play/build/` from `build-dev/`, `mods/bundled/` included, and the
-launcher's Mods page should list "Unlock All Zones and Boost Levels" under
-Cheats.
+After a PASS: commit and push. The next step is the user's choice. Follow-ups
+to the prototype: branches into the extra zones (each needs its result
+record redirected or protected, see the doc's hazards); a test clear for the
+zones that end in their own code (hooks in overlay code), and runs of the
+test clear in the other runner zones, the 8TH ZONE, U4 and U8 included; a
+committed feature-on route (a runner option for a run directory with its own
+`mods/state.toml`); a whole campaign with instant clears, which would also
+show whether the spike's post-credits halt happens with every zone loaded.
+Or step 3 of section 6, the zone data tools. The branching option can be
+tried in the play copy: `play.sh` refreshes `.cache/play/build/` from
+`build-dev/`, `mods/bundled/` included, and its Mods page should list
+"Branching Campaign (prototype)" under Gameplay.
 
 Play continues from the play copy: `play/play.sh <session dir> <SCPH-1001
 dump>` (in `.cache/evidence/phase4-2/`) refreshes `.cache/play/build/` from

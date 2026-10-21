@@ -24751,6 +24751,7 @@ block_8002FB28:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x20004u);
 #endif
+psx_mod_instruction(cpu, 0x8002FB2Cu, 0x2E220011u);
     { uint32_t _pgx1 = cpu->gpr[17]; cpu->gpr[2] = (cpu->gpr[17] < (uint32_t)17) ? 1 : 0;
     PGXP_ALU(0x2E220011u, cpu->gpr[2], _pgx1, 0x0011u); }  /* 0x8002FB2C: 0x2E220011 */
 #ifdef PSX_COSIM
@@ -26914,6 +26915,7 @@ block_8002FB28:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x20004u);
 #endif
+psx_mod_instruction(cpu, 0x8002FB2Cu, 0x2E220011u);
     { uint32_t _pgx1 = cpu->gpr[17]; cpu->gpr[2] = (cpu->gpr[17] < (uint32_t)17) ? 1 : 0;
     PGXP_ALU(0x2E220011u, cpu->gpr[2], _pgx1, 0x0011u); }  /* 0x8002FB2C: 0x2E220011 */
 #ifdef PSX_COSIM

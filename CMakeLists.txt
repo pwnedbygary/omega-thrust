@@ -54,6 +54,8 @@ psxrecomp_add_game_runtime(psx-runtime
     # them above GEN_FULL_GLOB too: after a multi-value keyword they would be
     # read as that keyword's values.
     EXTRAS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_unlock_all.c"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_branching.c"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_zone_clear.c"
     # Committed game C (psxrecomp_cli.py generate; git add generated). Release
     # CI configures with -DPSXRECOMP_REQUIRE_GAME_C=ON so a checkout without
     # it fails instead of building a setup host.

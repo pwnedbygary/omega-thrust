@@ -218,6 +218,16 @@ untouched, so a `result.json` there may be an earlier run's; trust the runner's
 exit status. Two runs of the same route and mode share an output directory, so
 run routes one at a time.
 
+The runtime's exit code 2 (the runner then exits 1) with a
+`cwd/starvation_dump.jsonl` means its starvation watchdog fired after 4 s
+without a heartbeat (`psxrecomp/runtime/src/starvation_ring.c:61-79`,
+`:255-277`). The runtime checks it as guest cycles advance
+(`psxrecomp/runtime/src/psx_cycles.c:364-367`), so a reported gap far above
+4 s means the emulation itself stopped for that long. A host stall triggers
+it too: if the host journal shows one at that moment and the dump's ring
+ends within a few milliseconds of the last heartbeat, copy the run's outputs
+aside (a new run deletes them) and run it again.
+
 The committed routes are `title_to_zone1.json` (boot to zone-1 gameplay),
 `menus.json` (opens and leaves every main-menu screen except CAMPAIGN PLAY),
 `memcard.json` (LOAD/SAVE: saves to memory card slot 1, then loads it back),
@@ -337,6 +347,18 @@ env -u APPIMAGE build-dev/Omega_Thrust --audit-mod-plugins \
   psxrecomp/mods/builtin mods/preloaded
 ```
 
+The audit does not see a plugin that registers only instruction hooks, such as
+`omega.branching` and `omega.zone-clear`: its list of registered ids leaves
+them out (`psxrecomp/runtime/src/mod_packages.cpp:1578-1585`), while the
+launch check counts them (`:1496-1502`). For those, a run with the feature on
+is the check. An instruction hook also needs its address in `game.toml`
+`[recompiler] mod_instruction_sites`, then a regenerate: the generated code
+calls `psx_mod_instruction` before that instruction, which returns at once
+while no active plugin hooks an instruction. Changing the list changes the
+hash of `game.toml` that the static overlay audit records, so `generate`
+rebuilds the shard and rewrites `AOT_STATIC_AUDIT.json`; with the two sites
+listed now, both in the EXE, the rebuilt shard's C was the same.
+
 `omega.cheat.unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
 off by default) runs the plugin `omega.unlock-all`
 (`src/mods/omega_unlock_all.c`). While its feature is on, at every emulated
@@ -346,6 +368,29 @@ the save") and counts each byte it writes as `omega.unlock-all.writes` (debug
 command `mod_counters`). The game saves these flags with its LOAD/SAVE
 environment data, so a save made while the feature is on keeps the unlocks.
 
+`omega.gameplay.branching` ("Branching Campaign (prototype)", group Gameplay,
+off by default) runs `omega.branching` (`src/mods/omega_branching.c`), an
+instruction plugin at the campaign loop's step-limit check (0x8002FB2C). While
+it is on, an S grade on the 1ST ZONE makes the campaign play the 3RD ZONE,
+then the 2ND ZONE, MOVIE IM 0 and the 4TH ZONE; any other grade keeps the
+stock order, and every zone is played once. Its rules read only the zone
+result records, and it counts each redirect as `omega.branching.redirects`.
+
+`omega.debug.zone-clear` ("Clear Zones Instantly (testing)", group Debug,
+hidden, off by default) runs `omega.zone-clear` (`src/mods/omega_zone_clear.c`),
+an instruction plugin in the zone timeline runner (0x80071558). While it is
+on, a zone that uses that shared timeline ends through the game's own clear
+path as soon as the player is in play; runs have checked this in the 1ST to
+4TH ZONE of CAMPAIGN PLAY, in all three boot modes. With nothing destroyed
+the results grade it low (D in zones 2 to 4, B in the 1ST ZONE), and S with
+the option `all-destroyed` (every spawned enemy counted as destroyed). It
+counts each clear as `omega.zone-clear.clears`. The 5TH ZONE, the LAST ZONE,
+U5, U9 and V5 have no timeline runner and end through their own code, so it
+does not clear them; the 8TH ZONE, U4 and U8 have one but also call the clear
+routine from their own code, and how that meets a forced clear is untested.
+Its results and records are not genuine; it exists so scripted runs can
+reach each branch.
+
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every
 feature off, so `build-dev/mods/state.toml` must enable none. To try a
@@ -353,12 +398,14 @@ feature, enable it on the launcher's Mods page in the play copy
 (`.cache/play/build/`). For a headless run with a feature on, copy
 `build-dev/Omega_Thrust` (a copy, not a symlink: `run_route.py` resolves
 `--binary`) with `bios/`, `assets/`, `game_options.toml`,
-`psx_game_version.txt` and `mods/bundled/` into a directory outside
-`build-dev/`, write its own `mods/state.toml` (format in `MOD_PACKAGES.md`,
-"State and migration"), and pass `--binary` and a free `--port` to
-`run_route.py`. psx-beetle runs no plugins, so a mod's effect can be checked
-against it only through what the game saves, such as a card saved with the
-feature on.
+`psx_game_version.txt` and `mods/bundled/` into a directory under `.cache/`
+or outside the repository, so git never sees the binary and `assets/`, write
+its own `mods/state.toml` (format in `MOD_PACKAGES.md`, "State and
+migration"), and pass `--binary`, a free `--port` and `--out` to
+`run_route.py`; without `--out`, a run of a committed route replaces that
+route's feature-off outputs in `.cache/routes/<name>/<mode>/`. psx-beetle runs
+no plugins, so a mod's effect can be checked against it only through what the
+game saves, such as a card saved with the feature on.
 
 ## Naming
 

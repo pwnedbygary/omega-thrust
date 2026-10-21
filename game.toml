@@ -33,6 +33,10 @@ known_crc32 = [
 seeds = "seeds/ghidra_funcs.txt"
 out_dir = "generated"
 strict = true
+# Instructions that call psx_mod_instruction before they run, for the plugins
+# in src/mods/: the campaign loop's step-limit check (omega.branching) and the
+# zone timeline runner's countdown load (omega.zone-clear).
+mod_instruction_sites = ["0x8002FB2C", "0x80071558"]
 
 [runtime]
 window_title = "Omega Thrust"
