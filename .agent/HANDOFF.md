@@ -9,39 +9,39 @@ cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure.
 
-Current iteration, Phase 5 change 5 (the first playable remix the user
-chose: step 4 of `docs/MODDING_FEASIBILITY.md` section 6, limited to the wave
-timeline), round 3. Invariant: `zone_data.py package <dump>` builds the zone
-file as `build` does and writes a `.psxmod` (a zip with `manifest.toml` at
-its root) whose one feature, `timeline`, off by default, is a `disc_user`
-overlay of the stock table's slots at the zone file's sector times 2048 plus
-the table's offset, so a shorter table also zeroes the slots it leaves. The
-manifest targets SCUS-94449 with the sha256 of the disc image's data file,
-which the runtime compares with the image it mounts, and guards the overlay
-with the stock bytes' sha256, which the runtime checks before launch. The
-package refuses what `build` refuses, ids and versions the framework would
-reject, a `--name` that is not valid UTF-8, and outputs in the repository
-outside `.cache/`; `*.psxmod` is ignored. With a scratch remix of the 1ST
-ZONE packaged and installed in a copy of `build-dev`, in all three boot
-modes, the game loads the remixed table, the zone ends with no input and
-shows its results, and the campaign goes on to the 2ND ZONE; with the
-feature off the stock table loads and the zone does not end in the same
-frames. The zone's precompiled code keeps running: in none of the fourteen
-zones does a matching static variant guard a byte before the table's end,
-the 1ST ZONE's variants all match the remixed file, and the runs interpret
-as much overlay code as the stock route, in seven rows that all exist
-before the zone file loads. The tests cover the package (a shorter table
-and one across two sectors among them), the table reader's loop bound
-(change 4's review) and output paths that are not valid UTF-8, which the
-tool prints escaped, and fail when bugs are planted. `AGENTS.md` documents
-the command; the doc records step 4's state and change 4's two wording
-suggestions; this file records change 4's PASS and commit `b19fbe4`,
-condenses change 4 and applies its other two suggestions. Baseline:
-`b19fbe4`. Out of scope: formation edits; a committed remix or route (a
-remix holds disc data, and a route would need a runner option for an
-installed package); Beetle (it runs no mods); plugins, hook sites and
-regenerating; runner, driver, framework and submodule changes; play
-sessions; CI, packaging.
+Current iteration, Phase 5 change 6 (the user's choice: decode how the 1ST,
+2ND, 3RD and 6TH ZONE place their enemies, so a remix can move them, not
+only retime waves), round 4. Invariant: `zone_data.py` finds every record
+the zone passes to 0x80057F0C, with its numbers of steps and members, and
+refuses records it cannot trace, counts outside 1 to 32767, parts outside
+the file or unaligned, one record passed with two sets of counts, and parts
+that overlap each other or the table. Dumps (format 2) give each record's
+position, angles, steps (turn, speed, ticks, flags) and member offsets, with
+notes naming the waves that start it, when a call does not run on every
+path through its callback (a control-flow analysis of the callback: which
+value of the difficulty word runs it, where that word decides, else "only
+on some paths"; on the disc, five calls run on only one value of the word),
+and the units; `build` writes them in place, keeping each record's address
+and counts and the members' padding, and still reads format 1 dumps, which
+keep the stock formations. `package` covers every byte `build` may write in
+one overlay, from the first to the last, and its feature and payload are
+named `remix`. The decoded format is re-checked against the EXE's formation
+code and in the running game: with a scratch remix of the 1ST ZONE (wave 1's
+formation moved and its member offsets doubled; wave 2's first step twice as
+fast for half the ticks) installed in a copy of `build-dev`, in all three
+boot modes, the formation tasks in RAM move and place their members as the
+edits predict, next to runs with the feature off, and the precompiled code
+keeps running. What the members are is code, one spawn function per zone.
+The tests cover the formation reader, dump, build and package, the analysis on
+every branch kind it follows and on six callback shapes where a looser rule
+would give a wrong note (round 3's finding), and output paths that are not
+valid UTF-8 for `build` and `package` (change 5's round-3 suggestion), and fail
+when bugs are planted. `AGENTS.md` and the doc record the format; this file
+records change 5's PASS and commit `bdd413f` and condenses change 5. Baseline:
+`bdd413f`. Out of scope: other enemies in a formation (code); the ten timeline
+zones without formations; a committed remix or route; Beetle (it runs no mods);
+plugins, hook sites and regenerating; runner, driver, framework and submodule
+changes; play sessions; CI, packaging.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -480,205 +480,354 @@ zones, and the 8TH ZONE, U4 and U8 ended through their own code. 25 tests;
 `b704cfd7…`), after round 1 NEEDS CHANGES (see Review and commit state). The
 full record is in `git show b19fbe4:.agent/HANDOFF.md`.
 
-## Phase 5 change 5 observations (`.cache/evidence/phase5-5/`)
+## Phase 5 change 5 (commit `bdd413f`)
 
-- Disc overlays (`psxrecomp/docs/MOD_PACKAGES.md`, "Feature manifest" and
-  "Native operations"): an `[[overlay]]` names its feature, a target
-  (`disc_user`, whose offset is the sector times 2048 plus the byte, or
-  `disc_raw`, the sector times 2352 plus the byte; `mod_runtime.cpp:271-282`),
-  an offset, a file in the package and its sha256, and optionally
-  `expected_sha256` over the stock range; every `[[target]]` of a package
-  with overlays needs an exact `disc_sha256`. The runtime copies the part of
-  the payload that falls in each sector the CD path reads, raw Mode 2 Form 1
-  sectors through their user-data window (`mod_runtime.cpp:2547-2626`). At
-  launch it hashes the stock range under each overlay and refuses to start
-  on a mismatch (`:1628-1640`), and it matches `disc_sha256` against
-  `sha256_file` of the mounted image (`mod_packages.cpp:673-687`;
-  `mod_runtime.cpp:349-400`). That hashes the image's data: for a cue sheet
-  the data file it names, for a CHD its decoded raw sectors. A `.psxmod`
-  is a zip with `manifest.toml` at its root; installing one refuses a
-  version already installed (`mod_packages.cpp:2908-2976`); entries may be
-  stored or deflated (`:376`); the version must be semantic (`:1741`).
-- First attempt: the package named the cue sheet's own sha256, and the
-  runtime refused to launch ("cannot launch with selected mods: package
-  does not target this game/image"; that run's outputs were overwritten by
-  the next, not saved). The probe then waited for its 30-minute deadline;
-  it now gives up after 180 s without a runtime.
-- Static variant guards: a variant runs only while the CRC-32 of the live
-  RAM over its code ranges equals its compiled CRC (`overlay_loader.c`,
-  `range_candidate_matches` and `ov_ranges_crc`). `variant_guard.py`
-  recomputes it for the shard's 34,846 variants: for each of the fourteen
-  timeline zones, the variants that match the stock file share one function
-  prefix (the 1ST ZONE 1,391), and none has a code range over the zone's
-  table or starting anywhere before the table's end: the lowest byte a
-  matching variant guards is the table's end in nine zones and later in the
-  other five (`variant_guard-all.log`; round 2 added the second count). All
-  1,391 also match the remixed 1ST ZONE (`variant_guard-s1.log`). The
-  matches themselves show that the CRC is zlib's.
-- The remix (`make_remix.py`, written to `.cache/zones/remix/`): the 1ST
-  ZONE's first four stock waves at 60 ticks each, then the end entry, the
-  last five slots zeroed. Its package's 80-byte overlay sits at offset
-  230,015,220 (sector 112,308 times 2048 plus 0x20F4); `disc_sha256` equals
-  `sha256sum` of the `.bin` (`fb84ce3e…`).
-- Runs (`remix_runs.sh` / `.log`, 15:44 to 15:49; a scratch copy of
-  `build-dev` (`da70e6c0…`) with the package unpacked into
-  `mods/installed/` and its own `mods/state.toml`; port 4373; route
-  `remix_s1.json`, 50 steps and 11,286 frames: boot to CAMPAIGN PLAY, start
-  the 1ST ZONE, 16 times 300 neutral frames with a shot, two Cross presses):
-  all six runs passed (start frames 46 to 121, no miss, exit 0), the inputs'
-  hashes did not change, and nothing was left listening. With the feature
-  on, in every mode (`summary.log`), the remixed table was in RAM whenever
-  the 1ST ZONE was in use, the player's state became 6 (cleared) by route
-  frame 6,803 to 6,962, the zone's record read 333 clear frames, 15 spawned,
-  0 destroyed and grade 2, and the 2ND ZONE loaded by route frame 7,924 to
-  8,068. The screens show COMPLETED with CLEAR TIME 0:11.10, DESTROY RATIO
-  0% (0/15), RANK B (50pts) and SCORE BONUS 12800, then "2ND ZONE"
-  (`remix-compare_sheet.png`); 11.1 s agrees with (4 x 60 + 90) ticks at
-  0.493 ticks per frame (Derived). With the feature off, the stock table
-  loaded and the zone neither ended nor wrote its record; at the same point
-  the stock zone shows its asteroid base. `summary-first.log` is the summary's
-  first output: it took a zeroed or reset record as written and a boot-time
-  sample whose scene word happened to read 5 as the 1ST ZONE.
-- Precompiled code: every run interpreted 1,309 overlay instructions in seven
-  rows, one per address, as change 3's stock title_to_zone1 run did. The
-  probes keep only the five largest rows; those match that run by address
-  and count (`same_point.log`), and the other two hold the remaining 15.
-  Earlier samples, taken while those two were still among the five largest,
-  name 0x80126160 (seen with 9 instructions) in all six runs and 0x801261AC
-  in the LLE SCPH-1001 "on" run (`r2/pc_rows.py` / `.log`; round 1 said all
-  seven addresses matched). In every run all seven rows existed from route
-  frame 5,651 to 5,789 on, while the briefing's file (scene 25) was loaded,
-  and no count ever fell, so the zone added no row. In the LLE SCPH-1001 "on"
-  run the count was final at route frame 5,961, still in the briefing, so
-  that remixed zone ran nothing in the interpreter; in the other five runs
-  the last step, 42 to 371 instructions (3% to 28% of the count;
-  `r3/last_step.log`), falls between a briefing sample and the first sample
-  with the 1ST ZONE's file loaded (`insn_timing.log`). At the same point in the
-  zone, the "on" runs had 9 more static CRC misses and variant misses than
-  the "off" runs in every mode (356 and 347; 1,294 and 1,285), with no
-  interpreted instruction more (hypothesis: the remix's other code path
-  checks other files' variants at shared addresses).
+The first playable remix the user chose (`AGENTS.md`, Zone data; evidence in
+`.cache/evidence/phase5-5/`). `zone_data.py package <dump>` builds the zone
+file as `build` does and writes a `.psxmod` whose one feature, off by
+default, was a `disc_user` overlay of the stock table's slots (change 6
+widened it to every byte `build` may write), targeting SCUS-94449 with the
+sha256 of the disc image's data file, which the runtime compares with the
+image it mounts (`mod_runtime.cpp:349-400`), and guarded by the stock bytes'
+sha256, which it checks before launch (`:1628-1640`). The runtime copies each
+overlay's part within each sector the CD path reads
+(`mod_runtime.cpp:2547-2631`). A scratch remix of the 1ST ZONE (its first
+four waves 60 ticks apart, then the end entry), installed in a copy of
+`build-dev`, played in CAMPAIGN PLAY with no input in all three boot modes:
+the remixed table loaded, the zone ended (CLEAR TIME 0:11.10, 15 spawned, 0
+destroyed, rank B) and the campaign went on to the 2ND ZONE; with the
+feature off the stock table ran. In none of the fourteen timeline zones
+does a matching static variant guard a byte before the table's end, all
+1,391 of the 1ST ZONE's match the remixed file, and the runs interpreted
+1,309 overlay instructions in seven rows, as the stock route does, all seven
+rows present before the zone file loaded (in five of the six runs the
+count's last step, up to 371 instructions, falls between a sample before the
+load and one after it). 34 tests; 44 planted bugs caught.
+Review: round 3 PASS on tree `29e0e44` (staged diff `35b66fc5…`), after
+rounds 1 and 2 NEEDS CHANGES (see Review and commit state). The full record
+is in `git show bdd413f:.agent/HANDOFF.md`.
 
-## Phase 5 change 5 changes
+## Phase 5 change 6 observations (`.cache/evidence/phase5-6/`)
 
-- `scripts/zones/zone_data.py`: the `package` command (`--id`, default
-  `omega.remix.<zone>`; `--name`, default "<zone> Remix"; `--version`,
-  default 1.0.0; `--out`, default `.cache/zones/<id>-<version>.psxmod`), as
-  in `AGENTS.md`, Zone data; `Disc.image_sha256` hashes the data file;
-  `load_dump`, shared by `build` and `package`; the docstring describes
-  packages. Ids follow the framework's rule, versions are three numbers
-  without leading zeros (a subset of what the framework accepts), manifest
-  strings use JSON's escapes, which are valid TOML, and the archive's
-  entries are stored with fixed times, so the same input gives the same
-  bytes.
-- `scripts/zones/test_zone_data.py`: five tests more. One applies a
-  package's payload to the synthetic image at the declared offset and reads
-  the zone file back through the tool's disc reader: it equals the file
-  `build` writes; it also checks the manifest's fields and hashes. Others
-  cover ids, names with quotes, versions (and the same bytes twice), output
-  in the repository, what `build` refuses, and a table that runs to the end
-  of the file (change 4's round-2 suggestion: the read loop's bound). On the
-  player's disc, an unedited package's payload equals the bytes at its
-  offset in the `.bin`.
-- `.gitignore`: `*.psxmod`, named in the header.
-- `AGENTS.md`: the never-commit list names the packages; Zone data gains the
-  `package` command and a paragraph on the package, its hashes, the
-  precompiled code and playing one headless.
-- `docs/MODDING_FEASIBILITY.md`: the intro, the brief answer and section 6
-  mark step 4's timeline part done; step 4 records the runs and the shard
-  result. Change 4's round-2 suggestions for the doc: 0x80063C5C's 17
-  entries are across the fourteen zones, and "timing and placement are data
-  in the `.BIN`" is limited to the zones it covers.
-- `.agent/HANDOFF.md`: this scope; change 4 condensed (its round-2
-  suggestions: the 17-entry count in its section, the short line gone with
-  the condensed sections, the mutation bound in the review state); these
-  sections; the hypotheses; the review state; the next action.
-- Round 2 (review round 1's three Low findings, `review-r1.md`): the doc's
-  step 4 says edits up to a table's end keep the variants valid, with the
-  reason, and gives the interpreter result as above, labelled Derived;
-  section 7 asks only about data after the table. A new test packages a
-  table one wave shorter: its payload covers all four stock slots, and the
-  zone file read back holds a zero slot. The suggestions adopted: the package
-  test checks the zip entries' fixed times and the feature's group; manifest
-  strings escape U+007F, and a `--name` that is not valid UTF-8 is refused
-  with a one-line error (both tested; the remix's package is unchanged); a
-  table across a sector boundary packages and reads back like any other (the
-  tool's side only: the runtime lists an overlay under every sector it
-  touches and copies each sector's part, `mod_runtime.cpp:271-282` and
-  `:2613-2628`, but no run has played such a package); the end-of-file test
-  adds a table ending 4 bytes before the file's end; `AGENTS.md` gives the
-  default id in lowercase and says that with the feature on the runtime
-  refuses any other image; this file's `disc_raw` offsets count 2352-byte
-  sectors, and it closes the deferred naming of the last two interpreted
-  title_to_zone1 PCs. Evidence: `variant_guard.py` also counts variants
-  starting before a table's end, `r2/pc_rows.py`, and six more mutations in
-  `mutations.py`.
-- Round 3 (review round 2's one Low, `r2/review-r2.md`): the doc gives the
-  count's last step in the other two remix runs, 98 and 371 instructions
-  (`r3/last_step.py` / `.log`), instead of "the last few instructions". Its
-  four suggestions adopted: the sector-crossing test's table moved to
-  0xFF0-0x1010, in the file's second and third sectors, with the expected
-  offset derived from the synthetic image's layout, so it now catches an
-  offset that drops the table's sector within the file; the tool prints
-  paths that are not valid UTF-8 escaped (`sys.stdout` with
-  `backslashreplace`, for `dump`, `build` and `package`), where it wrote the
-  file and then failed with a traceback, and a test covers it; the scope's
-  one-word line is gone; and the framework's TOML parser, toml11, which the
-  runtime reads manifests with (`mod_packages.cpp:1691`), parses both a
-  default and an escaped manifest to the exact name bytes and rejects a raw
-  U+007F (`r3/toml11_check.py` / `.cpp` / `.log`). Two mutations more in
-  `mutations.py`.
-- Untracked (ignored): the evidence in `.cache/evidence/phase5-5/`, the
-  remix dump in `.cache/zones/remix/` and its package.
+- The EXE's formation code, disassembled from the disc (`mips_dis.py` reads
+  the EXE and the zone files through the tool's disc reader and writes
+  nothing). 0x80057F0C, called with the parent task, the record and the
+  counts of steps and members, starts a task of 0x50 bytes under the parent
+  (update 0x80058300; destructor 0x80058534, which frees the member slots it
+  allocates, members times 12 bytes); keeps the record's two addresses and
+  both counts; puts the centre at the record's position plus the player's
+  (+0x34 to +0x3C of the object at [0x8009C064]); builds the rotation
+  matrix from the angles (0x80078014) and writes each member's slot,
+  centre + R × offset (0x80079BD0, GTE MVMVA: 8-byte offsets in, three
+  words out); and links the centre into the list at [0x8009C030] + 0x34
+  (0x8003B7A8). Step flag 0x8000 and, at the start only, 0x4000 set two
+  halfwords of that node. The update (0x80058300 to 0x80058530) counts the
+  timer down; below zero it starts the next step with its ticks, or after
+  the last step unlinks the node (0x8003B7D8) and clears its own update
+  word; it adds the step's turns to the angles, moves the centre by speed
+  along the heading (0x8007897C), and rebuilds the matrix and the slots;
+  with no member left it unlinks and stops, and with no child left it
+  clears its update word. The sine table at 0x80018338 is read with an
+  angle's top 13 bits (a full turn is 2^32). The matrix has -sin(a0) at
+  m[1][2] and cos(a0) sin(a1) at m[0][2], and the heading is (cos a0 sin a1,
+  -sin a0, cos a0 cos a1): angle 1 yaw, 0 pitch, 2 roll (Derived).
+- The records (`formation_scan.py` / `.log`, `formation_layout.py` /
+  `.log`): 33 calls in 30 wave callbacks pass 33 records (the 1ST ZONE 5,
+  the 2ND 3, the 3RD 15, the 6TH 10), each with its own constant counts. On
+  the disc each formation is its steps, its members and its record, in that
+  order, with no overlap and no reference from elsewhere in the file; in the
+  2ND, 3RD and 6TH ZONE two words after each record repeat its counts, and
+  nothing reads them. Every call lies in a timeline callback (the dump's
+  notes). Five calls run on only one value of the difficulty word,
+  0x800A7C34 (round 1's Medium finding): the 3RD ZONE's wave-17 callback
+  reads it before its prologue (lw at 0x80137170), tests it after (beqz at
+  0x80137188), and starts 0x8012227C, 0x80122320 and 0x801223C4 while it is
+  non-zero, then jumps past the last call (0x80137240), which starts
+  0x8012248C while it is zero; the 6TH ZONE's wave-10 callback (beqz at
+  0x80133EAC) starts 0x80121F50 only while it is non-zero. The word was 0 in
+  all 2,829 samples of change 3's campaign runs (`phase5-3/runs/*-state.log`),
+  1,646 of them in zones 1 to 5 (`r4/difficulty_samples.log`), and the OPTION
+  screen offers NORMAL, the default, and HARD (the `menus` route's
+  `13-option.png`). Because both callbacks read the word before their
+  prologue, the scan's search for one took them for functions nothing
+  references.
+- The members: each zone spawns every member of every formation with one
+  function (0x8012C05C, 0x80131A84, 0x80134F38, 0x8012A134), as a child task
+  of the formation, adding one to 0x800A794A (spawned). The 1ST ZONE's
+  member update reads its slot and the formation's angles, tests step flag
+  bit 1 while the difficulty word is zero and bit 0 while it is non-zero
+  before a 1 in 16 chance a tick of calling 0x8012BD74, which starts a
+  moving task (a shot, inference), and on a kill counts the formation's
+  remaining members down, adds one to 0x800A794C (destroyed) and 100 to the
+  score. All four zones' member code counts the remaining members down on
+  a kill (0x8012C3A4, 0x80131DC8, 0x80135498, 0x8012A48C). The 6TH ZONE's
+  member update tests bits 0 and 1, and the 2ND ZONE's bit 0; the 3RD
+  ZONE's has no such test in the same pattern. The task sweep (0x8007A360)
+  calls the destructor of a node whose update word is zero and clears its
+  children's update words on one pass, and unlinks and frees the node on
+  the next.
+- Static variants (`variant_guard.py`, change 5's script over every range
+  `build` may write; `variant_guard-all.log`): in each of the fourteen
+  timeline zones no matching variant has a code range over any of them,
+  and the lowest byte a matching variant guards is the end of the last one
+  in nine zones and later in five; all 1,391 of the 1ST ZONE's variants
+  match the remixed file (`variant_guard-remix6.log`).
+- The remix (`make_remix6.py`, written to `.cache/zones/remix6/`): wave 1's
+  record, 0x80121E6C, at position [20480, -10240, 74240] instead of [0, 0,
+  74240], its five member offsets doubled; wave 2's, 0x80121F18, with its
+  first step at speed 512 for 15 ticks instead of 256 for 30. The built file
+  differs from the stock one at 16 bytes, 0x1E45 to 0x1E9C; the package's
+  868-byte overlay starts at offset 230,014,432 (sector 112,308 times 2048
+  plus 0x1DE0). The final tool rebuilds the dump and the package byte for
+  byte.
+- Runs (`formation_runs.sh` / `.log`, 20:40 to 20:45; a scratch copy of
+  `build-dev` (`da70e6c0…`) with the package unpacked into `mods/installed/`
+  and its own `mods/state.toml`, feature on or off; port 4373; change 5's
+  route `remix_s1.json`, 50 steps and 11,286 frames: boot to CAMPAIGN PLAY,
+  start the 1ST ZONE, 16 times 300 neutral frames with a shot, two Cross
+  presses): all six runs passed (start frames 23 to 119, no miss, exit 0),
+  the inputs' hashes did not change, and nothing was left listening. A
+  read-only watcher (`formation_watch.py`) read all of RAM about once a
+  second (the runner, every formation task, the member update words) and
+  between those read each of the runner's children, about 1,450 formation
+  samples a run. `formation_compare.py` / `.log`, every check passes in
+  every mode: wave 1's centre minus the stock one is exactly (20480, -10240,
+  0) at each of the 248 to 257 step states both runs sampled; in the steps
+  that do not turn (0 and 4; 151 to 161 states) each member's offset from the
+  centre member is twice the stock one, on - 2 × off being 0 or 1; through
+  its first step (9 to 15 samples, timers 14 to 0) wave 2 moves 512 units a
+  tick along -z from z = 170,317, where the stock formation also starts and
+  moves 256 a tick for 30 ticks, and at each later step state both runs
+  sampled (197 to 204) its centre and angles equal the stock formation's;
+  the formations tick 0.497 to 0.499 times a frame; each of the five was
+  last seen in its last step with all its members as children, and the
+  member update words equalled the formations' member children at every
+  scan, but for the children of formations gone since the scan before, and
+  were 0 at the end. Every run interpreted 1,309 overlay instructions in
+  seven rows, with 396 static CRC misses and 1,334 variant misses, on and
+  off alike (change 5's probe). Screenshots at the same route frames differ
+  where wave 1 flies (`wave1-on-off.png`, batch 1; qualitative only).
+- Three earlier batches are kept. `batch1/`: an older watcher, with scans
+  once a second, then every 0.2 s; the tool was edited during it, so its
+  inputs' hashes differ (its package equals the final one); the final
+  comparison passes on it (`batch1/formation_compare-final.log`).
+  `batch2/`: a watcher that polled only the formations its scans had found,
+  and a scan took longer than wave 2's 15-tick first step, so it has 0 or 1
+  samples of that step a run, which fails the comparison's two-sample rule;
+  its other checks pass (`batch2/formation_compare-final.log`). `batch3/`:
+  the final watcher, before a change to the tool that only rewrapped long
+  lines; every check passes (`batch3/formation_compare.log`). All eighteen
+  of their runs passed.
 
-## Phase 5 change 5 checks
+## Phase 5 change 6 changes
 
-- Round 1, `checks-p5-5.sh` / `.log` (staged tree; it computes the index
-  tree in a scratch object directory, writes the tests', the package's and
-  the remix's files only to scratch, and runs no runtime): all pass. Nothing
-  is unstaged or untracked, and only the six intended paths change. The
-  handoff's header and its Phase 0 to Phase 5 change 3 sections equal HEAD.
+- `scripts/zones/zone_data.py`: `read_formations` (a `Formation` per record:
+  address, steps' address and count, members' address and count, the calls
+  that pass it) and `layout` (the table and formations, with every range
+  `build` may write checked for overlaps); `callback_span`, which `describe`
+  now shares; dumps of format 2 with a `[[formations]]` entry per record
+  after the timeline (notes: which waves start it, where its parts are, the
+  angles and turns in degrees) and a header on the format; `parse` reads
+  format 1 or 2 and checks the formations' keys and ranges (positions and
+  turns and speeds 32-bit, angles 0 to 0xFFFFFFFF, ticks and flags 16-bit
+  unsigned, members 16-bit); `build` writes each listed record's position
+  and angles, steps and member offsets in place and refuses a missing,
+  unknown or repeated record or other counts; `package` takes its overlay
+  from the first range `build` may write to the last, and names its feature
+  and payload `remix` (`<zone>.remix.bin`); `list` gives each zone's number
+  of formations; the docstring and help describe formations.
+- `scripts/zones/test_zone_data.py`: the synthetic zone holds the record
+  its callback passes (4 steps, 5 members, one member's padding 7); ten
+  formation tests (the reader and its refusals, overlaps, the dump, edits
+  in place, a format 1 dump, what `build` and the parser refuse); the
+  package tests check the wider overlay, a zone with no formation (the
+  table alone) and edits across sectors with the formation moved past the
+  first sector; `build` and `package` with an output path that is not valid
+  UTF-8 (change 5's round-3 suggestion); on the player's disc, the four
+  zones' formation counts and the unedited S1 package across two sectors.
+  46 tests in round 1, 48 after round 2, 49 after round 3; round 4 adds
+  six cases to one of them.
+- `AGENTS.md`: Zone data describes the formations, what `build` keeps and
+  may change, that the members' kind is code, and the wider `remix`
+  overlay.
+- `docs/MODDING_FEASIBILITY.md`: a "Formations" subsection in section 2
+  (the format and its behaviour, re-checked); the intro, the brief answer
+  and steps 3 and 4 of section 6 mark the formation parts done, with the
+  runs; section 7 asks about the flags instead of the format.
+- `.agent/HANDOFF.md`: this scope; change 5 condensed; these sections; the
+  hypotheses; the review state; the next action.
+- Round 2 (review round 1's one Medium and three Low, `review-r1.md`): the
+  dump's notes name a `beqz` or `bnez` before a formation call that can
+  skip it, and for one on the difficulty word which value runs the call
+  (`gate`, replaced in round 3); on the disc that flags exactly the five
+  calls the review found. The doc, `AGENTS.md` and this file name them and
+  their condition and no longer say that a callback starts four formations.
+  Counts must be 1 to 32767, so a negative count is refused as a count. New
+  tests: an unaligned record, zero steps, a negative count, steps that leave
+  the file only at 20 bytes a step, the gate's three cases (non-zero; zero,
+  with a jump over the call; a branch on another word) and a formation part
+  before the table, as on the disc; nine more mutations, 76 in all. The
+  doc's wave 2 sentence states the result; this file keeps change 5's
+  interpreter limitation and says "all seven rows". The review's seven
+  suggestions are adopted: the flag and shot readings labelled as
+  inferences; all four zones' kill paths; the dump's flags sentence names
+  the zones whose code tests the low bits; the two tests above;
+  `formation_compare.py` prints each formation's last sample; a negative
+  count's message; the commit draft. `mutations.py` and
+  `formation_compare.py` were rerun in place; round 1's results are in
+  `checks-p5-6.log`.
+- Round 3 (review round 2's two Low, `r2/review-r2.md`): round 2's `gate`
+  rules gave way to a control-flow analysis of the callback (`flow`,
+  `loaded`, `gate`). It follows every MIPS I branch kind, `j`, and calls
+  that return (`jal`, `jalr`, `bltzal`, `bgezal`); `jr`, and indices outside
+  the file, end a path. A conditional branch goes both ways, except a
+  `beqz` or `bnez` on a register that its basic block loaded from the
+  difficulty word, which goes the way the word sends it. The note names the
+  value that runs the call when, with the word zero and with it non-zero,
+  every path runs the call on one and none reaches it on the other, and says
+  "only on some paths through its callback" otherwise. A call is attributed
+  to every wave whose callback can reach it (round 2 stopped at the
+  callback's first `jr $ra`). On the disc all 14 dumps are byte-identical
+  to round 2's. The gate test has twelve cases (`beqz` and `bnez` past the
+  call and to it, a load of another word, a two-register `bne`, `bltz`,
+  `blez`, an early return, a test of what a call returned, a short-circuit
+  OR, a branch to the call); against round 2's tool, cases 4 to 10 fail
+  (`r3/test_regression.sh` / `.log`), case 4 only because round 2 gave the
+  same note in other words (`r4/case4_wording.sh` / `.log`). The refusals
+  add a count of 0x8000, and a player's-disc test pins the five notes.
+  Round 2's four gate mutations went with its code; 13 new ones target the
+  analysis and the count bound, 85 in all, each caught (`r3/mutations.log`).
+  Its six suggestions are adopted: "reads it before its prologue"; the
+  difficulty word's evidence (2,829 samples of change 3's logs, 1,646 of
+  them in zones 1 to 5, and the OPTION screen, here and in the doc); the
+  player's-disc test; a note per callback when several reach a call; the
+  0x8000 test; the commit draft's wording.
+- Round 4 (review round 3's one Low, `r3/review-r3.md`): the gate test gains
+  six cases where a looser rule would give a wrong note: the word decides
+  only together with `$a0`, for each value of the word; `$v0` holds the
+  word on one path into a join and 5 on the other; an `lw`'s base differs
+  on the two paths into its block; a `beqz` on the word leads to a tail
+  jump out of the file; a `bgezal`, which is a call, comes before the call.
+  Six matching mutations (the review's five, the definite rule's check
+  counted once for each value), 91 in all: round 3's tests let all six
+  through (`r4/survive_r3.py` / `.log`), and round 4's catch each with the
+  case written for it (`r4/mutations.log`, `r4/subtest_check.py` / `.log`).
+  The tool is unchanged. Of the review's five suggestions, two are adopted:
+  the sample count (`r4/difficulty_samples.py` / `.log`, here and in the
+  doc) and case 4's note above. The other three, resolving branches whose
+  outcome is fixed, treating a `jr` other than `jr $ra` as a path the
+  analysis cannot follow, and carrying the word across joins and delay
+  slots, would change the analysis but no note on the disc (hypotheses), so
+  they are deferred.
+- Untracked (ignored): the evidence in `.cache/evidence/phase5-6/`, the
+  remix dump and package in `.cache/zones/remix6/`.
+
+## Phase 5 change 6 checks
+
+- Round 1, `mutations.py` (change 5's script: the mutations whose code this
+  change rewrote now target the new code, and 23 more for the formations):
+  the unmodified copy passed, and all 67 planted bugs were caught.
+- Round 1, `checks-p5-6.sh` / `.log` (staged tree; it computes the index
+  tree in a scratch object directory, writes the tests', packages', remix's
+  and mutations' files only to scratch, and runs no runtime): all pass. Nothing
+  is unstaged or untracked, and only the five intended paths change. The
+  handoff's header and its Phase 0 to Phase 5 change 4 sections equal HEAD.
   There is no placeholder, doubled blank line, heading without a blank line
-  before it, added Markdown line over 80 columns, local path or stale
-  wording, and the Python files' longest lines stay within HEAD's (97 and
-  102). The three gates pass, the pins equal `framework_pins.txt`, the
-  submodules are clean (`psxrecomp` ignores only `overlay_codegen_hash.h`),
-  no tracked file is ignored, the tool and its tests are not, and packages
-  and dumps are ignored anywhere. pyflakes is clean. On the disc, `check`
-  rebuilds all 14 tables identically; `make_remix.py` reproduces the remix
-  dump and `package` the same `.psxmod`, byte for byte, whose `disc_sha256`
-  equals the `.bin`'s sha256; `variant_guard.py` reproduces both logs. The
-  tool's 30 tests pass, the two player's-disc tests included;
-  `mutations.py` reproduces its log, with 36 of 36 planted bugs caught; the
-  three route test files pass; nothing is left behind, and no `__pycache__`
-  appears. The remix runs' log shows six passes and unchanged inputs (the
-  tool hashed then is the staged one); `summarize.py`, `same_point.py` and
-  `insn_timing.py` reproduce their logs; `build-dev/mods/state.toml`
-  enables nothing. Nothing listens on ports 4370 to 4389, and `git diff
-  --cached --check` is clean. The host's Python is now 3.14.8, where
-  `AGENTS.md` records 3.14.7.
-- Round 2, `r2/checks-p5-5-r2.sh` / `.log` (staged tree, as round 1; it also
-  rebuilds round 1's tree from its frozen index entries and shows the
-  delta): all pass. Round 1's checks hold again, with these changes: the
-  stale-wording list adds the phrases round 1's findings named; the tool's
-  33 tests pass, and `mutations.py` catches all 42 planted bugs, each of the
-  six new ones by the test written for it (`r2/mutations.log`); the staged
-  tool, which differs from the one the remix runs hashed only in the
-  U+007F escape and the `--name` check, builds their package byte for byte;
-  `all_packages.py` shows every unedited package equal to the disc, U1's
-  across two sectors (`r2/all_packages.log`); `variant_guard.py` reproduces
-  both logs, now with no matching variant starting before any table's end;
-  `pc_rows.py` reproduces its log, and the remix route plays
-  `title_to_zone1`'s input for that route's 7,674 frames.
-- Round 3, `r3/checks-p5-5-r3.sh` / `.log` (staged tree, as round 2; the
-  delta is from round 2's tree, rebuilt from its frozen index entries): all
-  pass. Round 2's checks hold again, with these changes: the stale-wording
-  list adds "the last few instructions", which now appears only where this
-  file quotes it (three lines); the tool's 34 tests pass, and
-  `mutations.py` catches all 44 planted bugs, the two new ones by the tests
-  written for them (`r3/mutations.log`); the staged tool still builds the
-  remix runs' package byte for byte; `last_step.py` and `toml11_check.py`
-  reproduce their logs.
+  before it, added Markdown line over 80 columns, short line left by a
+  reflow that HEAD does not have, stale wording or local path, and the
+  Python files' longest lines stay within HEAD's. The three gates pass, the
+  pins equal `framework_pins.txt`, the submodules are clean (`psxrecomp`
+  ignores only `overlay_codegen_hash.h`), no tracked file is ignored, the
+  tool and its tests are not, and packages and dumps are ignored anywhere.
+  pyflakes is clean. On the disc, `check` rebuilds all 14 zones identically
+  and `list` gives 5, 3, 15 and 10 formations; the scan, layout and
+  disassembly logs reproduce; `make_remix6.py` reproduces the remix dump
+  and `package` the same `.psxmod`, whose `disc_sha256` equals the `.bin`'s;
+  `variant_guard.py` reproduces both logs. The tool's 46 tests pass, the
+  three player's-disc tests included; `mutations.py` reproduces its log, 67
+  of 67 planted bugs caught; the three route test files pass; nothing is
+  left behind, and no `__pycache__` appears. The formation runs' log shows
+  six passes and unchanged inputs (the tool hashed then is the staged one);
+  `formation_compare.py` reproduces its log; every probe shows 1,309
+  overlay instructions in seven rows; `build-dev/mods/state.toml` enables
+  nothing. Nothing listens on ports 4370 to 4389, and `git diff --cached
+  --check` is clean.
+- Round 2, `r2/checks-p5-6-r2.sh` / `.log` (round 1's script, plus the delta
+  from round 1's tree, which it rebuilds from the frozen index entries as
+  `8b81d1d`, the dump's notes in all four zones and the tool the runs
+  hashed): all pass. Nothing is unstaged or untracked, and only the five
+  intended paths change, against HEAD and against round 1's tree. The
+  handoff's header and its Phase 0 to Phase 5 change 4 sections equal HEAD.
+  There is no placeholder, doubled blank line, heading without a blank line
+  before it, added Markdown line over 80 columns, short line left by a
+  reflow that HEAD does not have, stale wording (round 1's included) or
+  local path, and the Python files' longest lines stay within HEAD's. The
+  gates, pins, submodules and ignore rules are as in round 1, and pyflakes
+  is clean. On the disc, `check` rebuilds all 14 zones identically and
+  `list` gives 5, 3, 15 and 10 formations; the dump's notes name exactly
+  five calls a branch can skip, all on the difficulty word: the 3RD ZONE's
+  0x8013719C, 0x801371D8 and 0x80137214 (non-zero) and 0x80137258 (zero),
+  and the 6TH ZONE's 0x80133EC0 (non-zero). The scan, layout and disassembly
+  logs, the remix dump, the `.psxmod` (`62824c08…`) and both
+  `variant_guard.py` logs reproduce. The tool's 48 tests pass;
+  `mutations.py` reproduces its log, 76 of 76 planted bugs caught; the three
+  route test files pass; nothing is left behind. The runs hashed round 1's
+  tool (`bec15132…`); the staged one differs only in the dump's notes and
+  the count check, and builds the same package byte for byte.
+  `formation_compare.py` reproduces its log, each formation's last sample in
+  its last step with all its members; every probe shows 1,309 overlay
+  instructions in seven rows; `build-dev/mods/state.toml` enables nothing.
+  Nothing listens on ports 4370 to 4389, and `git diff --cached --check` is
+  clean.
+- Round 3, `r3/checks-p5-6-r3.sh` / `.log` (round 2's script, plus the delta
+  from round 2's tree, which it rebuilds from the frozen index entries as
+  `fe799fe`, every timeline zone's dump compared with round 2's tool, and
+  round 3's tests run against round 2's tool): all pass. Nothing is
+  unstaged or untracked, and only the five intended paths change. The
+  handoff's header and its Phase 0 to Phase 5 change 4 sections equal HEAD,
+  and there is no placeholder, doubled blank line, heading without a blank
+  line before it, added Markdown line over 80 columns, new short line left
+  by a reflow, stale wording (rounds 1 to 3) or local path. The gates, pins,
+  submodules and ignore rules are as before, and pyflakes is clean. On the
+  disc, `check` rebuilds all 14 zones identically; all 14 dumps are
+  byte-identical to round 2's tool's, so the notes name the same five
+  calls; the scan, layout and disassembly logs, the remix dump, the
+  `.psxmod` (`62824c08…`) and both `variant_guard.py` logs reproduce. The
+  tool's 49 tests pass, the four player's-disc tests included;
+  `mutations.py` catches the same 85 mutations as `r3/mutations.log`;
+  `test_regression.sh` reproduces its log; the three route test files pass,
+  and nothing is left behind. `formation_compare.py` reproduces its log,
+  `build-dev/mods/state.toml` enables nothing, nothing listens on ports
+  4370 to 4389, and `git diff --cached --check` is clean. The script's first
+  run (`r3/checks-p5-6-r3-first.log`) found the mutation log different at
+  one line: which tests catch the mutation that stamps zip entries with the
+  current time depends on the clock (`test_package_names_and_versions` sees
+  it only when its two packages fall in different 2-second DOS time slots;
+  `test_package_puts_the_built_bytes_on_the_disc` always does), so the
+  script now compares which mutations are caught and prints the lists that
+  differ.
+- Round 4, `r4/checks-p5-6-r4.sh` / `.log` (round 3's script, with the delta
+  from round 3's tree, which it rebuilds from the frozen index entries as
+  `f944f75`; the tool and `AGENTS.md` unchanged since round 3; round 4's
+  evidence; and round 3's regression run pinned to round 3's test file,
+  `r4/test_regression_r3.sh`, since `r3/test_regression.sh` copies the
+  current one): all pass. Nothing is unstaged or untracked, and only the
+  five intended paths change. The handoff's header and its Phase 0 to Phase
+  5 change 4 sections equal HEAD, and there is no placeholder, doubled blank
+  line, heading without a blank line before it, added Markdown line over 80
+  columns, new short line left by a reflow, stale wording (rounds 1 to 4) or
+  local path. The gates, pins, submodules and ignore rules are as before,
+  and pyflakes is clean. On the disc, `check` rebuilds all 14 zones
+  identically and the notes name the same five calls; the scan, layout and
+  disassembly logs, the remix dump, the `.psxmod` (`62824c08…`) and both
+  `variant_guard.py` logs reproduce, and so do `difficulty_samples.py`,
+  `callback_inventory.py`, `case4_wording.sh`, `subtest_check.py` and
+  `survive_r3.py`. The tool's 49 tests pass; `mutations.py` catches the same
+  91 mutations as `r4/mutations.log`; the pinned regression run reproduces
+  `r3/test_regression.log`; the three route test files pass, and nothing is
+  left behind. `formation_compare.py` reproduces its log,
+  `build-dev/mods/state.toml` enables nothing, nothing listens on ports
+  4370 to 4389, and `git diff --cached --check` is clean.
 
 ## Hypotheses and unknowns
 
@@ -751,10 +900,10 @@ full record is in `git show b19fbe4:.agent/HANDOFF.md`.
   7. Its claims marked "agent" come from a research agent's static reading of
   the disc and were not re-checked, except the two flag arrays and that the
   screens follow them (change 2), the campaign loop's advance, result word
-  and records (change 3) and the wave timeline (change 4), all marked
-  re-checked there. The launcher's Mods page lists the unlock package and
-  turns it on (change 3); the two packages of change 3 have not been seen
-  there, and the test one is hidden.
+  and records (change 3), the wave timeline (change 4) and the formations
+  (change 6), all marked re-checked there. The launcher's Mods page lists
+  the unlock package and turns it on (change 3); the two packages of change
+  3 have not been seen there, and the test one is hidden.
 - Branching prototype (change 3): with zones cleared instantly, the S path
   and the stock order hold up to the start of the 5TH ZONE in all three boot
   modes. The rest of the campaign, its end and the unlock rules after a
@@ -769,28 +918,46 @@ full record is in `git show b19fbe4:.agent/HANDOFF.md`.
   V5, which end in their own overlay code (that needs hooks there); the 8TH
   ZONE, U4 and U8 have the runner but also call the clear routine from their
   own code, and how a forced clear meets that is untested.
-- Zone data tool (change 4): the game reads the tables the tool decodes, in
-  the DEMONSTRATION replays of the fourteen zones, in HLE mode only (change 4).
-  An edited table has run in one zone only: the 1ST ZONE's scratch remix,
-  in CAMPAIGN PLAY with no input, in all three boot modes (change 5). Other
-  zones' remixes, remixes with "clear" waves, remixes played by hand, the
-  launcher's install of a package and play in the play copy are untested.
-  That edits up to a table's end keep the static shard's variants valid is
+- Zone data tool (changes 4 to 6): the game reads the tables the tool
+  decodes, in the DEMONSTRATION replays of the fourteen zones, in HLE mode
+  only (change 4). Edits have run in the 1ST ZONE only, in CAMPAIGN PLAY with
+  no input, in all three boot modes: a retimed table (change 5) and two
+  edited formations, an overlay that crosses a sector boundary (change 6).
+  Other zones' remixes, "clear" waves, formations edited in the 2ND, 3RD or
+  6TH ZONE, remixes played by hand, the launcher's install of a package and
+  play in the play copy are untested. That edits up to a table's end, which
+  covers every formation part, keep the static shard's variants valid is
   derived for all fourteen zones from their ranges; edits after the table
-  are unknown. At run time it is seen in the 1ST ZONE only, and only the LLE
-  SCPH-1001 "on" run shows that zone running nothing in the interpreter (in
-  the others the count's last step, up to 371 instructions, falls between
-  two samples). A remix runs
-  only from the image its package names: a CHD of the same disc should hash
+  are unknown. At run time it is seen in the 1ST ZONE only, and only change
+  5's LLE SCPH-1001 "on" run shows that zone running nothing in the
+  interpreter (in its other five runs the count's last step, up to 371
+  instructions, falls between two samples). A remix runs only from the
+  image its package names: a CHD of the same disc should hash
   the same (the runtime hashes its decoded sectors), but that is untested.
   The 8TH ZONE's table has no end entry: if its last wave were ever cleared
   before the zone's own code ends the zone, the runner would take the debug
-  string after the table as an entry (Derived; never seen). A table across
-  a sector boundary (U1's) has packaged correctly, but no such package has
-  run in the game. The formation records' steps and second
-  table, and what the callbacks' two counts mean, are not decoded, nor how
-  the waves of the ten timeline zones that never call 0x80057F0C place
-  their enemies.
+  string after the table as an entry (Derived; never seen). Formation
+  values far outside the stock ones (positions, speeds, turns) are
+  untested; what flags 0x4000 and 0x8000 do and what the low flag bits do
+  outside the 1ST ZONE are unknown, as is how the waves of the ten timeline
+  zones without formations place their enemies. Other enemies in a
+  formation need code (a plugin, or new code in the zone file). The notes on
+  when a call runs come from a static analysis that evaluates no condition
+  but the difficulty word and ends a path at any `jr`; no gated record has
+  run with the word non-zero. Review round 3 lists synthetic shapes the
+  analysis gets wrong or states loosely (`r3/review-r3.md`): an
+  unconditional `b` over an early return before the call gives "only on
+  some paths" for a call that always runs; a call reached only through a
+  `jr` jump table is attributed to code outside the table's callbacks, and
+  a branch on the word to such a `jr` that can return to the call gets a
+  definite note; where the word decides through a `bgtz`, a join or a load
+  in a delay slot, the note says "only on some paths". None of these shapes
+  is in the four zones: the 30 callbacks that reach the 33 calls use only
+  `beq` and `bne` against zero, `j`, `jal` and `jr $ra`
+  (`r4/callback_inventory.py` / `.log`), and the reviewer's own
+  path-sensitive model, which follows the word through joins and delay
+  slots and resolves branches whose outcome is fixed, agrees with every
+  note. Fixing them is deferred.
 
 ## Review and commit state
 
@@ -908,47 +1075,68 @@ full record is in `git show b19fbe4:.agent/HANDOFF.md`.
   had no test until change 5 added one. Round 2's four suggestions were
   applied in change 5: that correction, the 17-entry count, the short line,
   and the doc's "timing and placement" sentence.
-- Phase 5 change 5: round 1 NEEDS CHANGES on tree `f3967fd` (staged diff
-  `355db600…`; three Low: the doc called data-only edits re-checked though
-  only the table was checked, and section 7 still listed the question; the
-  interpreter comparison named seven addresses where the probes keep five
-  rows, and rested on equal counts rather than on when they grew; no test
-  packaged a shorter table, so sizing the overlay from the built table went
-  uncaught). Report: `phase5-5/review-r1.md`. All three are resolved and its
-  eight suggestions adopted (changes, round 2).
-- Phase 5 change 5, round 2: NEEDS CHANGES on tree `85d92ee` (staged diff
-  `7e1674ae…`; one Low: the doc's "the last few instructions" understated
-  the count's last step, up to 371 instructions), after confirming round 1's
-  three findings and eight suggestions resolved. Report:
-  `phase5-5/r2/review-r2.md`. Resolved in round 3, which also adopts its
-  four suggestions (changes, round 3).
-- Phase 5 change 5, round 3: pending delta re-review.
+- Phase 5 change 5: round 3 PASS on tree `29e0e44` (staged diff
+  `35b66fc5…`) with no findings, after round 1 NEEDS CHANGES on tree
+  `f3967fd` (three Low: data-only edits called re-checked though only the
+  table was; the interpreter comparison named seven addresses where the
+  probes keep five rows; no test packaged a shorter table) and round 2
+  NEEDS CHANGES on tree `85d92ee` (one Low: "the last few instructions"
+  understated the count's last step, up to 371); commit `bdd413f`, pushed to
+  the private `origin/master`. Reports: `phase5-5/review-r1.md`,
+  `phase5-5/r2/review-r2.md`, `phase5-5/r3/review-r3.md`. Round 3's two
+  suggestions are applied in change 6: the short line left by a reflow in
+  the zone data hypothesis (rewritten), and a test of `build` and `package`
+  with an output path that is not valid UTF-8.
+- Phase 5 change 6, round 1: NEEDS CHANGES on tree `8b81d1d` (staged diff
+  `b7a9f818…`; one Medium: five records start on only one value of the
+  difficulty word, and the doc and this file said a 3RD ZONE callback starts
+  four formations; three Low: no test for an unaligned record or zero steps;
+  the doc's wave 2 sentence left out its result; the reflow of change 5's
+  hypothesis dropped its interpreter limitation). The reviewer reproduced
+  the remix runs in two boot modes. Report: `phase5-6/review-r1.md`. All
+  four are resolved and its seven suggestions adopted (changes, round 2).
+- Phase 5 change 6, round 2: NEEDS CHANGES on tree `fe799fe` (staged diff
+  `24447efa…`; two Low, both about round 2's `gate`: its stated contract was
+  broader than its checks, silent for other branch kinds and wrong after a
+  call, on a short-circuit OR and past an early return; and its tests
+  exercised only `beqz`), after confirming round 1's four findings and
+  seven suggestions resolved. On the disc every note was right, by the
+  reviewer's own control-flow analysis of all 33 calls. Report:
+  `phase5-6/r2/review-r2.md`. Both are resolved and its six suggestions
+  adopted (changes, round 3).
+- Phase 5 change 6, round 3: NEEDS CHANGES on tree `f944f75` (staged diff
+  `c8c391f4…`; one Low: no test pinned the rules that keep the analysis
+  from stating a wrong condition, so five planted bugs that give wrong
+  notes, four of them definite, passed all 49 tests), after confirming
+  round 2's two findings and six suggestions resolved. On the disc the
+  reviewer's own path-sensitive model agrees with every note. Report:
+  `phase5-6/r3/review-r3.md`. Resolved; two of its five suggestions are
+  adopted and three deferred (changes, round 4; hypotheses).
+- Phase 5 change 6, round 4: pending delta re-review.
 
 ## Next action
 
 After a PASS: commit and push. The next step is the user's choice. A remix
-can be tried in the play copy: dump a zone, edit it, `zone_data.py package`
-it, install the `.psxmod` on the launcher's Mods page (or unpack it into
+can be tried in the play copy: dump a zone, edit its timeline or its
+formations, `zone_data.py package` it, install the `.psxmod` on the
+launcher's Mods page (or unpack it into
 `.cache/play/build/mods/installed/<id>/<version>/`), enable it under Remix
-and play that zone in CAMPAIGN PLAY or ZONE PLAY. For zone data: decode how
-waves place their enemies. In the 1ST, 2ND, 3RD and 6TH ZONE that is the
-formation records passed to 0x80057F0C (the steps that word 0 points to,
-the second table, the two counts; through 0x80057F0C, its update 0x80058300
-and the per-member spawn functions); the other ten timeline zones go
-through their own overlay code, which needs reading zone by zone. A remix
-pack worth playing, and a committed remix route (it would need a runner
-option for a run directory with an installed package, and the package
-built from the player's disc), are later steps.
-Follow-ups to the branching prototype stay open: branches into the extra
-zones (each needs its result record redirected or protected, see the doc's
-hazards); a test clear for the zones that end in their own code, and runs
-of it in the other runner zones; a committed feature-on route (a runner
-option for a run directory with its own `mods/state.toml`); a whole campaign
-with instant clears, which would also show whether the spike's post-credits
-halt happens with every zone loaded. The branching option can be tried in
-the play copy: `play.sh` refreshes `.cache/play/build/` from `build-dev/`,
-`mods/bundled/` included, and its Mods page should list "Branching Campaign
-(prototype)" under Gameplay.
+and play that zone in CAMPAIGN PLAY or ZONE PLAY. For zone data, the
+candidates: how the ten timeline zones without formations place their
+enemies (their own overlay code, zone by zone); other enemies in a
+formation, which is code (a plugin, or new code in the zone file); and a
+remix pack worth playing. A committed remix route would need a runner option
+for a run directory with an installed package, and the package built from
+the player's disc. Follow-ups to the branching prototype stay open: branches
+into the extra zones (each needs its result record redirected or protected,
+see the doc's hazards); a test clear for the zones that end in their own
+code, and runs of it in the other runner zones; a committed feature-on route
+(a runner option for a run directory with its own `mods/state.toml`); a
+whole campaign with instant clears, which would also show whether the
+spike's post-credits halt happens with every zone loaded. The branching
+option can be tried in the play copy: `play.sh` refreshes
+`.cache/play/build/` from `build-dev/`, `mods/bundled/` included, and its
+Mods page should list "Branching Campaign (prototype)" under Gameplay.
 
 Play continues from the play copy: `play/play.sh <session dir> <SCPH-1001
 dump>` (in `.cache/evidence/phase4-2/`) refreshes `.cache/play/build/` from

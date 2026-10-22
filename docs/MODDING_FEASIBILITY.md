@@ -4,10 +4,11 @@ Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
 Steps 1 and 2 of the recommended path (section 6) are now implemented, and
-the wave timeline parts of steps 3 and 4; nothing else here is. The evidence
-(scripts, logs and saved web pages) is in `.cache/evidence/mod-research/`,
-which is ignored and exists only on the machine that did the research;
-evidence file names below are relative to it.
+the wave timeline and formation parts of steps 3 and 4; nothing else here
+is. The evidence (scripts, logs and saved web pages) is in
+`.cache/evidence/mod-research/`, which is ignored and exists only on the
+machine that did the research; evidence file names below are relative to
+it.
 
 Labels: Observation (seen in source, disc files or command output), Derived
 (worked out from named observations), Reference (external pages), Hypothesis,
@@ -37,13 +38,12 @@ source.
   consistent. A test option that clears zones instantly lets scripted runs
   reach each branch without live play.
 - Remixed zones: edit a zone's wave timeline and formation tables, which are
-  data inside its `.BIN`, and ship them as same-size disc overlays. The
-  timeline is decoded, and a tool turns it into editable text and back
-  (section 6, step 3) and packages an edited one as a mod the game loads,
-  with the zone's precompiled code still running (step 4); the formation
-  records, used by four zones, are only partly decoded, the other zones
-  start their waves through their own code, not yet read, and files cannot
-  grow.
+  data inside its `.BIN`, and ship them as same-size disc overlays. Both are
+  decoded, and a tool turns them into editable text and back (section 6,
+  step 3) and packages the edits as a mod the game loads, with the zone's
+  precompiled code still running (step 4). What a formation's members are
+  is the zone's code, the ten timeline zones without formations start their
+  waves through their own code, not yet read, and files cannot grow.
 - New zones: a new `.BIN` linked at 0x80120000 against the EXE's fixed
   addresses, plus models, textures and sound; a plugin adds its load case and
   result slot. The spare scene slots have no load case that retail code
@@ -223,20 +223,80 @@ checksums independently.
     1ST, 2ND, 3RD and 6TH ZONE's files call 0x80057F0C: 38 of the 121
     entries (30 of the 95 distinct callbacks) pass it a formation record
     from the zone's data and two counts, then call an overlay function once
-    per member. The commonest other call, 0x80063C5C (17 entries across the
-    fourteen zones, 11 of them in the ten without the formation call), starts
-    a timer task under the runner, which counts a word down each tick (update
-    0x80063D04). A formation record starts with eight words: a pointer to
-    20-byte steps, a second pointer, three words added to the player
-    object's words at +0x34 to +0x3C (its position, hypothesis), and three
-    passed to 0x80078014 (their values look like angles, hypothesis). The
-    rest is not decoded, and the counts are instruction immediates in the
-    callbacks, not data.
+    per member ("Formations" below). The commonest other call, 0x80063C5C
+    (17 entries across the fourteen zones, 11 of them in the ten without the
+    formation call), starts a timer task under the runner, which counts a
+    word down each tick (update 0x80063D04).
 
   So in the fourteen zones with a timeline, wave timing is data in the
   `.BIN`, and so is placement in the four with the formation call; behaviour
   is `.BIN` code calling the EXE, and the model and texture files hold only
   models and textures (agent, Derived).
+
+### Formations
+
+Re-checked in Phase 5 change 6: the EXE's formation code, the four zones'
+callbacks and member code, the records on the disc, and the formation tasks
+in the running game (evidence in `.cache/evidence/phase5-6/`).
+
+- 30 wave callbacks in the 1ST, 2ND, 3RD and 6TH ZONE pass 0x80057F0C 33
+  records (5, 3, 15 and 10), each its own. Five start on only one value of the
+  difficulty word, 0x800A7C34, which the zone handler sets: the 3RD ZONE's
+  wave-17 callback starts 0x8012227C, 0x80122320 and 0x801223C4 while the word
+  is non-zero and 0x8012248C while it is zero, and the 6TH ZONE's wave-10
+  callback starts 0x80121F50 only while it is non-zero; the dump's notes say
+  so. The word was 0 in all 2,829 samples of change 3's campaign runs, 1,646 of
+  them in zones 1 to 5, and the OPTION screen offers NORMAL, the default, and
+  HARD (the `menus` route's `13-option.png`), so non-zero is presumably HARD
+  (inference). The call takes the parent task, the record and, as instruction
+  immediates in the callback, its numbers of steps and members. It starts a
+  task of 0x50 bytes under the parent (update 0x80058300; its destructor,
+  0x80058534, frees the member positions it allocates), puts the formation's
+  centre at the player's position (player object +0x34 to +0x3C) plus the
+  record's, and adds the centre to a list at [0x8009C030] + 0x34 (0x8003B7A8;
+  0x8003B7D8 removes it).
+- A record is eight words: the address of its steps, the address of its
+  members, a position added to the player's (x, y, z), and three 32-bit
+  binary angles (2^32 is a full turn; the sine table at 0x80018338 is read
+  with the top 13 bits). The rotation matrix (0x80078014) has
+  -sin(angle 0) at m[1][2] and cos(angle 0) sin(angle 1) at m[0][2], and the
+  heading (0x8007897C) is speed times (cos a0 sin a1, -sin a0, cos a0 cos
+  a1): angle 1 is yaw, angle 0 pitch, angle 2 roll (Derived).
+- A step is 20 bytes: three turns added to the angles at every task tick,
+  a speed (units a tick along the heading), a tick count and flags. The
+  timer starts at step 0's ticks and counts down once a tick; when it goes
+  below zero the next step starts with its own ticks, so step 0 runs for
+  ticks ticks and each later step for ticks + 1. After the last step the
+  task clears its update word and ends, and the task sweep (0x8007A360)
+  clears its children's update words, so the members still flying go with
+  it, as the running game shows.
+- A member is an (x, y, z) offset of 16-bit values plus a halfword the code
+  does not read. At every tick the formation writes each member's slot,
+  centre + floor(R * offset / 4096) (GTE MVMVA, 0x80079BD0), and the 1ST
+  ZONE's member update reads its slot and the formation's angles. In all
+  four zones' member code (0x8012C3A4, 0x80131DC8, 0x80135498 and
+  0x8012A48C) a member killed counts the formation's remaining members
+  down; at zero the formation stops moving and ends once its children are
+  gone.
+- Flags: the EXE reads 0x8000 at each step and 0x4000 at the start only,
+  setting fields of the centre's list node; what they do is unknown. Three
+  zones' enemy code reads the low bits: the 1ST ZONE's member update
+  (0x8012C3DC to 0x8012C540) calls 0x8012BD74, which starts a moving task (a
+  shot, inference), with a 1 in 16 chance a tick while bit 1 is set and the
+  difficulty word is zero, or bit 0 while it is non-zero; the 6TH ZONE's
+  member update also tests bits 0 and 1, and the 2ND ZONE's bit 0, in code
+  not read further.
+- What the members are is code. Each zone spawns every member of every
+  formation with one function of its own (the 1ST ZONE 0x8012C05C, the 2ND
+  0x80131A84, the 3RD 0x80134F38, the 6TH 0x8012A134), which its callbacks
+  call once per member after 0x80057F0C; the record names no enemy, and only
+  one zone file is in memory at a time. Data edits can move a formation,
+  reshape it and change its path, and the timeline can choose which
+  formation each wave starts.
+- On the disc each formation is its steps, its members and its record, in
+  that order, with no overlap and no reference from elsewhere in the file
+  (`formation_layout.log`). In the 2ND, 3RD and 6TH ZONE two words after
+  each record repeat its counts; nothing reads them.
 
 ### The campaign
 
@@ -524,7 +584,12 @@ changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
      (`AGENTS.md`, Zone data). A read-only watch of the game during those
      zones' DEMONSTRATION replays (HLE mode) shows the runner reading the
      tables the tool finds, with their delays.
-   - Still to do: the formation records, textures, models and sound banks.
+   - The formation part is done (Phase 5 change 6): dumps of the 1ST, 2ND,
+     3RD and 6TH ZONE also give each formation record's position, angles,
+     steps and member offsets ("Formations" above), and build writes them in
+     place, keeping each record's address and its numbers of steps and
+     members.
+   - Still to do: textures, models and sound banks.
 4. Remix pack, medium to large. Edited timelines and formations for existing
    zones as same-size disc overlays, guarded by the stock hashes; a guarded
    EXE patch adjusts rating thresholds if needed.
@@ -559,9 +624,32 @@ changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
      briefing loaded and one with the zone file loaded, so the samples
      cannot tell whether those ran before the load or after it (Derived from
      the probe samples).
-   - Still to do: formation edits (not decoded), a remix pack worth
-     playing, rating thresholds, and checking a remix against psx-beetle,
-     which runs no mods and would need a patched disc image.
+   - Formation edits run in the game (Phase 5 change 6). The package's one
+     overlay now covers every byte build may write, the table and the
+     formation parts with the stock bytes between them. A scratch remix of
+     the 1ST ZONE moved wave 1's formation by (20480, -10240, 0) and doubled
+     its member offsets, and gave wave 2's first step speed 512 for 15 ticks
+     (stock: 256 for 30). Played in CAMPAIGN PLAY with no input in all three
+     boot modes, next to the same runs with the feature off, a read-only
+     watch of the formation tasks found wave 1's centre exactly (20480,
+     -10240, 0) from the stock one at every step state both runs sampled
+     (248 to 257), and its members' slots twice as far from it as the stock
+     ones, give or take the transform's one-unit floor, in the steps that do
+     not turn. Wave 2 moved 512 units a tick, for at most 15 ticks, from the
+     same start as the stock formation, then had the stock formation's
+     centre and angles at every later step state both runs sampled (197 to
+     204). The 868-byte overlay crosses a sector boundary. The formations
+     ticked once every two frames (0.497 to 0.499 times a frame), each ended
+     after its last step with all its members, and the members' update words
+     went with it at the next sweep. The zone's precompiled code kept running:
+     in none of the fourteen timeline zones does a matching static variant
+     guard a byte build may write, all 1,391 of the 1ST ZONE's match the
+     remixed file, and every run interpreted 1,309 overlay instructions in
+     seven rows, as the stock route does.
+   - Still to do: a remix pack worth playing, rating thresholds, other
+     enemies in a formation (code: a plugin, or new code in the zone), and
+     checking a remix against psx-beetle, which runs no mods and would need
+     a patched disc image.
 5. A new zone in a spare slot, large. Spike these three unknowns first:
    - whether the game's DsSearchFile finds a file whose directory record (in
      a directory sector's free space, an equal-length patch) points into
@@ -595,10 +683,11 @@ changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
 - How the 5TH ZONE, the LAST ZONE, U5, U9 and V5 decide when to call the
   clear routine, and when the 8TH ZONE, U4 and U8 call it from their own
   code as well as through the runner.
-- The OMD record format in detail; the formation records beyond their first
-  eight words (the steps and the second table), and what the callbacks' two
-  counts mean; and how the waves of the ten timeline zones that never call
-  0x80057F0C place their enemies.
+- The OMD record format in detail; what the formation flags 0x4000 and
+  0x8000 do (the EXE sets fields of the centre's node in the list at
+  [0x8009C030] + 0x34), and what the low flag bits do outside the 1ST ZONE;
+  and how the waves of the ten timeline zones that never call 0x80057F0C
+  place their enemies.
 - What the 8TH ZONE's runner does if its last wave is ever cleared before
   the zone ends: with no end entry, it would take the debug string after the
   table as an entry and call it (Derived; never seen).

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Tests for zone_data.py on synthetic zone files and a synthetic disc image.
 
-The last two tests also use the player's disc when disc/ holds it. The
+The PlayersDisc tests also use the player's disc when disc/ holds it. The
 temporary directory (TMPDIR) must be outside the repository, where the tool
 may write. Run: python3 -B scripts/zones/test_zone_data.py
 """
 import hashlib
+import re
 import struct
 import subprocess
 import sys
@@ -28,6 +29,14 @@ RUNNER_NEW, FORMATION, CLEAR_ROUTINE = 0x80071624, 0x80057F0C, 0x80034104  # fro
 A, B, C = BASE + 0xC0, BASE + 0x100, BASE + 0x140  # the synthetic wave callbacks
 TABLE = BASE + 0x40
 STOCK = [(A, 150), (B, -100), (C, 60)]
+# The formation record that callback A passes to 0x80057F0C at +0xD0, with 4
+# steps and 5 members: eight words, then 20-byte steps, 8-byte members.
+RECORD, STEPS_AT, MEMBERS_AT = BASE + 0x190, BASE + 0x1B0, BASE + 0x168
+POSITION, ANGLES = (100, -200, 74240), (0, 0x80000000, 0xC0000000)
+STEPS = [(0, 0, 0, 256, 30, 0), (0, 0, 11930464, 256, 30, 1), (-47721858, 0, 0, 384, 90, 2),
+         (0, -11930464, 0, 768, 150, 0x8000)]
+MEMBERS = [(-5120, 0, 5120, 0), (-2560, 2560, 2560, 7), (0, 0, 0, 0), (2560, 2560, 2560, 0),
+           (5120, 0, 5120, 0)]  # the fourth value is padding the game does not read
 
 
 def i_type(op, rs, rt, imm):
@@ -36,6 +45,10 @@ def i_type(op, rs, rt, imm):
 
 def jal(target):
     return 0x0C000000 | (target & 0x0FFFFFFF) >> 2
+
+
+def jump(target):
+    return 0x08000000 | (target & 0x0FFFFFFF) >> 2
 
 
 def lui(rt, imm):
@@ -58,7 +71,8 @@ LOADS = {  # code at +0x80 that passes $a1 to the constructor
 
 
 def zone(entries=STOCK, end=-100, after=(), calls=1, load="lui and addiu", own_clear=False):
-    """A 512-byte zone file: table at +0x40, init at +0x80, callbacks A, B, C."""
+    """A 512-byte zone file: table at +0x40, init at +0x80, callbacks A, B, C,
+    and the formation record callback A passes, with its members and steps."""
     ws = [0] * 128
     ws[0] = 0x1E
     k = 16
@@ -80,7 +94,13 @@ def zone(entries=STOCK, end=-100, after=(), calls=1, load="lui and addiu", own_c
     ws[64:69] = [addiu(29, 29, -0x18), jal(0x80063C5C), addiu(5, 0, 150), JR_RA,
                  addiu(29, 29, 0x18)]
     ws[80:82] = [JR_RA, 0]
-    return struct.pack("<128I", *ws)
+    blob = bytearray(struct.pack("<128I", *ws))
+    struct.pack_into("<2I3i3I", blob, RECORD - BASE, STEPS_AT, MEMBERS_AT, *POSITION, *ANGLES)
+    for n, step in enumerate(STEPS):
+        struct.pack_into("<4iHH", blob, STEPS_AT - BASE + 20 * n, *step)
+    for n, member in enumerate(MEMBERS):
+        struct.pack_into("<4h", blob, MEMBERS_AT - BASE + 8 * n, *member)
+    return bytes(blob)
 
 
 def entries_at(blob, count):
@@ -252,8 +272,9 @@ class Refusals(unittest.TestCase):
     def test_text_the_parser_rejects(self):
         text = zone_data.render("S1/S1.BIN", zone())
         cases = [
-            ("format must be 1", text.replace("format = 1", "format = 2")),
-            ("format must be 1", text.replace("format = 1", "format = true")),
+            ("format must be 1 or 2", text.replace("format = 2", "format = 3")),
+            ("format must be 1 or 2", text.replace("format = 2", "format = true")),
+            ("unknown formations", text.replace("format = 2", "format = 1")),
             ("unknown dealy", text.replace("delay = 150", "dealy = 150")),
             ("unknown speed", text.replace("delay = 150 }", "delay = 150, speed = 2 }")),
             ("missing slots", text.replace("slots = ", "# slots = ")),
@@ -269,6 +290,228 @@ class Refusals(unittest.TestCase):
                 self.assertNotEqual(edited, text)
                 with self.assertRaisesRegex(zone_data.ZoneError, message):
                     zone_data.parse(edited, "test")
+
+
+def comments(text):
+    """A dump's comment lines joined, so wrapped sentences read as one."""
+    return " ".join(line[2:] for line in text.splitlines() if line.startswith("# "))
+
+
+def patched(*writes):
+    """zone() with (offset, word) pairs written over it."""
+    blob = bytearray(zone())
+    for offset, word in writes:
+        struct.pack_into("<I", blob, offset, word)
+    return bytes(blob)
+
+
+class Formations(unittest.TestCase):
+    def test_finds_the_record_a_callback_passes(self):
+        self.assertEqual(zone_data.read_formations(zone()),
+                         [zone_data.Formation(RECORD, STEPS_AT, 4, MEMBERS_AT, 5, [BASE + 0xD0])])
+
+    def test_one_record_passed_by_two_calls(self):
+        second = [lui(5, 0x8012), addiu(5, 5, 0x190), addiu(6, 0, 4), jal(FORMATION), addiu(7, 0, 5)]
+        blob = patched(*((0x150 + 4 * n, w) for n, w in enumerate(second)))
+        [f] = zone_data.read_formations(blob)
+        self.assertEqual(f.calls, [BASE + 0xD0, BASE + 0x15C])
+        second[2] = addiu(6, 0, 3)
+        blob = patched(*((0x150 + 4 * n, w) for n, w in enumerate(second)))
+        with self.assertRaisesRegex(zone_data.ZoneError, "passed with 4 steps and 5 members, and"
+                                    " at 0x8012015C with 3 and 5"):
+            zone_data.read_formations(blob)
+
+    def test_the_dump_shows_the_record(self):
+        text = zone_data.render("S1/S1.BIN", zone())
+        [f] = zone_data.parse(text, "test")["formations"]
+        self.assertEqual(f, {"address": RECORD, "position": list(POSITION), "angles": list(ANGLES),
+                             "steps": [{"turn": list(s[:3]), "speed": s[3], "ticks": s[4],
+                                        "flags": s[5]} for s in STEPS],
+                             "members": [list(m[:3]) for m in MEMBERS]})
+        notes = comments(text)
+        self.assertIn("Started at 0x801200D0 by wave 0 (callback 0x801200C0), with 4 steps and 5"
+                      " members. Its steps are at 0x801201B0, its members at 0x80120168.", notes)
+        self.assertIn("angles = [0x00000000, 0x80000000, 0xC0000000]  # degrees: 0, 180, 270", text)
+        self.assertIn("# roll 1 (degrees a tick)", text)
+        self.assertIn("# pitch -4 (degrees a tick)", text)
+
+    def test_edits_land_in_place(self):
+        blob = zone()
+        doc = dumped(blob)
+        f = doc["formations"][0]
+        f["position"] = [-1, 2**31 - 1, -2**31]
+        f["angles"] = [0xFFFFFFFF, 0, 0x40000000]
+        f["steps"][3] = {"turn": [1, -2, 3], "speed": -5, "ticks": 65535, "flags": 0x4001}
+        f["members"][1] = [32767, -32768, 1]
+        expected = bytearray(blob)
+        # Position at +8 and angles at +0x14 of the record; step 3 at 60 bytes in;
+        # member 1 at 8 bytes in, its padding (7) untouched.
+        expected[0x198:0x1B0] = bytes.fromhex("ffffffff ffffff7f 00000080 ffffffff 00000000"
+                                              " 00000040")
+        expected[0x1EC:0x200] = bytes.fromhex("01000000 feffffff 03000000 fbffffff ffff 0140")
+        expected[0x170:0x176] = bytes.fromhex("ff7f 0080 0100")
+        self.assertEqual(zone_data.build(blob, doc, "test"), bytes(expected))
+        self.assertEqual(expected[0x176:0x178], b"\x07\x00")
+
+    def test_an_unedited_formation_rebuilds_the_same_bytes(self):
+        blob = zone()
+        self.assertEqual(zone_data.build(blob, dumped(blob), "test"), blob)
+
+    def test_a_dump_of_format_1_keeps_the_stock_formations(self):
+        blob = zone()
+        text = zone_data.render("S1/S1.BIN", blob)
+        old = text[:text.index("\n# Formations.")].replace("format = 2", "format = 1") + "\n"
+        doc = zone_data.parse(old.replace("delay = 150 }", "delay = 7 }"), "test")
+        built = zone_data.build(blob, doc, "test")
+        self.assertEqual(entries_at(built, 1), [(A, 7)])
+        self.assertEqual(built[0x60:], blob[0x60:])
+
+    def test_edits_build_refuses(self):
+        blob = zone()
+        cases = [
+            ("must keep 4 steps and 5 members", lambda f: f["steps"].pop()),
+            ("must keep 4 steps and 5 members", lambda f: f["steps"].append(f["steps"][0])),
+            ("must keep 4 steps and 5 members", lambda f: f["members"].append([0, 0, 0])),
+            ("each of this zone's records once: 0x80120190", lambda f: f.update(address=RECORD + 4)),
+        ]
+        for n, (message, change) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                doc = dumped(blob)
+                change(doc["formations"][0])
+                with self.assertRaisesRegex(zone_data.ZoneError, message):
+                    zone_data.build(blob, doc, "test")
+        for formations in ([], [dumped(blob)["formations"][0]] * 2):
+            with self.subTest(formations=len(formations)):
+                doc = dumped(blob)
+                doc["formations"] = formations
+                with self.assertRaisesRegex(zone_data.ZoneError, "records once"):
+                    zone_data.build(blob, doc, "test")
+
+    def test_values_the_parser_rejects(self):
+        text = zone_data.render("S1/S1.BIN", zone())
+        cases = [
+            ("position must be three 32-bit", "74240]", "2147483648]"),
+            ("position must be three 32-bit", "position = [100, -200, 74240]", "position = [1, 2]"),
+            ("angles must be three integers from 0 to 0xFFFFFFFF", "[0x00000000,", "[-1,"),
+            ("angles must be three integers", "0xC0000000]", "0x100000000]"),
+            ("step 0: turn must be three 32-bit integers", "[0, 0, 0], speed = 256",
+             "[0, 0], speed = 256"),
+            ("step 0: turn must be three 32-bit integers", "[0, 0, 0], speed = 256",
+             "[0, 0, 2147483648], speed = 256"),
+            ("step 3: turn must be three 32-bit integers, and speed one", "speed = 768",
+             "speed = 7.5"),
+            ("step 3: turn must be three 32-bit integers, and speed one", "speed = 768",
+             "speed = -2147483649"),
+            ("step 3: ticks and flags must be from 0 to 65535", "ticks = 150", "ticks = 65536"),
+            ("step 3: ticks and flags", "flags = 0x8000", "flags = -1"),
+            ("step 3: unknown pace", "speed = 768,", "speed = 768, pace = 1,"),
+            ("member 1: must be three integers from -32768 to 32767", "[-2560, 2560, 2560]",
+             "[-2560, 2560, 32768]"),
+            ("member 0: must be three integers", "[-5120, 0, 5120]", "[-5120, 0]"),
+            ("address must be an integer", "address = 0x80120190", 'address = "0x80120190"'),
+            ("missing members", "\nmembers = [", "\nmembers_ = ["),
+        ]
+        for n, (message, old, new) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                self.assertEqual(text.count(old), 1)
+                with self.assertRaisesRegex(zone_data.ZoneError, message):
+                    zone_data.parse(text.replace(old, new), "test")
+        base = text[:text.index("\n# Formations.")]
+        with self.assertRaisesRegex(zone_data.ZoneError, "formations must be a list"):
+            zone_data.parse(base.replace("\n[timeline]", "\nformations = 3\n[timeline]"), "test")
+
+    def test_formations_it_cannot_read(self):
+        cases = [
+            ("cannot trace the formation record and counts passed at 0x801200D0",
+             [(0xC8, i_type(0x23, 4, 5, 0))]),  # lw $a1, 0($a0)
+            ("the call at 0x801200D0 starts a formation with 4 steps and 0 members",
+             [(0xD4, addiu(7, 0, 0))]),
+            ("the formation record 0x801201F0 passed at 0x801200D0 is not in the file",
+             [(0xC8, addiu(5, 5, 0x1F0))]),
+            ("the steps of the formation record 0x80120190, at 0x801201F0, are not in the file",
+             [(0x190, BASE + 0x1F0)]),
+            ("the members of the formation record 0x80120190, at 0x8012016A, are not in the file",
+             [(0x194, MEMBERS_AT + 2)]),
+            ("the formation record 0x80120192 passed at 0x801200D0 is not in the file",
+             [(0xC8, addiu(5, 5, 0x192))]),
+            ("the call at 0x801200D0 starts a formation with 0 steps and 5 members",
+             [(0xCC, addiu(6, 0, 0))]),
+            ("the call at 0x801200D0 starts a formation with 4 steps and -1 members",
+             [(0xD4, addiu(7, 0, -1))]),
+            ("the call at 0x801200D0 starts a formation with 32768 steps and 5 members",
+             [(0xCC, i_type(0x0D, 0, 6, 0x8000))]),  # ori $a2, $zero, 0x8000
+            # Four 20-byte steps from 0x1C0 end at 0x210, past the file's end.
+            ("the steps of the formation record 0x80120190, at 0x801201C0, are not in the file",
+             [(0x190, BASE + 0x1C0)]),
+        ]
+        for n, (message, writes) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                with self.assertRaisesRegex(zone_data.ZoneError, re.escape(message)):
+                    zone_data.read_formations(patched(*writes))
+
+    def test_the_dump_says_when_a_call_runs(self):
+        word = [lui(2, 0x800A), i_type(0x23, 2, 2, 0x7C34)]  # lw $v0, 0x7C34($v0)
+        call = [lui(5, 0x8012), addiu(5, 5, 0x190), addiu(6, 0, 4), jal(FORMATION),
+                addiu(7, 0, 5)]
+        sp, ret = addiu(29, 29, -0x20), [JR_RA, addiu(29, 29, 0x20)]
+
+        def past(op, rt=0, load=word):  # the branch at 0xCC can jump past the call at 0xE0
+            return load + [sp, i_type(op, 2, rt, 6), 0] + call + ret
+
+        def to(op):  # the branch at 0xCC jumps to the call at 0xE8, and a j jumps past it
+            return word + [sp, i_type(op, 2, 0, 3), 0, jump(BASE + 0xF0), 0] + call + ret
+
+        zero = "only while the difficulty word (0x800A7C34) is zero"
+        nonzero = "only while the difficulty word (0x800A7C34) is non-zero"
+        some = "only on some paths through its callback"
+        cases = [  # (the call's offset, when it runs, callback A's code at 0xC0)
+            (0xE0, nonzero, past(0x04)),  # beqz
+            (0xE0, zero, past(0x05)),  # bnez
+            (0xE8, zero, to(0x04)),
+            (0xE8, nonzero, to(0x05)),
+            (0xE0, some, past(0x04, load=[lui(2, 0x800A), i_type(0x23, 4, 2, 0x10)])),
+            (0xE0, some, past(0x05, rt=3)),  # bne $v0, $v1
+            (0xE0, some, past(0x01)),  # bltz
+            (0xE0, some, past(0x06)),  # blez
+            # beqz over an early return; beqz on what a call returns in $v0; beqz on
+            # the word or bnez on $a0 to the call; a branch to the call.
+            (0xE8, zero, word + [sp, i_type(0x04, 2, 0, 3), 0] + ret + call + ret),
+            (0xE8, some, word + [sp, jal(0x80063C5C), 0, i_type(0x04, 2, 0, 6), 0] + call + ret),
+            (0xF0, some, word + [sp, i_type(0x04, 2, 0, 5), 0, i_type(0x05, 4, 0, 3), 0,
+                                 jump(BASE + 0xF8), 0] + call + ret),
+            (0xD8, None, [sp, i_type(0x05, 4, 0, 1), 0] + call + ret),
+            # The word decides only together with $a0, either way; $v0 holds the word on
+            # one path into a join and 5 on the other; the lw's base differs on two
+            # paths into its block; beqz on the word to a tail jump out of the file; a
+            # bgezal, which is a call, before the call.
+            (0xE8, some, word + [sp, i_type(0x05, 2, 0, 8), 0, i_type(0x04, 4, 0, 6), 0]
+             + call + ret),
+            (0xE8, some, word + [sp, i_type(0x04, 2, 0, 8), 0, i_type(0x04, 4, 0, 6), 0]
+             + call + ret),
+            (0xEC, some, [sp, addiu(2, 0, 5), i_type(0x04, 4, 0, 3), 0] + word
+             + [i_type(0x05, 2, 0, 6), 0] + call + ret),
+            (0xEC, some, [sp, lui(2, 0x1234), i_type(0x04, 4, 0, 2), 0, lui(2, 0x800A),
+                          i_type(0x23, 2, 2, 0x7C34), i_type(0x05, 2, 0, 6), 0] + call + ret),
+            (0xE0, nonzero, word + [sp, i_type(0x04, 2, 0, 8), 0] + call + ret
+             + [jump(0x80040000), addiu(29, 29, 0x20)]),
+            (0xD8, None, [sp, i_type(0x01, 4, 0x11, 8), 0] + call + ret + ret),
+        ]
+        for n, (at, when, code) in enumerate(cases):
+            with self.subTest(case=n, when=when):
+                self.assertLessEqual(len(code), 16)  # callback B starts at 0x100
+                blob = patched(*((0xC0 + 4 * i, w) for i, w in enumerate(code)))
+                self.assertIn(f"Started at 0x{BASE + at:08X} by wave 0 (callback 0x801200C0), "
+                              + (f"{when}, " if when else "") + "with 4 steps",
+                              comments(zone_data.render("S1/S1.BIN", blob)))
+
+    def test_parts_that_overlap(self):
+        cases = [("the members of 0x80120190 and formation record 0x80120190 overlap",
+                  [(0x194, RECORD - 8)]),
+                 ("the table and the members of 0x80120190 overlap", [(0x194, TABLE + 0x18)])]
+        for n, (message, writes) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                with self.assertRaisesRegex(zone_data.ZoneError, message):
+                    zone_data.layout(patched(*writes))
 
 
 class CommandLine(unittest.TestCase):
@@ -289,7 +532,8 @@ class CommandLine(unittest.TestCase):
         listing = self.run_tool("list")
         self.assertEqual(listing.returncode, 0, listing.stderr)
         self.assertIn("S1/S1.BIN", listing.stdout)
-        self.assertIn("table 0x80120040, 3 waves (1 clear), an end entry, 4 slots", listing.stdout)
+        self.assertIn("table 0x80120040, 3 waves (1 clear), an end entry, 4 slots, 1 formation\n",
+                      listing.stdout)
         self.assertIn("TITLE/TITLE.BIN", listing.stdout)
         self.assertIn("no shared wave timeline", listing.stdout)
         check = self.run_tool("check")
@@ -347,10 +591,14 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("no ISO 9660 volume", result.stderr)
 
-    def package(self, *args, edit=("delay = 60 }", "delay = 90 }")):
+    def package(self, *args, edit=("delay = 60 }", "delay = 90 }"), more=()):
         dump = self.dir / "S1.zone.toml"
         self.assertEqual(self.run_tool("dump", "S1", "--out", dump).returncode, 0)
-        dump.write_text(dump.read_text().replace(*edit))
+        text = dump.read_text()
+        for old, new in (edit, *more):
+            self.assertIn(old, text)
+            text = text.replace(old, new)
+        dump.write_text(text)
         out = self.dir / "s1.psxmod"
         return self.run_tool("package", dump, "--out", out, *args), dump, out
 
@@ -379,13 +627,13 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(self.run_tool("build", dump, "--out", out).returncode, 0)
         return out.read_bytes()
 
-    def test_package_puts_the_built_table_on_the_disc(self):
+    def test_package_puts_the_built_bytes_on_the_disc(self):
         result, dump, out = self.package()
         self.assertEqual(result.returncode, 0, result.stderr)
         with zipfile.ZipFile(out) as z:
             self.assertEqual([(i.filename, i.compress_type, i.date_time) for i in z.infolist()],
                              [("manifest.toml", 0, (1980, 1, 1, 0, 0, 0)),
-                              ("S1.timeline.bin", 0, (1980, 1, 1, 0, 0, 0))])
+                              ("S1.remix.bin", 0, (1980, 1, 1, 0, 0, 0))])
             manifest = tomllib.loads(z.read("manifest.toml").decode())
         image = (self.dir / "t.bin").read_bytes()
         self.assertEqual((manifest["format_version"], manifest["id"], manifest["version"],
@@ -394,13 +642,16 @@ class CommandLine(unittest.TestCase):
                                                "disc_sha256": hashlib.sha256(image).hexdigest()}])
         [feature] = manifest["feature"]
         self.assertEqual((feature["id"], feature["group"], feature["default_enabled"]),
-                         ("timeline", "Remix", False))
+                         ("remix", "Remix", False))
         overlay, payload = self.overlay_of(out)
         self.assertEqual((overlay["feature"], overlay["target"], overlay["file"]),
-                         ("timeline", "disc_user", "S1.timeline.bin"))
+                         ("remix", "disc_user", "S1.remix.bin"))
         self.assertEqual(overlay["sha256"], hashlib.sha256(payload).hexdigest())
-        stock_table = self.files["S1"][TABLE - BASE:TABLE - BASE + 32]
-        self.assertEqual(overlay["expected_sha256"], hashlib.sha256(stock_table).hexdigest())
+        # From the table at 0x40 to the end of the formation's steps at 0x200.
+        lba = 19 + len(self.files)  # image() puts the first file, S1, after the directories
+        self.assertEqual((overlay["offset"], len(payload)), (lba * 2048 + 0x40, 0x1C0))
+        self.assertEqual(overlay["expected_sha256"],
+                         hashlib.sha256(self.files["S1"][0x40:0x200]).hexdigest())
         built = self.built(dump)
         self.assertEqual(self.read_back(overlay, payload), built)
         self.assertEqual(entries_at(built, 4), [(A, 150), (B, -100), (C, 90), (0, -100)])
@@ -410,24 +661,62 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         overlay, payload = self.overlay_of(out)
         # No stock entry may stay on the disc after the new end entry.
-        self.assertEqual(struct.unpack("<IiIiIiIi", payload), (A, 150, B, -100, 0, -100, 0, 0))
-        stock_table = self.files["S1"][TABLE - BASE:TABLE - BASE + 32]
-        self.assertEqual(overlay["expected_sha256"], hashlib.sha256(stock_table).hexdigest())
+        self.assertEqual(struct.unpack_from("<IiIiIiIi", payload), (A, 150, B, -100, 0, -100, 0, 0))
+        self.assertEqual(overlay["expected_sha256"],
+                         hashlib.sha256(self.files["S1"][0x40:0x200]).hexdigest())
         self.assertEqual(self.read_back(overlay, payload), self.built(dump))
 
-    def test_package_of_a_table_across_two_sectors(self):
+    def test_package_of_edits_across_sectors(self):
         blob = bytearray(zone()) + bytes(6144 - 512)
         struct.pack_into("<I", blob, 0x88, addiu(5, 5, 0xFF0))  # the table at 0xFF0 to 0x1010
         struct.pack_into("<IiIiIiIi", blob, 0xFF0, A, 150, B, -100, C, 60, 0, -100)
+        # The formation moved to the third sector: its record at 0x1100, then its
+        # steps at 0x1120 and its members at 0x1170, to 0x1198.
+        struct.pack_into("<I", blob, 0xC8, addiu(5, 5, 0x1100))
+        blob[0x1100:0x1120] = blob[0x190:0x1B0]
+        struct.pack_into("<2I", blob, 0x1100, BASE + 0x1120, BASE + 0x1170)
+        blob[0x1120:0x1170] = blob[0x1B0:0x200]
+        blob[0x1170:0x1198] = blob[0x168:0x190]
+        self.files["S1"] = bytes(blob)
+        (self.dir / "t.bin").write_bytes(image(self.files))
+        result, dump, out = self.package(more=[("position = [100,", "position = [-7,")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        overlay, payload = self.overlay_of(out)
+        lba = 19 + len(self.files)
+        # From the table at 0xFF0, in the file's second sector, to the members' end.
+        self.assertEqual((overlay["offset"], len(payload)), (lba * 2048 + 0xFF0, 0x1198 - 0xFF0))
+        self.assertEqual(overlay["expected_sha256"],
+                         hashlib.sha256(self.files["S1"][0xFF0:0x1198]).hexdigest())
+        built = self.built(dump)
+        self.assertEqual(struct.unpack_from("<i", built, 0x1004), (90,))  # wave C's delay
+        self.assertEqual(struct.unpack_from("<i", built, 0x1108), (-7,))  # the record's x
+        self.assertEqual(self.read_back(overlay, payload), built)
+
+    def test_package_of_a_part_before_the_table(self):
+        blob = bytearray(zone())  # on the disc the formations precede the tables
+        blob[0x10:0x38] = blob[0x168:0x190]  # the members moved to 0x10, before the table
+        struct.pack_into("<I", blob, 0x194, BASE + 0x10)
         self.files["S1"] = bytes(blob)
         (self.dir / "t.bin").write_bytes(image(self.files))
         result, dump, out = self.package()
         self.assertEqual(result.returncode, 0, result.stderr)
         overlay, payload = self.overlay_of(out)
-        lba = 19 + len(self.files)  # image() puts the first file, S1, after the directories
-        self.assertEqual((overlay["offset"], len(payload)), (lba * 2048 + 0xFF0, 32))
+        lba = 19 + len(self.files)
+        self.assertEqual((overlay["offset"], len(payload)), (lba * 2048 + 0x10, 0x200 - 0x10))
         self.assertEqual(overlay["expected_sha256"],
-                         hashlib.sha256(self.files["S1"][0xFF0:0x1010]).hexdigest())
+                         hashlib.sha256(self.files["S1"][0x10:0x200]).hexdigest())
+        self.assertEqual(self.read_back(overlay, payload), self.built(dump))
+
+    def test_package_of_a_zone_without_formations(self):
+        self.files["S1"] = patched((0xD0, 0))  # callback A no longer calls 0x80057F0C
+        (self.dir / "t.bin").write_bytes(image(self.files))
+        result, dump, out = self.package(edit=(f"{{ callback = 0x{C:08X}, delay = 60 }},", ""))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("[[formations]]", dump.read_text())
+        overlay, payload = self.overlay_of(out)
+        lba = 19 + len(self.files)
+        self.assertEqual((overlay["offset"], len(payload)), (lba * 2048 + 0x40, 32))
+        self.assertEqual(struct.unpack("<IiIiIiIi", payload), (A, 150, B, -100, 0, -100, 0, 0))
         self.assertEqual(self.read_back(overlay, payload), self.built(dump))
 
     def test_an_output_path_that_is_not_utf8(self):
@@ -436,6 +725,12 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("\\udcff.zone.toml", result.stdout)
         self.assertTrue(out.exists())
+        for command, name in (("build", "\udcff.BIN"), ("package", "\udcff.psxmod")):
+            with self.subTest(command=command):
+                result = self.run_tool(command, out, "--out", self.dir / name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"\\udcff.{name.split('.')[1]}", result.stdout)
+                self.assertTrue((self.dir / name).exists())
 
     def test_package_names_and_versions(self):
         result, _, out = self.package("--id", "my.remix-1", "--name", 'A "quoted" name',
@@ -517,13 +812,42 @@ class PlayersDisc(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             with zipfile.ZipFile(out) as z:
                 [overlay] = tomllib.loads(z.read("manifest.toml").decode())["overlay"]
-                payload = z.read("S1.timeline.bin")
+                payload = z.read("S1.remix.bin")
+        # From the first formation's steps at 0x1DE0 to the end of the table at
+        # 0x20F4 (80 bytes): the user data of two sectors.
         lba, pos = divmod(overlay["offset"], 2048)
-        self.assertEqual(pos, 0x20F4 % 2048)
+        self.assertEqual((pos, len(payload)), (0x1DE0 % 2048, 0x2144 - 0x1DE0))
         with open(DISC.parent / "Omega Boost (USA).bin", "rb") as f:
-            f.seek(lba * 2352 + 24 + pos)
-            self.assertEqual(f.read(len(payload)), payload)  # in one sector: 0xF4 + 80 < 2048
-        self.assertEqual(len(payload), 80)
+            data = b""
+            for n in (lba, lba + 1):
+                f.seek(n * 2352 + 24)
+                data += f.read(2048)
+        self.assertEqual(data[pos:pos + len(payload)], payload)
+
+    def test_the_four_zones_that_start_formations(self):
+        result = subprocess.run([sys.executable, "-B", str(TOOL), "list"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Change 4's review counted 5, 3, 15 and 10 calls to 0x80057F0C in these
+        # files, each passing its own record.
+        found = dict(re.findall(r"^(\S+)/\S+ .*, (\d+) formations?$", result.stdout, re.M))
+        self.assertEqual(found, {"S1": "5", "S2": "3", "S3": "15", "S6": "10"})
+
+    def test_the_calls_that_run_on_one_difficulty(self):
+        # Change 6's review found these five reading the code (round 1) and with
+        # its own control-flow analysis of all 33 calls (round 2).
+        found = {}
+        for zone in ("S1", "S2", "S3", "S6"):
+            result = subprocess.run([sys.executable, "-B", str(TOOL), "dump", zone, "--out", "-"],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            notes = comments(result.stdout)
+            self.assertNotIn("only on some paths", notes)
+            found.update(re.findall(r"Started at (0x[0-9A-F]{8}) by [^,]*, only while the"
+                                    r" difficulty word \(0x800A7C34\) is (zero|non-zero)", notes))
+        self.assertEqual(found, {"0x8013719C": "non-zero", "0x801371D8": "non-zero",
+                                 "0x80137214": "non-zero", "0x80137258": "zero",
+                                 "0x80133EC0": "non-zero"})
 
 
 if __name__ == "__main__":

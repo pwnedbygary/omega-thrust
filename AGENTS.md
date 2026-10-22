@@ -412,53 +412,67 @@ game saves, such as a card saved with the feature on.
 ## Zone data
 
 `scripts/zones/zone_data.py` (Python standard library only) turns a zone's
-wave timeline into editable text and back, byte for byte, reading the zone
-files from the player's disc (`--disc`, default `disc/Omega Boost (USA).cue`).
-A zone file, `<DIR>/<DIR>.BIN`, loads whole at 0x80120000. Fourteen of them
-pass a table to the game's shared timeline runner: 8-byte entries of a wave
-callback and a delay, ending in an end entry everywhere but the 8TH ZONE
-(`docs/MODDING_FEASIBILITY.md`, "Scenes and files"). The 5TH ZONE, the LAST
-ZONE, U5, U9, V5 and the files that are not zones have no such table.
+wave timeline and formations into editable text and back, byte for byte,
+reading the zone files from the player's disc (`--disc`, default
+`disc/Omega Boost (USA).cue`). A zone file, `<DIR>/<DIR>.BIN`, loads whole at
+0x80120000. Fourteen of them pass a table to the game's shared timeline
+runner: 8-byte entries of a wave callback and a delay, ending in an end entry
+everywhere but the 8TH ZONE (`docs/MODDING_FEASIBILITY.md`, "Scenes and
+files"). The 5TH ZONE, the LAST ZONE, U5, U9, V5 and the files that are not
+zones have no such table. In the 1ST, 2ND, 3RD and 6TH ZONE, wave callbacks
+also start formations through 0x80057F0C: each passes a record of eight
+words (where its steps and members are, a position added to the player's,
+three angles) and, as instruction immediates, its numbers of steps and
+members; 33 records in all (`docs/MODDING_FEASIBILITY.md`, "Formations").
+Five of them start on only one value of the difficulty word, 0x800A7C34, and
+the dump's notes say which.
 
 ```sh
-python3 scripts/zones/zone_data.py list      # zone files and their tables
+python3 scripts/zones/zone_data.py list      # zone files, tables, formations
 python3 scripts/zones/zone_data.py dump S1   # to .cache/zones/S1.zone.toml
 python3 scripts/zones/zone_data.py build .cache/zones/S1.zone.toml
-python3 scripts/zones/zone_data.py check     # dump and rebuild every table
+python3 scripts/zones/zone_data.py check     # dump and rebuild every zone
 python3 scripts/zones/zone_data.py package .cache/zones/S1.zone.toml
 python3 -B scripts/zones/test_zone_data.py   # tests (the disc is optional)
 ```
 
 A dump names the stock file's size and sha256, and `build` (default output
 `.cache/zones/<DIR>.BIN`) reads that file from the disc again and refuses any
-other. It writes the table in place: the waves and the end entry must fit in
+other. It writes the edits in place: the waves and the end entry must fit in
 the stock table's slots, a wave may use only the stock table's callbacks, and
 the first entry must be a wave, because the runner's constructor calls entry
 0 without checking it; slots left over become zero words. Delays count runner
-ticks, about one every two frames (30 a second). Dumps, built zone files and
-packages hold data from the disc, so the tool writes them only under
-`.cache/` or outside the repository. Verify every change to the tool with its
-tests and `check`.
+ticks, about one every two frames (30 a second). A formation keeps its
+address and its numbers of steps and members, which the code that passes it
+fixes; its position, angles, steps (turn, speed, ticks, flags) and member
+offsets may change, and the dump's comments give their units. Which enemy
+the members are is code: each of the four zones spawns every member of every
+formation with one function of its own. Dumps, built zone files and packages
+hold data from the disc, so the tool writes them only under `.cache/` or
+outside the repository. Verify every change to the tool with its tests and
+`check`.
 
-`package` makes the game load an edited table. It writes a `.psxmod` (default
+`package` makes the game load the edits. It writes a `.psxmod` (default
 `.cache/zones/<id>-<version>.psxmod`, id `omega.remix.` and the zone's folder
 in lowercase, such as `omega.remix.s1`): a zip with `manifest.toml` at its
 root, which the launcher's Mods page installs into
-`<exe>/mods/installed/<id>/<version>/`. Its one feature, `timeline` (group
+`<exe>/mods/installed/<id>/<version>/`. Its one feature, `remix` (group
 Remix, off by default), is a `disc_user` overlay (`MOD_PACKAGES.md`, "Native
-operations") that puts the edited table's slots on the disc in place of the
-stock ones, so the game reads them when it loads the zone; no plugin, hook
-site or regenerate is involved. The manifest names the sha256 of the disc
-image the runtime mounts, which for a cue sheet is the data file it names
-(`psxrecomp/runtime/src/mod_runtime.cpp` `sha256_file`), so with the feature
-on the runtime refuses to start from any other image; and the sha256 of the
-stock bytes under the overlay, which the runtime checks before launch,
-refusing to start if they differ. A table edit leaves the zone's precompiled
-code running: a static variant's guard is the CRC of its own code ranges, and
-in every zone with a timeline none of those ranges covers the table. To play
-a package headless, add it to a copy of the build as in "Mods": unpack it
-into the copy's `mods/installed/<id>/<version>/` and enable its feature in
-the copy's `mods/state.toml`.
+operations") that puts the built file's bytes on the disc from the first
+byte `build` may write to the last (the table's slots and every formation
+part, with the stock bytes between them), so the game reads them when it
+loads the zone; no plugin, hook site or regenerate is involved. The manifest
+names the sha256 of the disc image the runtime mounts, which for a cue sheet
+is the data file it names (`psxrecomp/runtime/src/mod_runtime.cpp`
+`sha256_file`), so with the feature on the runtime refuses to start from any
+other image; and the sha256 of the stock bytes under the overlay, which the
+runtime checks before launch, refusing to start if they differ. An edit
+leaves the zone's precompiled code running: a static variant's guard is the
+CRC of its own code ranges, and in every zone with a timeline none of those
+ranges covers a byte `build` may write. To play a package headless, add it
+to a copy of the build as in "Mods": unpack it into the copy's
+`mods/installed/<id>/<version>/` and enable its feature in the copy's
+`mods/state.toml`.
 
 ## Naming
 
