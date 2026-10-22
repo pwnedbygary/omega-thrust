@@ -1,0 +1,222 @@
+# Omega Remix: Crossfire, a remix recipe for scripts/zones/zone_data.py. It
+# holds only edits; the tool applies them to the zones on the player's disc
+# and writes one mod package:
+#   python3 scripts/zones/zone_data.py remix scripts/zones/remixes/crossfire.toml
+# Waves are named by their number in the stock table (0 first, as in a dump
+# of the zone), formations by their record's address. Delays are in runner
+# ticks, about 30 a second. A formation starts at the player's position plus
+# its record's position, while the player flies on along positive z (the way
+# it faces) at about 320 units a tick. yaw 180 turns a whole flight about the
+# player's position at that moment, so one that came at you from ahead starts
+# behind; it reaches you only if it starts near enough (move) and flies faster
+# than you (pace speeds up a slow one).
+format = 1
+id = "omega.remix.crossfire"
+version = "1.0.0"
+name = "Omega Remix: Crossfire"
+description = "Formations attack from behind and across your back, waves come sooner, and some formations fly wider or faster, in the 1ST, 2ND, 3RD and 6TH ZONE."
+
+# 1ST ZONE: the opening waves come 3 s apart instead of 5. The first
+# formation comes up fast from behind you, then peels away; the two side
+# formations swap sides and cut across just behind you (turned, then moved
+# forward 2 * 42240, they start as far ahead as before).
+[[zones]]
+zone = "S1"
+waves = [
+  { wave = 0, delay = 90 },
+  { wave = 1, delay = 90 },
+  { wave = 2, delay = 90 },
+  { wave = 3, delay = "stock" },
+  { wave = 4, delay = 90 },
+  { wave = 5, delay = "stock" },
+  { wave = 6, delay = "stock" },
+  { wave = 7, delay = "stock" },
+  { wave = 8, delay = "stock" },
+]
+
+[[zones.formations]]  # wave 1
+address = 0x80121E6C
+pace = 2
+yaw = 180
+move = [0, 0, 62000]
+
+[[zones.formations]]  # wave 2: wider and faster
+address = 0x80121F18
+spread = 1.5
+pace = 1.25
+
+[[zones.formations]]  # wave 3
+address = 0x80121FB0
+yaw = 180
+move = [0, 0, 84480]
+
+[[zones.formations]]  # wave 4
+address = 0x80122048
+yaw = 180
+move = [0, 0, 84480]
+
+[[zones.formations]]  # wave 5
+address = 0x801220D4
+spread = 1.25
+pace = 1.25
+
+# 2ND ZONE: the formation waves come sooner; the side formations come from
+# behind and faster, and the formation from ahead flies wider.
+[[zones]]
+zone = "S2"
+waves = [
+  { wave = 0, delay = 90 },
+  { wave = 1, delay = 90 },
+  { wave = 2, delay = 90 },
+  { wave = 3, delay = 90 },
+  { wave = 4, delay = 60 },
+  { wave = 5, delay = 60 },
+  { wave = 6, delay = 60 },
+  { wave = 7, delay = "stock" },
+  { wave = 8, delay = "stock" },
+  { wave = 9, delay = "stock" },
+  { wave = 10, delay = "stock" },
+  { wave = 11, delay = "stock" },
+  { wave = 12, delay = "stock" },
+  { wave = 13, delay = "stock" },
+]
+
+[[zones.formations]]  # waves 1, 2 and 7
+address = 0x80123224
+spread = 1.5
+
+[[zones.formations]]  # waves 3 and 5
+address = 0x801232D8
+yaw = 180
+pace = 1.2
+
+[[zones.formations]]  # waves 4 and 6
+address = 0x8012338C
+yaw = 180
+pace = 1.2
+
+# 3RD ZONE: waves 0 to 12 come about a quarter sooner. Front and back swap:
+# the formations that dived and climbed ahead of you now rise and dive behind
+# you, faster, and close in on your back; the four that came from behind now
+# come at you from ahead.
+[[zones]]
+zone = "S3"
+waves = [
+  { wave = 0, delay = 150 },
+  { wave = 1, delay = 45 },
+  { wave = 2, delay = 90 },
+  { wave = 3, delay = 45 },
+  { wave = 4, delay = 60 },
+  { wave = 5, delay = 45 },
+  { wave = 6, delay = 90 },
+  { wave = 7, delay = 45 },
+  { wave = 8, delay = 60 },
+  { wave = 9, delay = 45 },
+  { wave = 10, delay = 90 },
+  { wave = 11, delay = 45 },
+  { wave = 12, delay = 90 },
+  { wave = 13, delay = "stock" },
+  { wave = 14, delay = "stock" },
+  { wave = 15, delay = "stock" },
+  { wave = 16, delay = "stock" },
+  { wave = 17, delay = "stock" },
+  { wave = 18, delay = "stock" },
+  { wave = 19, delay = "stock" },
+  { wave = 20, delay = "stock" },
+  { wave = 21, delay = "stock" },
+  { wave = 22, delay = "stock" },
+]
+
+[[zones.formations]]  # waves 1 and 5
+address = 0x80122568
+pace = 1.25
+yaw = 180
+move = [0, 0, 20000]
+
+[[zones.formations]]  # waves 2 and 6
+address = 0x80122644
+pace = 1.25
+yaw = 180
+move = [0, 0, 20000]
+
+[[zones.formations]]  # waves 3 and 7
+address = 0x801228C4
+yaw = 180
+
+[[zones.formations]]  # waves 4 and 8
+address = 0x8012298C
+yaw = 180
+
+[[zones.formations]]  # wave 11
+address = 0x80122A54
+yaw = 180
+
+[[zones.formations]]  # wave 12
+address = 0x80122B1C
+yaw = 180
+
+[[zones.formations]]  # wave 9: wider
+address = 0x80122720
+spread = 1.5
+
+[[zones.formations]]  # wave 10: wider
+address = 0x801227FC
+spread = 1.5
+
+[[zones.formations]]  # wave 16, thirteen members: faster
+address = 0x80122C10
+pace = 1.2
+
+# 6TH ZONE: the formation waves come a third sooner. The left formation comes
+# in close and passes just behind you; the formations that dived and climbed
+# ahead of you rise and dive behind you and close in on your back; the side
+# formations fly faster, and the first formation flies wider.
+[[zones]]
+zone = "S6"
+waves = [
+  { wave = 0, delay = 100 },
+  { wave = 1, delay = 100 },
+  { wave = 2, delay = 100 },
+  { wave = 3, delay = 60 },
+  { wave = 4, delay = 60 },
+  { wave = 5, delay = 60 },
+  { wave = 6, delay = 100 },
+  { wave = 7, delay = "stock" },
+  { wave = 8, delay = "stock" },
+  { wave = 9, delay = "stock" },
+  { wave = 10, delay = 100 },
+  { wave = 11, delay = "stock" },
+  { wave = 12, delay = "stock" },
+  { wave = 13, delay = "stock" },
+  { wave = 14, delay = "stock" },
+  { wave = 15, delay = "stock" },
+  { wave = 16, delay = "stock" },
+  { wave = 17, delay = "stock" },
+  { wave = 18, delay = "stock" },
+]
+
+[[zones.formations]]  # wave 1: wider
+address = 0x801218FC
+spread = 1.3
+
+[[zones.formations]]  # wave 2
+address = 0x801219B0
+move = [40000, 0, 0]
+
+[[zones.formations]]  # wave 3
+address = 0x80121A88
+yaw = 180
+move = [0, 0, 27000]
+
+[[zones.formations]]  # wave 4
+address = 0x80121B60
+yaw = 180
+move = [0, 0, 27000]
+
+[[zones.formations]]  # wave 5: faster
+address = 0x80121C38
+pace = 1.25
+
+[[zones.formations]]  # wave 6: faster
+address = 0x80121D10
+pace = 1.25

@@ -29,6 +29,9 @@ task tick, a speed along the heading, a tick count and flags. A member is a
   zone_data.py package <file> [--id I] [--name N] [--version V] [--out F]
                                         write a mod package that makes the game
                                         load the edits
+  zone_data.py remix <recipe> [--out F]
+                                        write one package that makes the game
+                                        load a remix recipe's edits of zones
 
 A dump names the size and sha256 of the zone file it was read from, and build
 reads that file from the disc again and refuses any other. Build writes the
@@ -51,12 +54,31 @@ runtime hashes when it mounts that cue, so the package applies only to that
 disc image; and the sha256 of the stock bytes it replaces, which the runtime
 checks before launch. The overlay holds data from the disc, so the same rule
 about where to write applies.
+
+A remix recipe holds only edits, never data from the disc, so it may be kept
+in the repository (scripts/zones/remixes/). It names the package (id, version,
+name, description) and, for each zone it edits, a new timeline, new formation
+values or both. The timeline names the stock table's waves by number, 0 first
+as in a dump, each with a delay: ticks, "clear", or "stock" for the wave's
+own. A formation, named by its record's address, may take spread, a factor
+above 0 for its members' offsets; pace, a factor above 0 for its steps'
+speeds and turns that also divides each step's duration, so it flies the same
+path faster (a pace that would leave a first step no ticks is refused); yaw,
+degrees that turn its position and heading about the vertical axis through
+the player's position when it starts (the yaw angle is the outermost of the
+three, so the whole flight turns, but the player keeps flying on: one turned
+to start behind reaches the player only if it is faster); and move, added to
+its position after yaw. Values are rounded to the nearest integer, ties to
+even. remix reads each zone from the disc, applies the edits with build's
+rules and writes one package (default .cache/zones/<id>-<version>.psxmod)
+whose feature carries an overlay for each zone.
 """
 import argparse
 import collections
 import hashlib
 import io
 import json
+import math
 import re
 import struct
 import sys
@@ -76,6 +98,8 @@ STEP, MEMBER, RECORD = 20, 8, 32  # bytes in a formation step, member and record
 DIFFICULTY = 0x800A7C34   # the zone handler's copy of the difficulty (0 on NORMAL)
 WAIT = -100               # a delay that waits only for the runner's children
 FORMAT = 2                # dumps of format 1 have no formations
+REMIX = 1                 # the format of remix recipes
+EDITS = {"spread", "pace", "yaw", "move"}  # what a recipe may do to a formation
 GAME_ID = "SCUS-94449"    # game.toml [game] id, which packages target
 SECTOR, HEADER, USER = 2352, 24, 2048  # MODE2/2352 form 1 sectors
 LABELS = {"S1": "1ST ZONE", "S2": "2ND ZONE", "S3": "3RD ZONE", "S4": "4TH ZONE",
@@ -691,6 +715,147 @@ def build(blob, doc, source):
     return bytes(out)
 
 
+def number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an integer beyond float range
+        return False
+
+
+def parse_recipe(text, source):
+    """Read and check a remix recipe's values."""
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ZoneError(f"{source}: {exc}")
+    expect_keys(doc, {"format", "id", "version", "name", "description", "zones"}, source)
+    if not (integer(doc["format"]) and doc["format"] == REMIX):
+        raise ZoneError(f"{source}: format must be {REMIX}")
+    for key in ("id", "version", "name", "description"):
+        if not isinstance(doc[key], str):
+            raise ZoneError(f"{source}: {key} must be a string")
+    if not doc["name"]:
+        raise ZoneError(f"{source}: name must not be empty; the framework refuses a package or"
+                        " feature without a name")
+    check_package(doc["id"], doc["version"], f"{source}: id", f"{source}: version")
+    if not isinstance(doc["zones"], list) or not doc["zones"]:
+        raise ZoneError(f"{source}: zones must list at least one zone")
+    seen = set()
+    for n, edits in enumerate(doc["zones"]):
+        where = f"{source} zone {n}"
+        if not isinstance(edits, dict):
+            raise ZoneError(f"{where}: expected a table")
+        expect_keys(edits, {"zone"} | (edits.keys() & {"waves", "formations"}), where)
+        if not (isinstance(edits["zone"], str) and re.fullmatch(r"[A-Za-z0-9]+", edits["zone"])):
+            raise ZoneError(f'{where}: zone must name a zone\'s folder, such as "S1"')
+        edits["zone"] = edits["zone"].upper()
+        if edits["zone"] in seen:
+            raise ZoneError(f"{source}: zone {edits['zone']} is listed twice")
+        seen.add(edits["zone"])
+        where = f"{source} zone {edits['zone']}"
+        if not isinstance(edits.get("waves", []), list):
+            raise ZoneError(f"{where}: waves must be a list")
+        for m, wave in enumerate(edits.get("waves", [])):
+            expect_keys(wave, {"wave", "delay"}, f"{where} wave {m}")
+            if not (integer(wave["wave"]) and wave["wave"] >= 0):
+                raise ZoneError(f"{where} wave {m}: wave must be a stock wave's number, 0 or more")
+            delay = wave["delay"]
+            if delay not in ("clear", "stock") and not (integer(delay) and 0 <= delay < 2**31):
+                raise ZoneError(f'{where} wave {m}: delay must be a tick count of 0 or more,'
+                                ' "clear" or "stock"')
+        if not isinstance(edits.get("formations", []), list):
+            raise ZoneError(f"{where}: formations must be a list")
+        addresses = set()
+        for m, edit in enumerate(edits.get("formations", [])):
+            at = f"{where} formation {m}"
+            if not isinstance(edit, dict) or "address" not in edit:
+                raise ZoneError(f"{at}: expected a table with an address")
+            expect_keys(edit, {"address"} | (edit.keys() & EDITS), at)
+            if not (integer(edit["address"]) and 0 <= edit["address"] < 2**32):
+                raise ZoneError(f"{at}: address must be an address")
+            if edit["address"] in addresses:
+                raise ZoneError(f"{where}: formation 0x{edit['address']:08X} is listed twice")
+            addresses.add(edit["address"])
+            at = f"{where} formation 0x{edit['address']:08X}"
+            if "spread" in edit and not (number(edit["spread"]) and edit["spread"] > 0):
+                raise ZoneError(f"{at}: spread must be a number above 0")
+            if "pace" in edit and not (number(edit["pace"]) and edit["pace"] > 0):
+                raise ZoneError(f"{at}: pace must be a number above 0")
+            if "yaw" in edit and not number(edit["yaw"]):
+                raise ZoneError(f"{at}: yaw must be a number of degrees")
+            if "move" in edit and not integers(edit["move"], 3, -2**31, 2**31 - 1):
+                raise ZoneError(f"{at}: move must be three 32-bit integers")
+    return doc
+
+
+def reshape(f, edit, where):
+    """A formation's values, as a dump gives them, with a recipe's edits, in
+    place: spread scales the members' offsets; pace multiplies the steps'
+    speeds and turns and divides their durations (the first step lasts ticks
+    ticks, a later one ticks + 1); yaw turns the position, and the yaw angle,
+    about the vertical axis through the player's position when the formation
+    starts; move is then added to the position."""
+    try:
+        if "spread" in edit:
+            f["members"] = [[round(c * edit["spread"]) for c in member] for member in f["members"]]
+            for m, member in enumerate(f["members"]):
+                if not integers(member, 3, -0x8000, 0x7FFF):
+                    raise ZoneError(f"{where}: spread {edit['spread']} gives member {m} the offset"
+                                    f" {member}, beyond -32768 to 32767")
+        if "pace" in edit:
+            k = edit["pace"]
+            for n, step in enumerate(f["steps"]):
+                later = 1 if n else 0
+                step["turn"] = [round(t * k) for t in step["turn"]]
+                step["speed"] = round(step["speed"] * k)
+                ticks = max(0, round((step["ticks"] + later) / k) - later)
+                if step["ticks"] and not ticks and not later:
+                    raise ZoneError(f"{where}: pace {k} leaves step 0 no ticks; what the game"
+                                    " does with a first step of 0 ticks is unknown")
+                step["ticks"] = ticks
+                if not (integers(step["turn"], 3, -2**31, 2**31 - 1)
+                        and integers([step["speed"]], 1, -2**31, 2**31 - 1)
+                        and step["ticks"] <= 0xFFFF):
+                    raise ZoneError(f"{where}: pace {k} gives step {n} a turn, speed or tick"
+                                    " count beyond its field")
+        if "yaw" in edit:
+            x, y, z = f["position"]
+            cos, sin = math.cos(math.radians(edit["yaw"])), math.sin(math.radians(edit["yaw"]))
+            f["position"] = [round(x * cos + z * sin), y, round(z * cos - x * sin)]
+            f["angles"][1] = (f["angles"][1] + round(edit["yaw"] * 2**32 / 360)) % 2**32
+    except OverflowError:
+        raise ZoneError(f"{where}: the edits give values beyond the record's fields")
+    if "move" in edit:
+        f["position"] = [p + d for p, d in zip(f["position"], edit["move"])]
+    if not integers(f["position"], 3, -2**31, 2**31 - 1):
+        raise ZoneError(f"{where}: the edits give the position {f['position']}, beyond 32-bit"
+                        " integers")
+
+
+def remix_zone(doc, edits, where):
+    """A zone's dump, read into doc, with a recipe's edits of that zone."""
+    stock = doc["timeline"]["waves"]
+    if "waves" in edits:
+        waves = []
+        for m, wave in enumerate(edits["waves"]):
+            if wave["wave"] >= len(stock):
+                raise ZoneError(f"{where} wave {m}: the stock table has waves 0 to"
+                                f" {len(stock) - 1}")
+            old = stock[wave["wave"]]
+            waves.append({"callback": old["callback"],
+                          "delay": old["delay"] if wave["delay"] == "stock" else wave["delay"]})
+        doc["timeline"]["waves"] = waves
+    records = {f["address"]: f for f in doc.get("formations", [])}
+    for edit in edits.get("formations", []):
+        if edit["address"] not in records:
+            raise ZoneError(f"{where}: no formation record 0x{edit['address']:08X}; this zone's"
+                            " records: " + (", ".join(f"0x{a:08X}" for a in sorted(records))
+                                            or "none"))
+        reshape(records[edit["address"]], edit, f"{where} formation 0x{edit['address']:08X}")
+
+
 def output_path(path):
     """Resolve an output path, refusing the repository outside .cache/."""
     resolved = Path(path).resolve()
@@ -714,40 +879,76 @@ def valid_id(value):
             and not value.startswith(".") and not value.endswith("."))
 
 
+def check_package(pkg_id, version, id_label="--id", version_label="--version"):
+    if not valid_id(pkg_id):
+        raise ZoneError(f"{id_label} {pkg_id}: use lowercase letters, digits, '.', '-' and '_',"
+                        " at most 96 characters, not starting or ending with '.'")
+    if not re.fullmatch(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}", version):
+        raise ZoneError(f"{version_label} {version}: use three numbers, such as 1.0.0")
+
+
 def toml_string(value):
     """JSON's escapes are valid TOML, but TOML also forbids a raw U+007F."""
     return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
 
 
-def package(stock, built, path, lba, image, image_sha256, pkg_id, version, name):
-    """manifest.toml, the overlay file's name and its bytes: the built file
-    from the first byte build may change to the last, put on the disc in place
-    of the stock bytes."""
-    *_, formations, ranges = layout(stock)
-    start, stop = ranges[0][0] - BASE, ranges[-1][1] - BASE
-    payload = built[start:stop]
-    folder = path.split("/")[0]
-    member = f"{folder}.remix.bin"
-    label = LABELS.get(folder, folder)
-    edits = "an edited wave timeline" + (" and formations" if formations else "")
-    about = (f"Off by default. While on, the {label} plays {edits} ({path}, bytes"
-             f" 0x{start:X} to 0x{stop - 1:X}). Built for one disc image, {image.name};"
-             " the game must be started from that image.")
+def package(zones, image, image_sha256, pkg_id, version, name, description=None):
+    """manifest.toml and the overlay files, as (name, bytes): for each zone,
+    given as (path, lba, stock file, built file), the built file from the
+    first byte build may change to the last, put on the disc in place of the
+    stock bytes. Without a description the package holds one zone, and that
+    zone's edits describe it."""
+    overlays, members, spans, labels, formations = [], [], [], [], False
+    for path, lba, stock, built in zones:
+        *_, records, ranges = layout(stock)
+        start, stop = ranges[0][0] - BASE, ranges[-1][1] - BASE
+        folder = path.split("/")[0]
+        member, payload = f"{folder}.remix.bin", built[start:stop]
+        members.append((member, payload))
+        spans.append(f"{path}, bytes 0x{start:X} to 0x{stop - 1:X}")
+        labels.append(f"the {LABELS.get(folder, folder)}")
+        formations = formations or bool(records)
+        overlays += [
+            "",
+            "[[overlay]]",
+            'feature = "remix"',
+            'target = "disc_user"',
+            f"offset = {lba * USER + start}  # sector {lba} * 2048 + 0x{start:X}",
+            f"file = {toml_string(member)}",
+            f"sha256 = {toml_string(hashlib.sha256(payload).hexdigest())}",
+            f"expected_sha256 = {toml_string(hashlib.sha256(stock[start:stop]).hexdigest())}"]
+    disc_note = (f"Built for one disc image, {image.name}; the game must be started from that"
+                 " image.")
+    if description is None:
+        [(path, *_)] = zones
+        edits = "an edited wave timeline" + (" and formations" if formations else "")
+        header = [f"# Built by scripts/zones/zone_data.py from {path} on the player's disc.",
+                  f"# {members[0][0]} holds data from that disc: keep this package out of the",
+                  "# repository."]
+        about = f"Off by default. While on, {labels[0]} plays {edits} ({spans[0]}). {disc_note}"
+        description = f"{edits[0].upper()}{edits[1:]} for {labels[0]}."
+    else:
+        header = comment(
+            "Built by scripts/zones/zone_data.py from a remix recipe and"
+            f" {listing([path for path, *_ in zones])} on the player's disc."
+            f" {listing([member for member, _ in members])} hold{'s' * (len(members) == 1)}"
+            " data from that disc: keep this package out of the repository.")
+        about = (f"Off by default. While on, the game reads this remix's edits of"
+                 f" {listing(labels)} ({'; '.join(spans)}). {disc_note}")
     return "\n".join([
-        f"# Built by scripts/zones/zone_data.py from {path} on the player's disc.",
-        f"# {member} holds data from that disc: keep this package out of the",
-        "# repository.",
+        *header,
         "format_version = 7",
         f"id = {toml_string(pkg_id)}",
         f"version = {toml_string(version)}",
         f"name = {toml_string(name)}",
         'author = "zone_data.py"',
-        f"description = {toml_string(f'{edits[0].upper()}{edits[1:]} for the {label}.')}",
+        f"description = {toml_string(description)}",
         'resolver = "declarative"',
         'save_compatibility = "shared"',
         "",
         "# The runtime hashes the disc image it mounts (the data file a cue sheet",
-        "# names); the overlay applies only when that is this one.",
+        f"# names); the overlay{'s apply' if len(zones) > 1 else ' applies'} only when that is"
+        " this one.",
         "[[target]]",
         f"game_id = {toml_string(GAME_ID)}",
         f"disc_sha256 = {toml_string(image_sha256)}",
@@ -758,15 +959,8 @@ def package(stock, built, path, lba, image, image_sha256, pkg_id, version, name)
         f"description = {toml_string(about)}",
         'group = "Remix"',
         "default_enabled = false",
-        "",
-        "[[overlay]]",
-        'feature = "remix"',
-        'target = "disc_user"',
-        f"offset = {lba * USER + start}  # sector {lba} * 2048 + 0x{start:X}",
-        f"file = {toml_string(member)}",
-        f"sha256 = {toml_string(hashlib.sha256(payload).hexdigest())}",
-        f"expected_sha256 = {toml_string(hashlib.sha256(stock[start:stop]).hexdigest())}",
-        ""]), member, payload
+        *overlays,
+        ""]), members
 
 
 def archive(members):
@@ -878,23 +1072,51 @@ def cmd_package(disc, files, args):
     built = build(stock, doc, source)
     folder = path.split("/")[0]
     pkg_id = args.id or f"omega.remix.{folder.lower()}"
-    if not valid_id(pkg_id):
-        raise ZoneError(f"--id {pkg_id}: use lowercase letters, digits, '.', '-' and '_',"
-                        " at most 96 characters, not starting or ending with '.'")
-    if not re.fullmatch(r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}", args.version):
-        raise ZoneError(f"--version {args.version}: use three numbers, such as 1.0.0")
+    check_package(pkg_id, args.version)
     name = args.name or f"{LABELS.get(folder, folder)} Remix"
     try:
         name.encode()
     except UnicodeEncodeError:
         raise ZoneError(f"--name {name!r} is not valid UTF-8 text")
     out = output_path(args.out or OUT_DIR / f"{pkg_id}-{args.version}.psxmod")
-    manifest, member, payload = package(stock, built, path, files[path][0], disc.bin,
-                                        disc.image_sha256(), pkg_id, args.version, name)
-    write(out, archive([("manifest.toml", manifest.encode()), (member, payload)]))
+    manifest, members = package([(path, files[path][0], stock, built)], disc.bin,
+                                disc.image_sha256(), pkg_id, args.version, name)
+    write(out, archive([("manifest.toml", manifest.encode()), *members]))
+    [(member, payload)] = members
     same = " (the stock bytes)" if built == stock else ""
     print(f"wrote {out}: {pkg_id} {args.version}, {member} replaces {len(payload)} bytes"
           f" of {path}{same}; it applies only to a game started from {disc.bin}")
+    return 0
+
+
+def cmd_remix(disc, files, args):
+    source = Path(args.file)
+    try:
+        text = source.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ZoneError(f"cannot read {source}: {exc}")
+    recipe = parse_recipe(text, source)
+    zones = []
+    for edits in recipe["zones"]:
+        where = f"{source} zone {edits['zone']}"
+        try:
+            path = zone_path(files, edits["zone"])
+            stock = zone_blob(disc, files, path)
+            doc = parse(render(path, stock), path)
+        except ZoneError as exc:
+            raise ZoneError(f"{where}: {exc}")
+        remix_zone(doc, edits, where)
+        zones.append((path, files[path][0], stock, build(stock, doc, where)))
+    out = output_path(args.out or OUT_DIR / f"{recipe['id']}-{recipe['version']}.psxmod")
+    manifest, members = package(zones, disc.bin, disc.image_sha256(), recipe["id"],
+                                recipe["version"], recipe["name"], recipe["description"])
+    write(out, archive([("manifest.toml", manifest.encode()), *members]))
+    for (path, _, stock, built), (member, payload) in zip(zones, members):
+        changed = sum(a != b for a, b in zip(stock, built))
+        print(f"{path}: {member} replaces {len(payload)} bytes, {changed} of them changed")
+    print(f"wrote {out}: {recipe['id']} {recipe['version']},"
+          f" {len(zones)} zone{'s' * (len(zones) != 1)}; it applies only to a game started"
+          f" from {disc.bin}")
     return 0
 
 
@@ -921,9 +1143,13 @@ def main():
     pkg.add_argument("--version", default="1.0.0", help="package version (default: %(default)s)")
     pkg.add_argument("--out", help="the package to write"
                      " (default: .cache/zones/<id>-<version>.psxmod)")
+    remix = sub.add_parser("remix", help="write one .psxmod that loads a remix recipe's edits")
+    remix.add_argument("file", help="a remix recipe, such as scripts/zones/remixes/crossfire.toml")
+    remix.add_argument("--out", help="the package to write"
+                       " (default: .cache/zones/<id>-<version>.psxmod)")
     args = parser.parse_args()
     commands = {"list": cmd_list, "dump": cmd_dump, "build": cmd_build, "check": cmd_check,
-                "package": cmd_package}
+                "package": cmd_package, "remix": cmd_remix}
     try:
         disc = Disc(args.disc)
         return commands[args.command](disc, disc.zone_files(), args)

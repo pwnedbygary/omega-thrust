@@ -3,12 +3,12 @@
 Research done on 2026-10-20 into modding Omega Boost through this
 recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
-Steps 1 and 2 of the recommended path (section 6) are now implemented, and
-the wave timeline and formation parts of steps 3 and 4; nothing else here
-is. The evidence (scripts, logs and saved web pages) is in
-`.cache/evidence/mod-research/`, which is ignored and exists only on the
-machine that did the research; evidence file names below are relative to
-it.
+Steps 1 and 2 of the recommended path (section 6) are now implemented, the
+wave timeline and formation parts of steps 3 and 4, and step 4's first remix
+pack; nothing else here is. The evidence (scripts, logs and saved web pages)
+is in `.cache/evidence/mod-research/`, which is ignored and exists only on
+the machine that did the research; evidence file names below are relative
+to it.
 
 Labels: Observation (seen in source, disc files or command output), Derived
 (worked out from named observations), Reference (external pages), Hypothesis,
@@ -41,9 +41,11 @@ source.
   data inside its `.BIN`, and ship them as same-size disc overlays. Both are
   decoded, and a tool turns them into editable text and back (section 6,
   step 3) and packages the edits as a mod the game loads, with the zone's
-  precompiled code still running (step 4). What a formation's members are
-  is the zone's code, the ten timeline zones without formations start their
-  waves through their own code, not yet read, and files cannot grow.
+  precompiled code still running (step 4). A remix recipe, which holds only
+  edits, builds one mod for several zones (step 4's first pack, Crossfire).
+  What a formation's members are is the zone's code, the ten timeline zones
+  without formations start their waves through their own code, not yet read,
+  and files cannot grow.
 - New zones: a new `.BIN` linked at 0x80120000 against the EXE's fixed
   addresses, plus models, textures and sound; a plugin adds its load case and
   result slot. The spare scene slots have no load case that retail code
@@ -529,7 +531,8 @@ disc 1 (`cw_check.py` / `.log`).
 
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
 inside this repository and add no game data. Steps 1 and 2 are done (Phase 5
-changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
+changes 2 and 3), the timeline and formation parts of steps 3 and 4 (changes
+4 to 6), and a first remix pack (change 7).
 
 1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
    All Zones and Boost Levels", off by default) and its plugin
@@ -646,10 +649,40 @@ changes 2 and 3), and the timeline parts of steps 3 and 4 (changes 4 and 5).
      guard a byte build may write, all 1,391 of the 1ST ZONE's match the
      remixed file, and every run interpreted 1,309 overlay instructions in
      seven rows, as the stock route does.
-   - Still to do: a remix pack worth playing, rating thresholds, other
-     enemies in a formation (code: a plugin, or new code in the zone), and
-     checking a remix against psx-beetle, which runs no mods and would need
-     a patched disc image.
+   - A first remix pack (Phase 5 change 7). A remix recipe holds only edits,
+     so it is kept in the repository, and `zone_data.py remix` applies it to
+     the zones on the player's disc with build's rules and writes one
+     `.psxmod` whose feature carries an overlay for each zone (`AGENTS.md`,
+     Zone data). The first recipe, `scripts/zones/remixes/crossfire.toml`
+     ("Omega Remix: Crossfire"), edits the 1ST, 2ND, 3RD and 6TH ZONE: the
+     opening waves come sooner (in the 1ST ZONE 90 ticks apart instead of
+     150); seven formations come at the player from behind, three cut
+     across just behind it, four that came from behind come from ahead; and
+     some fly wider (spread up to 1.5) or faster (pace up to 2). A formation
+     starts at the player's position plus its record's position, and the
+     player flies on at about 320 units a tick, so yaw 180 alone leaves a
+     formation that came from ahead far behind a player it cannot catch: in
+     the recipe's first version, 8 of the 14 turned formations never came
+     within 26,000 units. The recipe now also moves those nearer and speeds
+     some up, with values from a flight model that matches the runs to
+     within 2,512 units. Scripted runs started each zone from ZONE PLAY with
+     no input, unlock-all on so the list offers every zone, with the pack on
+     and off in all three boot modes: all 24 passed with no miss. In every
+     run the bytes build may write were in RAM as the file in use (the
+     pack's or the stock one) once the zone's runner existed, the runner
+     read each new entry's delay from that file, and every formation's start
+     angles, member spacing, speed in steps that do not turn, tick counts
+     and start position (from the player's position at its start,
+     interpolated) matched that file; checked against the other file, every
+     run fails. Every formation the recipe moves started on the side the
+     recipe says and came within 387 to 5,040 units of the player. No
+     matching static variant guards a byte the pack writes, and every run
+     interpreted the same 12 overlay instructions, in one row, so the zones
+     ran from the precompiled code. Whether the pack plays well is for play
+     by hand.
+   - Still to do: rating thresholds, other enemies in a formation (code: a
+     plugin, or new code in the zone), and checking a remix against
+     psx-beetle, which runs no mods and would need a patched disc image.
 5. A new zone in a spare slot, large. Spike these three unknowns first:
    - whether the game's DsSearchFile finds a file whose directory record (in
      a directory sector's free space, an equal-length patch) points into

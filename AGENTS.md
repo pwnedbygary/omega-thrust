@@ -433,6 +433,7 @@ python3 scripts/zones/zone_data.py dump S1   # to .cache/zones/S1.zone.toml
 python3 scripts/zones/zone_data.py build .cache/zones/S1.zone.toml
 python3 scripts/zones/zone_data.py check     # dump and rebuild every zone
 python3 scripts/zones/zone_data.py package .cache/zones/S1.zone.toml
+python3 scripts/zones/zone_data.py remix scripts/zones/remixes/crossfire.toml
 python3 -B scripts/zones/test_zone_data.py   # tests (the disc is optional)
 ```
 
@@ -473,6 +474,26 @@ ranges covers a byte `build` may write. To play a package headless, add it
 to a copy of the build as in "Mods": unpack it into the copy's
 `mods/installed/<id>/<version>/` and enable its feature in the copy's
 `mods/state.toml`.
+
+A remix recipe holds only edits, never data from the disc, so recipes are
+kept in the repository (`scripts/zones/remixes/`). `remix` applies one to the
+zones on the player's disc, through `build`'s rules, and writes one
+`.psxmod` (default `.cache/zones/<id>-<version>.psxmod`) whose `remix`
+feature carries an overlay for each zone, guarded as `package`'s is. A recipe
+names the package (`id`, `version`, `name`, `description`) and, for each
+`zone` (such as `"S1"`), a new timeline (`waves`: stock waves by number, 0
+first as in a dump, each with a `delay` in ticks, `"clear"` or `"stock"`) and
+formation edits by record `address`: `spread`, a factor above 0 for the
+members' offsets; `pace`, a factor above 0 for the steps' speeds and turns
+that also divides each step's duration (a pace that would leave a first step
+no ticks is refused); `yaw`, degrees that turn the whole flight about the
+vertical axis through the player's position when the formation starts;
+`move`, added to the position after `yaw`. The player flies on along positive
+z at about 320 units a tick, so a formation turned to start behind reaches it
+only if it starts near enough (`move`) and flies faster than the player
+(`pace` speeds up a slow one). `crossfire.toml` remixes the 1ST, 2ND, 3RD and
+6TH ZONE. The tests parse every committed recipe and, with the disc, build
+it.
 
 ## Naming
 

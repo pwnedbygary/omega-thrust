@@ -495,6 +495,7 @@ class Formations(unittest.TestCase):
             (0xE0, nonzero, word + [sp, i_type(0x04, 2, 0, 8), 0] + call + ret
              + [jump(0x80040000), addiu(29, 29, 0x20)]),
             (0xD8, None, [sp, i_type(0x01, 4, 0x11, 8), 0] + call + ret + ret),
+            (0xE0, some, word + [sp, i_type(0x07, 4, 0, 6), 0] + call + ret),  # bgtz $a0
         ]
         for n, (at, when, code) in enumerate(cases):
             with self.subTest(case=n, when=when):
@@ -512,6 +513,190 @@ class Formations(unittest.TestCase):
             with self.subTest(case=n, message=message):
                 with self.assertRaisesRegex(zone_data.ZoneError, message):
                     zone_data.layout(patched(*writes))
+
+
+RECIPE = """\
+format = 1
+id = "test.remix"
+version = "1.2.3"
+name = "Test Remix"
+description = "Edits of two synthetic zones."
+
+[[zones]]
+zone = "s1"
+waves = [{ wave = 2, delay = 10 }, { wave = 0, delay = "stock" }, { wave = 1, delay = "stock" }]
+
+[[zones.formations]]
+address = 0x80120190
+spread = 2
+pace = 1.5
+yaw = 90
+move = [1, 2, 3]
+
+[[zones]]
+zone = "U4"
+waves = [{ wave = 0, delay = 5 }]
+"""
+
+
+class Remix(unittest.TestCase):
+    def remixed(self, text=RECIPE):
+        """The synthetic S1 with the recipe's first zone's edits."""
+        recipe = zone_data.parse_recipe(text, "test")
+        blob = zone()
+        doc = dumped(blob)
+        zone_data.remix_zone(doc, recipe["zones"][0], "test")
+        return zone_data.build(blob, doc, "test")
+
+    def test_a_recipe_edits_the_timeline_and_a_formation(self):
+        built = self.remixed()
+        # Stock waves 2, 0 and 1: C with a new delay, then A and B with their own.
+        self.assertEqual(entries_at(built, 4), [(C, 10), (A, 150), (B, -100), (0, -100)])
+        # yaw 90 turns (100, -200, 74240) to (74240, -200, -100) and adds
+        # 0x40000000 to the yaw angle; move then adds (1, 2, 3).
+        self.assertEqual(struct.unpack_from("<3i3I", built, RECORD - BASE + 8),
+                         (74241, -198, -97, 0, 0xC0000000, 0xC0000000))
+        # pace 1.5 multiplies speeds and turns by 1.5 and divides durations by it:
+        # the first step lasts its ticks (30 -> 20), a later one ticks + 1 (31,
+        # 91 and 151 -> 21, 61 and 101, so ticks 20, 60 and 100).
+        self.assertEqual([struct.unpack_from("<4iHH", built, STEPS_AT - BASE + 20 * n)
+                          for n in range(4)],
+                         [(0, 0, 0, 384, 20, 0), (0, 0, 17895696, 384, 20, 1),
+                          (-71582787, 0, 0, 576, 60, 2), (0, -17895696, 0, 1152, 100, 0x8000)])
+        # spread 2 doubles each member's offset and leaves the padding (7) alone.
+        self.assertEqual([struct.unpack_from("<4h", built, MEMBERS_AT - BASE + 8 * n)
+                          for n in range(5)],
+                         [(-10240, 0, 10240, 0), (-5120, 5120, 5120, 7), (0, 0, 0, 0),
+                          (5120, 5120, 5120, 0), (10240, 0, 10240, 0)])
+        changed = {n for n, (a, b) in enumerate(zip(zone(), built)) if a != b}
+        # The table, the members, and the record's position, angles and steps.
+        self.assertLessEqual(changed, set(range(0x40, 0x60)) | set(range(0x168, 0x190))
+                             | set(range(0x198, 0x200)))
+
+    def test_a_slower_pace(self):
+        # pace 0.5 halves speeds and turns and doubles durations: the first step
+        # lasts its ticks (30 -> 60), a later one ticks + 1 (31, 91 and 151 ->
+        # 62, 182 and 302, so ticks 61, 181 and 301).
+        built = self.remixed(RECIPE.replace("spread = 2\n", "").replace("pace = 1.5", "pace = 0.5"))
+        self.assertEqual([struct.unpack_from("<4iHH", built, STEPS_AT - BASE + 20 * n)
+                          for n in range(4)],
+                         [(0, 0, 0, 128, 60, 0), (0, 0, 5965232, 128, 61, 1),
+                          (-23860929, 0, 0, 192, 181, 2), (0, -5965232, 0, 384, 301, 0x8000)])
+        self.assertEqual(built[MEMBERS_AT - BASE:RECORD - BASE],
+                         zone()[MEMBERS_AT - BASE:RECORD - BASE])  # no spread
+
+    def test_a_fast_pace_keeps_a_later_step_one_tick_long(self):
+        # Step 0 lasts its 4 ticks: 4 / 3 -> 1. Step 1 lasts ticks + 1 = 1 tick:
+        # 1 / 3 rounds to 0, but a later step lasts at least one tick, ticks 0.
+        f = {"position": [0, 0, 0], "angles": [0, 0, 0], "members": [[0, 0, 0]],
+             "steps": [{"turn": [0, 0, 0], "speed": 2, "ticks": 4, "flags": 0},
+                       {"turn": [0, 0, 0], "speed": 2, "ticks": 0, "flags": 0}]}
+        zone_data.reshape(f, {"pace": 3}, "test")
+        self.assertEqual([(s["speed"], s["ticks"]) for s in f["steps"]], [(6, 1), (6, 0)])
+
+    def test_a_wave_can_wait_for_a_clear(self):
+        built = self.remixed(RECIPE.replace("{ wave = 2, delay = 10 }",
+                                            '{ wave = 2, delay = "clear" }'))
+        self.assertEqual(entries_at(built, 4), [(C, -100), (A, 150), (B, -100), (0, -100)])
+
+    def test_spread_rounds_to_the_nearest_unit(self):
+        # 5120 * 1.0001 = 5120.512 -> 5121 (and -5121); 2560 * 1.0001 = 2560.256 -> 2560.
+        built = self.remixed(RECIPE.replace("spread = 2", "spread = 1.0001"))
+        self.assertEqual([struct.unpack_from("<4h", built, MEMBERS_AT - BASE + 8 * n)
+                          for n in range(5)],
+                         [(-5121, 0, 5121, 0), (-2560, 2560, 2560, 7), (0, 0, 0, 0),
+                          (2560, 2560, 2560, 0), (5121, 0, 5121, 0)])
+
+    def test_yaw_turns_about_the_player(self):
+        cases = [(180, (-100, -200, -74240), 0), (270, (-74240, -200, 100), 0x40000000),
+                 (-90, (-74240, -200, 100), 0x40000000), (360, (100, -200, 74240), 0x80000000)]
+        for yaw, position, angle in cases:
+            with self.subTest(yaw=yaw):
+                text = (RECIPE.replace("spread = 2\npace = 1.5\n", "")
+                        .replace("yaw = 90", f"yaw = {yaw}").replace("[1, 2, 3]", "[0, 0, 0]"))
+                built = self.remixed(text)
+                self.assertEqual(struct.unpack_from("<3i3I", built, RECORD - BASE + 8),
+                                 (*position, 0, angle, 0xC0000000))
+                self.assertEqual(built[STEPS_AT - BASE:], zone()[STEPS_AT - BASE:])
+
+    def test_recipes_the_parser_rejects(self):
+        cases = [
+            ("format must be 1", "format = 1", "format = 2"),
+            ("missing description", 'description = "Edits of two synthetic zones."\n', ""),
+            ("unknown colour", "format = 1\n", 'format = 1\ncolour = "red"\n'),
+            ("id Test.Remix: use lowercase", 'id = "test.remix"', 'id = "Test.Remix"'),
+            ("version 1.2: use three numbers", 'version = "1.2.3"', 'version = "1.2"'),
+            ("name must be a string", 'name = "Test Remix"', "name = 3"),
+            ("name must not be empty", 'name = "Test Remix"', 'name = ""'),
+            ("zone must name a zone's folder", 'zone = "s1"', 'zone = "S 1"'),
+            ("zone S1 is listed twice", 'zone = "U4"', 'zone = "S1"'),
+            ("waves must be a list", "waves = [{ wave = 0, delay = 5 }]", "waves = 5"),
+            ("wave must be a stock wave's number", "{ wave = 2, delay = 10 }",
+             "{ wave = -1, delay = 10 }"),
+            ("delay must be a tick count", "{ wave = 2, delay = 10 }", "{ wave = 2, delay = -1 }"),
+            ("delay must be a tick count", "{ wave = 2, delay = 10 }",
+             '{ wave = 2, delay = "soon" }'),
+            ("unknown when", "{ wave = 2, delay = 10 }", "{ wave = 2, delay = 10, when = 1 }"),
+            ("address must be an address", "address = 0x80120190", 'address = "0x80120190"'),
+            ("formation 0x80120190 is listed twice", "move = [1, 2, 3]\n",
+             "move = [1, 2, 3]\n\n[[zones.formations]]\naddress = 0x80120190\nyaw = 1\n"),
+            ("spread must be a number above 0", "spread = 2", "spread = true"),
+            ("spread must be a number above 0", "spread = 2", "spread = nan"),
+            ("spread must be a number above 0", "spread = 2", "spread = 0"),
+            ("spread must be a number above 0", "spread = 2", "spread = -2"),
+            # 2**1024 is the first integer beyond float range.
+            ("spread must be a number above 0", "spread = 2", f"spread = {2**1024}"),
+            ("pace must be a number above 0", "pace = 1.5", "pace = 0"),
+            ("pace must be a number above 0", "pace = 1.5", "pace = -1.5"),
+            ("pace must be a number above 0", "pace = 1.5", f"pace = {2**1024}"),
+            ("yaw must be a number of degrees", "yaw = 90", 'yaw = "90"'),
+            ("yaw must be a number of degrees", "yaw = 90", "yaw = inf"),
+            ("yaw must be a number of degrees", "yaw = 90", f"yaw = {-2**1024}"),
+            ("move must be three 32-bit integers", "move = [1, 2, 3]", "move = [1, 2]"),
+            ("unknown scale", "spread = 2", "scale = 2"),
+            ("line 1", "format = 1", "format = = 1"),
+        ]
+        for n, (message, old, new) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                self.assertEqual(RECIPE.count(old), 1)
+                with self.assertRaisesRegex(zone_data.ZoneError, re.escape(message)):
+                    zone_data.parse_recipe(RECIPE.replace(old, new), "test")
+        with self.assertRaisesRegex(zone_data.ZoneError, "at least one zone"):
+            zone_data.parse_recipe(RECIPE[:RECIPE.index("[[zones]]")] + "zones = []\n", "test")
+
+    def test_edits_the_zone_cannot_take(self):
+        stock = '{ wave = 1, delay = "stock" }]'
+        cases = [
+            ("the stock table has waves 0 to 2", "{ wave = 2, delay = 10 }",
+             "{ wave = 3, delay = 10 }"),
+            ("no formation record 0x80120194; this zone's records: 0x80120190",
+             "address = 0x80120190", "address = 0x80120194"),
+            ("spread 7 gives member 0 the offset [-35840, 0, 35840], beyond -32768 to 32767",
+             "spread = 2", "spread = 7"),
+            ("pace 1e-06 gives step 0 a turn, speed or tick count beyond its field",
+             "pace = 1.5", "pace = 1e-6"),
+            ("the edits give values beyond the record's fields", "pace = 1.5", "pace = 1e308"),
+            # Step 0 lasts 30 ticks; 30 / 61 rounds to 0.
+            ("pace 61 leaves step 0 no ticks", "pace = 1.5", "pace = 61"),
+            ("beyond 32-bit integers", "move = [1, 2, 3]", "move = [2147483647, 0, 0]"),
+            ("5 entries with the end entry; this table has 4 slots", stock,
+             '{ wave = 1, delay = "stock" }, { wave = 0, delay = 1 }]'),
+            ("needs a wave first", f"waves = [{{ wave = 2, delay = 10 }}, {{ wave = 0, delay ="
+             f' "stock" }}, {stock}', "waves = []"),
+        ]
+        for n, (message, old, new) in enumerate(cases):
+            with self.subTest(case=n, message=message):
+                self.assertEqual(RECIPE.count(old), 1)
+                with self.assertRaisesRegex(zone_data.ZoneError, re.escape(message)):
+                    self.remixed(RECIPE.replace(old, new))
+
+    def test_the_committed_recipes_parse(self):
+        recipes = sorted((HERE / "remixes").glob("*.toml"))
+        self.assertTrue(recipes)
+        for path in recipes:
+            with self.subTest(recipe=path.name):
+                recipe = zone_data.parse_recipe(path.read_text(), path)
+                self.assertTrue(recipe["id"].startswith("omega.remix."))
 
 
 class CommandLine(unittest.TestCase):
@@ -780,6 +965,92 @@ class CommandLine(unittest.TestCase):
         self.assertIn("not one of this table's callbacks", result.stderr)
         self.assertFalse(out.exists())
 
+    def recipe(self, text=RECIPE):
+        path = self.dir / "test.remix.toml"
+        path.write_text(text)
+        return path
+
+    def read_back_all(self, overlays, payloads, names):
+        """The named zones read from the synthetic disc with every overlay applied."""
+        image = (self.dir / "t.bin").read_bytes()
+        patched = bytearray(image)
+        for overlay in overlays:
+            for n, byte in enumerate(payloads[overlay["file"]]):
+                lba, pos = divmod(overlay["offset"] + n, 2048)
+                patched[lba * 2352 + 24 + pos] = byte
+        (self.dir / "t.bin").write_bytes(bytes(patched))
+        try:
+            disc = zone_data.Disc(self.cue)
+            files = disc.zone_files()
+            return [zone_data.zone_blob(disc, files, f"{name}/{name}.BIN") for name in names]
+        finally:
+            (self.dir / "t.bin").write_bytes(image)
+
+    def test_remix_writes_one_package_for_every_zone(self):
+        out = self.dir / "remix.psxmod"
+        result = self.run_tool("remix", self.recipe(), "--out", out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("S1/S1.BIN: S1.remix.bin replaces 448 bytes", result.stdout)
+        self.assertIn("test.remix 1.2.3, 2 zones", result.stdout)
+        with zipfile.ZipFile(out) as z:
+            self.assertEqual([(i.filename, i.compress_type, i.date_time) for i in z.infolist()],
+                             [(name, 0, (1980, 1, 1, 0, 0, 0))
+                              for name in ("manifest.toml", "S1.remix.bin", "U4.remix.bin")])
+            manifest = tomllib.loads(z.read("manifest.toml").decode())
+            payloads = {o["file"]: z.read(o["file"]) for o in manifest["overlay"]}
+        image = (self.dir / "t.bin").read_bytes()
+        self.assertEqual((manifest["id"], manifest["version"], manifest["name"],
+                          manifest["description"]),
+                         ("test.remix", "1.2.3", "Test Remix", "Edits of two synthetic zones."))
+        self.assertEqual(manifest["target"], [{"game_id": "SCUS-94449",
+                                               "disc_sha256": hashlib.sha256(image).hexdigest()}])
+        [feature] = manifest["feature"]
+        self.assertEqual((feature["id"], feature["name"], feature["group"],
+                          feature["default_enabled"]), ("remix", "Test Remix", "Remix", False))
+        # image() puts S1, TITLE and U4 at sectors 22, 23 and 24; each overlay runs
+        # from the table at 0x40 to the end of the formation's steps at 0x200.
+        self.assertEqual([(o["feature"], o["target"], o["file"], o["offset"])
+                          for o in manifest["overlay"]],
+                         [("remix", "disc_user", "S1.remix.bin", 22 * 2048 + 0x40),
+                          ("remix", "disc_user", "U4.remix.bin", 24 * 2048 + 0x40)])
+        for overlay in manifest["overlay"]:
+            name = overlay["file"].split(".")[0]
+            self.assertEqual(overlay["sha256"], hashlib.sha256(payloads[overlay["file"]]).hexdigest())
+            self.assertEqual(overlay["expected_sha256"],
+                             hashlib.sha256(self.files[name][0x40:0x200]).hexdigest())
+        s1, u4 = self.read_back_all(manifest["overlay"], payloads, ("S1", "U4"))
+        self.assertEqual(entries_at(s1, 4), [(C, 10), (A, 150), (B, -100), (0, -100)])
+        self.assertEqual(struct.unpack_from("<3i", s1, RECORD - BASE + 8), (74241, -198, -97))
+        self.assertEqual(entries_at(u4, 4), [(A, 5), (0, -100), (0, 0), (0, 0)])
+        self.assertEqual(u4[0x60:], self.files["U4"][0x60:])  # no formation edits for U4
+        first = out.read_bytes()
+        self.assertEqual(self.run_tool("remix", self.recipe(), "--out", out).returncode, 0)
+        self.assertEqual(out.read_bytes(), first)  # the same input, the same bytes
+
+    def test_remix_refusals(self):
+        out = self.dir / "remix.psxmod"
+        cases = [
+            ('zone = "U4"', 'zone = "TITLE"', "zone TITLE: no shared wave timeline"),
+            ('zone = "U4"', 'zone = "S7"', "zone S7: no zone file S7/S7.BIN"),
+            ("{ wave = 2, delay = 10 }", "{ wave = 3, delay = 10 }",
+             "zone S1 wave 0: the stock table has waves 0 to 2"),
+            ("format = 1", "format = 2", "format must be 1"),
+        ]
+        for old, new, message in cases:
+            with self.subTest(message=message):
+                result = self.run_tool("remix", self.recipe(RECIPE.replace(old, new)), "--out", out)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(out.exists())
+        result = self.run_tool("remix", self.recipe(), "--out", REPO / "refused.psxmod")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("under .cache/ or outside the repository", result.stderr)
+        self.assertFalse((REPO / "refused.psxmod").exists())
+        result = self.run_tool("remix", self.dir / "missing.toml")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot read", result.stderr)
+
     def test_bad_discs_and_zones(self):
         missing = self.run_tool("list", cue=self.dir / "missing.cue")
         self.assertEqual(missing.returncode, 1)
@@ -848,6 +1119,30 @@ class PlayersDisc(unittest.TestCase):
         self.assertEqual(found, {"0x8013719C": "non-zero", "0x801371D8": "non-zero",
                                  "0x80137214": "non-zero", "0x80137258": "zero",
                                  "0x80133EC0": "non-zero"})
+
+    def test_the_committed_remixes_build(self):
+        image = DISC.parent / "Omega Boost (USA).bin"
+        for recipe in sorted((HERE / "remixes").glob("*.toml")):
+            with self.subTest(recipe=recipe.name), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "remix.psxmod"
+                result = subprocess.run([sys.executable, "-B", str(TOOL), "remix", str(recipe),
+                                         "--out", str(out)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                zones = [z["zone"].upper() for z in tomllib.loads(recipe.read_text())["zones"]]
+                with zipfile.ZipFile(out) as z:
+                    manifest = tomllib.loads(z.read("manifest.toml").decode())
+                    payloads = [z.read(o["file"]) for o in manifest["overlay"]]
+                self.assertEqual([o["file"] for o in manifest["overlay"]],
+                                 [f"{zone}.remix.bin" for zone in zones])
+                with open(image, "rb") as f:  # each overlay replaces what the disc holds there
+                    for overlay, payload in zip(manifest["overlay"], payloads):
+                        lba, pos = divmod(overlay["offset"], 2048)
+                        data = b""
+                        for n in range(lba, lba + -(-(pos + len(payload)) // 2048)):
+                            f.seek(n * 2352 + 24)
+                            data += f.read(2048)
+                        self.assertEqual(hashlib.sha256(data[pos:pos + len(payload)]).hexdigest(),
+                                         overlay["expected_sha256"])
 
 
 if __name__ == "__main__":
