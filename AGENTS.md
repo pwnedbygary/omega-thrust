@@ -491,9 +491,9 @@ vertical axis through the player's position when the formation starts;
 `move`, added to the position after `yaw`. The player flies on along positive
 z at about 320 units a tick, so a formation turned to start behind reaches it
 only if it starts near enough (`move`) and flies faster than the player
-(`pace` speeds up a slow one). `crossfire.toml` remixes the 1ST, 2ND, 3RD and
-6TH ZONE. The tests parse every committed recipe and, with the disc, build
-it.
+(`pace` speeds up a slow one). `crossfire.toml` remixes the 1ST, 2ND, 3RD
+and 6TH ZONE. The tests parse every committed recipe and, with the disc,
+build it.
 
 ## Naming
 

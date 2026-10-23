@@ -5,10 +5,11 @@ recompilation: unlocks, a branching campaign, remixed and new zones, missions
 in the style of the Colony Wars series, and a possible fan sequel or remake.
 Steps 1 and 2 of the recommended path (section 6) are now implemented, the
 wave timeline and formation parts of steps 3 and 4, and step 4's first remix
-pack; nothing else here is. The evidence (scripts, logs and saved web pages)
-is in `.cache/evidence/mod-research/`, which is ignored and exists only on
-the machine that did the research; evidence file names below are relative
-to it.
+pack, and step 5's spike has run in scratch; nothing else here is. The
+evidence (scripts, logs and saved web pages) is in
+`.cache/evidence/mod-research/`, which is ignored and exists only on the
+machine that did the research; evidence file names below are relative to
+it.
 
 Labels: Observation (seen in source, disc files or command output), Derived
 (worked out from named observations), Reference (external pages), Hypothesis,
@@ -45,11 +46,19 @@ source.
   edits, builds one mod for several zones (step 4's first pack, Crossfire).
   What a formation's members are is the zone's code, the ten timeline zones
   without formations start their waves through their own code, not yet read,
-  and files cannot grow.
+  and a same-size overlay cannot make a file longer, though a package can
+  give a zone a new file in new sectors (step 5; a longer file is untested).
 - New zones: a new `.BIN` linked at 0x80120000 against the EXE's fixed
-  addresses, plus models, textures and sound; a plugin adds its load case and
-  result slot. The spare scene slots have no load case that retail code
-  reaches, the tables have fixed sizes, and it needs a MIPS toolchain and a
+  addresses, plus models, textures and sound. The plumbing works (section 6,
+  step 5): the game finds a new file through a directory record a package
+  adds, with its sectors in the disc's empty postgap or appended after the
+  disc by a plugin. A cut scene index (23, P2) loads, starts and ends a zone
+  after a few data patches, but only on psx-runtime: with no name of its
+  own, its name lookup reads a word at a misaligned address, which Beetle
+  and the console's CPU treat as an exception (Derived). It also lacks the
+  rest of a zone's place in the game: its result record lands on settings,
+  it has no results screen or music, and the tables it reaches are sized for
+  the existing zones. Writing the zone itself needs a MIPS toolchain and a
   map of the EXE functions that zones call.
 - Colony Wars-style missions: a plugin mission layer reads text mission files
   shaped like Colony Wars' and drives the game's own wave engine, with a
@@ -166,8 +175,12 @@ checksums independently.
     of 7 languages (this disc has only AMERICAN), and a sound bank.
 - Missing from the disc: the `.BIN`s of T0, T1, P2, SOUND_TEST, P0, CARD,
   VIEW_MODEL, G0 and gallery (re-checked), plus their data files.
-  - P2 looks like a cut zone (Derived): it has S2's sound bank and its own
-    rating thresholds (slot 20).
+  - P2 looks like a cut zone (Derived): it has S2's sound bank, its own
+    rating parameters (slot 20, near the 6TH ZONE's; see the zone slots
+    below), and four checks in the EXE count it among the zones: index - 3
+    below 19, or index 23 (on the scene index at 0x8002FD94 and 0x8003001C,
+    and on the word at 0x8009C7D0 at 0x8002E658 and 0x8002FAF0; re-checked
+    in Phase 5 change 8, evidence in `.cache/evidence/phase5-8/`).
   - Retail code never enters the gallery (state 12) or the debug scene select
     (state 13): no store writes 12 or 13 to the state word (agent).
 - The loader (0x800759CC) works as follows (agent; the branch at 0x80075AEC
@@ -181,18 +194,63 @@ checksums independently.
     0x80075B00). These are the four instructions that `aot/overlays.json`
     checks.
 - Files are found by name at load time through the PsyQ libds library
-  (DsSearchFile at 0x80080794, agent). It reads the path table and the first
-  sector of the target directory: at most 128 directories, and 64 files in
-  each. The root directory has 108 bytes free and each scene directory about
-  1,660.
-- After loading, a switch (0x8002AD70) calls a fixed init address for each
-  scene index (agent; the list is in `internals/tables-rerun.txt`).
+  (DsSearchFile at 0x80080794, re-checked in Phase 5 change 8). The
+  loader's steps pass a path from the scene's table entry to 0x80080384 (by
+  its use, DsReadFile: it takes the path and a load address) and poll it;
+  the `.BIN` step goes back to its first step when a read fails (0x80075C30
+  to 0x80075C4C), so a missing file stalls the load (Derived). DsSearchFile
+  re-reads the path table when a media counter changes (0x8007E5C8 against
+  0x80098CC8), finds each directory of the path in it, and caches one
+  directory at a time: 0x80080DFC reads only that directory's first sector,
+  into 0x80111040, keeps its records at 0x8010F440 (24 bytes each:
+  position, size, name) until it meets an empty record, has 64 or reaches
+  the sector's end, and reads again only when another directory is asked
+  for (its number is at 0x80098CC4). A name matches on its first 12
+  characters, version included (0x80080A74 calls a compare with a limit of
+  12). The agent also read a limit of 128 directories (not re-checked). The
+  root directory has 108 bytes free and each scene directory about 1,660;
+  the S1 directory, at LBA 112307, has 1,668 after its five records
+  (`.cache/evidence/phase5-8/disc_layout.log`).
+- After loading, a switch (0x8002AD70) jumps through a table of 42 words at
+  0x800123E0, one per scene index, to a case that calls the scene's init
+  (re-checked; the list of inits is in `internals/tables-rerun.txt`).
   - The init relocates the scene's models and stores its entry function at
     0x800A7940; the play loops call the overlay through that pointer.
-  - Indices 1, 2, 23, 27 and 35 to 37 have no case, so supplying their files
-    alone would not make them run (agent, Derived). SOUND_TEST (26) and the
-    gallery (38) have init addresses, but only the unreachable states 13 and
-    12 load them (agent).
+  - Indices 0, 1, 2, 23, 27, 35 to 37 and 41 have no case: their entries
+    point at the switch's exit, 0x8002AFA8 (re-checked), so supplying the
+    missing files of 1, 2, 23, 27 or 35 to 37 alone would not make them
+    run. SOUND_TEST (26) and the gallery (38) have init addresses, but only
+    the unreachable states 13 and 12 load them (agent).
+  - The generated code reads the table from RAM and resumes at the case it
+    names, so changing one word gives an index another index's init (step
+    5's spike, section 6).
+- The EXE turns a scene index into a zone slot, index - 3, keeping it only
+  if it is below 21, at 15 places (re-checked in the code around the 42
+  references to the index that a scan finds, 30 loads, 2 stores and 10 that
+  form its address: `.cache/evidence/phase5-8/xref.log`). Slots 0 to 8 are
+  the campaign zones, 9 to 18 U1 to U9 and V5, 19 TRAINING and 20 P2; any
+  other index gets slot -1.
+  - The tables of the rating's time and destroy parameters (0x800136C8 and
+    0x80013770, a pair of words a slot) have all 21 entries, as does a jump
+    table at 0x80014258 indexed by the slot. P2's pairs are [7200, 14400]
+    and [4096, 819], near the 6TH ZONE's [7500, 14400] and [4096, 819];
+    TRAINING's are zeros. The time pairs look like clear times in the
+    record's unit, 1/30 s (P2's would be 4:00 and 8:00).
+  - The zone names (0x80097E48: for each slot a pointer to seven strings,
+    one per language) have 20 entries, so slot 20 takes the next word, 9,
+    the first of the unlock rules' tables (0x80097E98), as its pointer. The
+    title card (0x80054B34) and the pause screen (0x80038BFC) both load the
+    word at that pointer plus 4 times the language index (0x80054DF0,
+    0x80038DE0), and 9 plus a multiple of 4 is never a multiple of 4.
+    psx-runtime's load copies the four bytes without checking alignment
+    (`psxrecomp/runtime/include/psx_cyc.h:253-255`). Beetle raises an
+    address error exception for such a load (beetle-psx
+    `mednafen/psx/cpu.cpp:2377-2382`, as `scripts/build_beetle.sh` builds
+    it), as the console's MIPS R3000A does (Derived; run on neither).
+  - Music is started only for indexes 3 to 11: 0x80056FCC jumps through a
+    9-entry table (0x80014688) to `0x80076ABC("\OBBGM2.XA;1", channel, ...)`,
+    channels 0 to 6, with the 7TH ZONE on channel 1 and the 8TH ZONE's entry
+    starting none.
 - A zone `.BIN` holds an id word, debug strings, then data tables (formations,
   paths, the wave timeline), then code (agent):
   - S1: 8.5 KB of data, then about 45 KB of code in about 55 functions.
@@ -322,10 +380,11 @@ in the running game (evidence in `.cache/evidence/phase5-6/`).
   (re-checked). The results code writes a zone's record only while
   0x800A7950 is 0 (0x800466B4 to 0x80046740, re-checked); the agent reads
   that as campaign mode only. In order, the record's nine words hold: the
-  clear time in frames; a time factor; the enemies spawned and destroyed (the
-  halfwords at 0x800A794A and 0x800A794C); the destroy ratio; a destroy
-  factor; the rating; the grade; and the score at 0x8009C048. The factors and
-  the rating are 4.12 fixed point.
+  clear time in 1/30 s (333 for a CLEAR TIME of 0:11.10, change 5's remix
+  run); a time factor; the enemies spawned and destroyed (the halfwords at
+  0x800A794A and 0x800A794C); the destroy ratio; a destroy factor; the
+  rating; the grade; and the score at 0x8009C048. The factors and the rating
+  are 4.12 fixed point.
   - Campaign-wide fields follow at +0x148: pilot rank, continues left and
     others (agent).
   - AP is the mean of the nine ratings, computed after the campaign or a game
@@ -367,6 +426,15 @@ in the running game (evidence in `.cache/evidence/phase5-6/`).
       DEMONSTRATION entries in `internals/tables-rerun.txt` have its shape);
     - U5 to V5 (16 to 21) over 0x800A7C7C to 0x800A7D53, whose use is not
       mapped.
+    - TRAINING (22) over 0x800A7D54 to 0x800A7D77, and P2 (23, slot 20) over
+      0x800A7D78 to 0x800A7D9B: six words the game changes during play, then
+      the first three words of a settings block at 0x800A7D90 (the 1ST
+      ZONE's code tests its first word; the second is the ZONE PLAY list's
+      selection; 0x800A7DB4 is the language index). The spike saw this in
+      CAMPAIGN PLAY: the record's rating and grade, 0 and 4 (D), replaced
+      the block's first two words, 1 and 3 (section 6, step 5).
+    - Any other index takes slot -1, 0x800A7A84 (re-checked in the record
+      write).
   - In the spike, rewriting the step skipped every zone, and after the credits
     the game called BRIEFING1's stale entry and stopped. Any branch must keep
     the entry pointer and result slots consistent with the steps it skips or
@@ -532,7 +600,7 @@ disc 1 (`cw_check.py` / `.log`).
 Each step is its own reviewed change, verified with routes. Steps 1 to 4 stay
 inside this repository and add no game data. Steps 1 and 2 are done (Phase 5
 changes 2 and 3), the timeline and formation parts of steps 3 and 4 (changes
-4 to 6), and a first remix pack (change 7).
+4 to 6), a first remix pack (change 7), and step 5's spike (change 8).
 
 1. Mod plumbing, small. Done: the package `omega.cheat.unlock-all` ("Unlock
    All Zones and Boost Levels", off by default) and its plugin
@@ -683,14 +751,99 @@ changes 2 and 3), the timeline and formation parts of steps 3 and 4 (changes
    - Still to do: rating thresholds, other enemies in a formation (code: a
      plugin, or new code in the zone), and checking a remix against
      psx-beetle, which runs no mods and would need a patched disc image.
-5. A new zone in a spare slot, large. Spike these three unknowns first:
-   - whether the game's DsSearchFile finds a file whose directory record (in
-     a directory sector's free space, an equal-length patch) points into
-     appended sectors;
-   - a plugin load case and init for the new index;
-   - result and rating slots for it.
+5. A new zone, large. The spike is done (Phase 5 change 8): it asked
+   whether the game finds a file added to the disc, whether a mod can load
+   and start a scene index that has no zone, and where that zone's results
+   go. It ran in scratch and committed no game data or code (evidence in
+   `.cache/evidence/phase5-8/`). The new file was the 1ST ZONE's `.BIN` with
+   change 5's short timeline, which ends the zone by itself after four
+   waves, so its sha256 told it apart from the stock file. Scripted runs
+   played CAMPAIGN PLAY with no input, three cases in all three boot modes,
+   and all passed with no miss.
+   - The game finds a new file. A package added a record for `P2.BIN;1` to
+     the 1ST ZONE's directory sector, right after its five records (the
+     directory cache stops at the first empty record), as an equal-length
+     patch of free space, and changed the 1ST ZONE's path string in the EXE
+     to `\S1\P2.BIN;1`. The file's sectors went either into the disc's
+     postgap (case A: 150 zero Form 2 sectors after the last file, from LBA
+     247561, which a `disc_raw` overlay rewrote as data sectors) or after
+     the disc (case B: a scratch plugin passed a verified resource to
+     `psx_mod_append_disc_extent`, and the sectors began at LBA 247711, the
+     image's sector count). Both times the game listed the record, loaded
+     the new file as the 1ST ZONE, played and cleared it, wrote the 1ST
+     ZONE's result record as change 5's remix did (clear time 333, 0:11.10;
+     15 spawned, none destroyed; grade B), and went on to the 2ND ZONE.
+   - On psx-runtime, a cut scene index starts with data patches alone. Case
+     C kept case A's postgap file and directory record and gave index 23
+     (P2, a cut zone with no files and no init case) the new file with seven
+     more equal-length patches and no plugin: its `.BIN` path names the new
+     file and its OMT, OMD and sound bank paths the 1ST ZONE's files; its
+     word in the post-load switch's table (0x800123E0) points at the 1ST
+     ZONE's case (the init at 0x80122310, right for this file because it is
+     the 1ST ZONE's code); and the campaign's first zone step names index
+     23 instead of 3. The game loaded the file as index 23, played and
+     cleared the zone, and went on to the 2ND ZONE.
+   - What index 23 lacks is the rest of a zone's place in the game:
+     - A name. Its title card reads only "ZONE", and the pause panel's zone
+       line shows only "ZO" at the screen's edge, where the 1ST ZONE shows
+       "1ST ZONE": slot 20 has no entry in the name table, and both screens
+       load a word at a misaligned address instead (see "Scenes and
+       files"). psx-runtime reads it from low RAM without complaint; Beetle,
+       and very likely a console, would take an address error exception at
+       the title card, and what follows is unknown (a hang is likely). So
+       case C's results are psx-runtime results (Derived; case C did not
+       run on Beetle, which runs no mods), and a new zone at index 23 must
+       be given a name. A data patch cannot do that without changing the
+       first word of the unlock rules' tables, which slot 20 takes as its
+       name pointer.
+     - No results panel appeared after the clear; the cause is not traced.
+     - No music starts for it: the music code starts music only for indexes
+       3 to 11 (Derived from the code; the runs' sound was not checked).
+     - Its result record went to slot 20 and replaced the first three words
+       of the settings block at 0x800A7D90, (1, 3, 0), with (0, 4, 0). The
+       second word is the ZONE PLAY list's selection, a scene index: TITLE
+       moves it down and up (0x8012A428, 0x8012A640), checks that zone's
+       unlock flag (0x8012AACC) and, in its mode 3, sets it to the current
+       scene index (0x8012D4DC to 0x8012D51C); ZONE PLAY's loop starts the
+       zone it names (0x8002FC50). So playing index 23 moved the list's
+       selection to the 2ND ZONE (index 4), and the player still chooses
+       the zone (Derived, untested).
+     - The 1ST ZONE's record kept the values the campaign loop starts it
+       with (grade 6, as for a zone not yet played).
+   - The EXE patches changed no code the build runs: the runtime's
+     text-mismatch counters equal the stock runs' in each boot mode.
+   - Limits. The postgap's 150 sectors hold 307,200 bytes: room for any
+     zone's `.BIN` (the largest, the 4TH ZONE's, is 114,232 bytes) and for
+     all the files of some extra zones, whose directories hold only a
+     `.BIN`, OMT and OMD because they use another zone's sound bank: the
+     sound-bank table at 0x800984E0 gives U1 the 1ST ZONE's bank, U3 the
+     3RD's, U4 the 4TH's and U7 the 7TH's (directory S8; `tables-rerun.txt`
+     in `.cache/evidence/mod-research/internals/`). U1's files total
+     173,844 bytes, U7's 246,296, U3's 262,724 and U4's 281,164, and U1's
+     with a sound bank the size of the 1ST ZONE's, 246,714 (`r2/dir_totals.log`
+     in `.cache/evidence/phase5-8/`). A campaign zone does not fit: every S
+     directory holds at least 525,806 bytes (the 1ST ZONE's `.BIN`, OMT,
+     OMD and sound bank). Appended sectors have room, but need a plugin
+     compiled into the build and a file the player selects in the launcher
+     (a verified resource; its path is kept in `mods/state.toml`). The
+     written data sectors carry zero error detection and correction bytes;
+     psx-runtime read them without complaint, while Beetle or a console
+     might not (Hypothesis). psx-beetle runs no mods, so none of this was
+     checked against it. A longer zone file, a whole new zone with its own
+     data, and the other indexes whose files are missing (1, 2, 26, 27 and
+     35 to 38, which all get slot -1 and so a record just before the
+     table) were not tried.
 
-   Then build the zone by cloning an existing zone's code with new tables.
+   So a new zone can be loaded and started, on psx-runtime. Making it a full
+   zone, and one that can run on Beetle and a console, needs a plugin that
+   gives it a name (without one, its name lookup is the misaligned load
+   above), keeps its result record from overwriting other data (by
+   redirecting or protecting the record write at 0x800466B4), and gives it
+   a results screen and music. The alternative is to reuse an existing
+   zone's slot and path, as case A did, which keeps all of those. Either
+   way, the zone itself is then built by cloning an existing zone's code
+   with new tables, which needs a MIPS toolchain and a map of the EXE
+   functions that zones call.
 6. Colony Wars-style layer, large; research spike first.
    - Mission files modelled on Colony Wars' scripts (arena, waves, objectives,
      outcomes leading to the next mission).
@@ -706,8 +859,14 @@ changes 2 and 3), the timeline and formation parts of steps 3 and 4 (changes
 
 ## 7. Unknowns
 
-- Whether new files can be added through a patched directory sector plus
-  appended sectors (step 5).
+- From step 5's spike: why index 23's zone shows no results panel after its
+  clear; what Beetle and a console do after its misaligned name load (an
+  address error exception, Derived; what the exception handler then does
+  was not traced); what the first word of the settings block at 0x800A7D90
+  does (the 1ST ZONE's code tests it); whether a zone file longer than the
+  stock one still fits, since its OMT and OMD load right after it; and
+  whether Beetle or a console reads data sectors whose error correction
+  bytes are zero.
 - The TITLE 14-input unlock code; what "Debug Display" shows.
 - What A[19] and B[14] unlock: the play-time rule sets them, but no zone or
   level label shows them.
