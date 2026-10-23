@@ -528,6 +528,47 @@ def loaded(code, start, index, reg):
     return None
 
 
+def difficulty_branches(code, graph, entry):
+    """{word index: taken while the word is zero} for each beqz or bnez in
+    graph, flow()'s from word entry, on a register that its basic block
+    loaded from the difficulty word. A basic block starts at entry and at
+    every word that a jump, branch or call leads to."""
+    starts = {entry} | {n for i, nxt in graph.items() if control(code[i]) for n in nxt}
+    taken_while_zero = {}
+    for i in graph:
+        word = code[i]
+        if opcode(word) in (BEQ, BNE) and rt(word) == ZERO and rs(word) != ZERO:
+            block = max((s for s in starts if s <= i), default=i)
+            if loaded(code, block, i, rs(word)) == DIFFICULTY:
+                taken_while_zero[i] = opcode(word) == BEQ
+    return taken_while_zero
+
+
+def reach(graph, entry, call, branches, word_is_zero):
+    """(reaches, avoids) for the paths through graph from word entry while
+    the difficulty word is zero or not: whether a path reaches word call, and
+    whether one ends without reaching it. A path stops at call, and each
+    branch in branches (difficulty_branches()) goes only the way the word
+    sends it."""
+    reaches = avoids = False
+    todo, seen = [entry], set()
+    while todo:
+        i = todo.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        if i == call:
+            reaches = True
+            continue
+        successors = graph.get(i, [])
+        if i in branches:
+            taken = branches[i] == word_is_zero
+            successors = successors[:1] if taken else successors[1:]
+        avoids = avoids or not successors
+        todo += successors
+    return reaches, avoids
+
+
 def gate(code, entry, call):
     """When the callback whose code starts at word entry runs the instruction at
     word call: None if on every path, "only while the difficulty word ... is
@@ -537,38 +578,14 @@ def gate(code, entry, call):
     word: that goes the way the word sends it, once with the word zero and
     once non-zero."""
     graph = flow(code, entry)
-    starts = {entry} | {n for i, nxt in graph.items() if control(code[i]) for n in nxt}
-    zero = {}  # the branches on the difficulty word: whether taken while it is zero
-    for i in graph:
-        word = code[i]
-        if opcode(word) in (BEQ, BNE) and rt(word) == ZERO and rs(word) != ZERO:
-            start = max((s for s in starts if s <= i), default=i)
-            if loaded(code, start, i, rs(word)) == DIFFICULTY:
-                zero[i] = opcode(word) == BEQ
-    found = []
-    for value in (0, 1):
-        ran = left = False
-        todo, seen = [entry], set()
-        while todo:
-            i = todo.pop()
-            if i in seen:
-                continue
-            seen.add(i)
-            if i == call:  # this path runs it; only paths that avoid it go on
-                ran = True
-                continue
-            nxt = graph.get(i, [])
-            if i in zero:
-                nxt = nxt[:1] if zero[i] == (value == 0) else nxt[1:]
-            left = left or not nxt
-            todo += nxt
-        found.append((ran, left))
-    (ran0, left0), (ran1, left1) = found
-    if not (left0 or left1):
+    branches = difficulty_branches(code, graph, entry)
+    reaches_zero, avoids_zero = reach(graph, entry, call, branches, word_is_zero=True)
+    reaches_nonzero, avoids_nonzero = reach(graph, entry, call, branches, word_is_zero=False)
+    if not (avoids_zero or avoids_nonzero):
         return None
-    if ran0 and not left0 and not ran1:
+    if reaches_zero and not avoids_zero and not reaches_nonzero:
         return f"only while the difficulty word (0x{DIFFICULTY:08X}) is zero"
-    if ran1 and not left1 and not ran0:
+    if reaches_nonzero and not avoids_nonzero and not reaches_zero:
         return f"only while the difficulty word (0x{DIFFICULTY:08X}) is non-zero"
     return "only on some paths through its callback"
 

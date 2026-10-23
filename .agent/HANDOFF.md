@@ -12,30 +12,22 @@ also the user's choice, works through an independent audit of the committed
 code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and
 readability cleanups, each its own small reviewed change.
 
-Current iteration, Phase 6 change 2, round 2: the first `zone_data.py`
-cleanup, the audit's steps 2 to 4 (findings 5, 6 and 8). Invariant:
-`scripts/zones/zone_data.py` names what it passed as positional tuples or
-raw numbers, and, for any file shorter than 267,255,808 bytes, nothing it
-does changes. Named tuples carry a zone's timeline (`Timeline`, with `slots`),
-its layout (`Layout`, with `span`), the parts build may write (`Part`) and
-the zones a package edits (`ZoneEdit`); constants and small decoders name the
-MIPS opcodes, functions, registers and fields and the ISO 9660 offsets; record
-formats and value ranges are named once and the ranges checked with
-`in_range()`; terse names (`ws`, `k`, `f`, `cb`) become words. The module
-docstring, every message, the command line and every output stay the same:
-the 142 outputs of the baseline from HEAD's tool (`list`, `check`, every
-timeline zone's dump, the zone files the dumps build, builds and packages of
-the dumps kept under `.cache/zones/`, the stock S1 package and the Crossfire
-remix) come out byte-identical, the 61 tests pass unchanged, and HEAD's tool
-and the new one give the same result on the same generated inputs. This file
-records change 1's round 3 PASS and commit `0761991`, condenses change 1 and
-takes up round 3's suggestions; `AGENTS.md`'s Beetle oracle section, per
-suggestion 6, names a ping reply without a frame number among the reasons a
-run fails. Round 2 answers review round 1's two findings and takes up its
-suggestions (Review and commit state). Baseline: `0761991`.
-Out of scope: splitting the long functions and moving code into modules
-(the next steps), the audit's three `zone_data.py` fixes, the route scripts,
-the tests, the C plugins, the framework and submodules.
+Current iteration, Phase 6 change 3, round 1: the audit's step 5 (part of
+finding 7), splitting `gate()` in `scripts/zones/zone_data.py`. Invariant:
+`gate()` keeps its signature, docstring and answers, and two new functions
+do most of its work: `difficulty_branches()` finds each beqz or bnez on a
+register that its basic block loaded from the difficulty word, and `reach()`
+walks the paths through a callback for one value of that word. Nothing else
+in the tool changes: the 142 outputs of the baseline come out
+byte-identical, the 61 tests pass unchanged, and HEAD's tool and the new one
+give the same result on the same generated inputs, among them 20,000
+programs shaped like wave callbacks for `gate()`. This file records change
+2's round 2 PASS and commit `0292801`, condenses change 2 and takes up round
+2's three suggestions. Baseline: `0292801`. Out of scope: splitting
+`parse_recipe()`, `build()` and `package()` (the next step) and modules, the
+audit's three `zone_data.py` fixes, the route scripts, the tests (a gap that
+this change's planted bugs found is listed for the tests step), the C
+plugins, the framework and submodules.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -654,166 +646,135 @@ server, set up outside the repository at the user's request, is recorded in
 `.cache/evidence/blender-mcp/setup.md`; new models still need the OMD model
 format decoded. The full record is in `git show 0761991:.agent/HANDOFF.md`.
 
-## Phase 6 change 2 observations (`.cache/evidence/phase6-2/`)
+## Phase 6 change 2 (commit `0292801`)
 
-- The audit's section 4 splits the `zone_data.py` cleanup into steps: named
-  tuples (step 2); named opcodes, registers and ISO 9660 offsets (3); named
-  record formats and value ranges (4); splitting `gate()` (5) and
-  `parse_recipe()`, `build()` and `package()` (6); and, optionally,
-  modules (7). This change takes steps 2 to 4 together, since none of them
-  moves code; steps 5 and 6 come next, and the three fixes after them, in
-  the order the user chose.
-- The baseline is in `.cache/evidence/code-quality/zone-baseline/`, moved
-  from `/tmp`, which the reboots wiped. `zone_baseline.sh` records 142
-  outputs of a copy of the tool from the player's disc: `list` and `check`,
-  every timeline zone's dump to a file and to stdout, the zone file each
-  dump builds, a build and a package of every dump kept under
-  `.cache/zones/`, the stock S1 dump's package and the Crossfire recipe's.
-  `baseline-head/` holds them from HEAD's tool (`head/`, equal to
-  `git show HEAD:scripts/zones/zone_data.py`). Run again today, HEAD's tool
-  gives the same 142 outputs (`baseline-head-now.log`), and so does the
-  refactored tool: `diff -r` against `baseline-head/` finds no difference.
-- `differential.py` runs HEAD's tool and the new one on the same inputs and
-  requires the same result, or the same exception and message: 200,000
-  random MIPS words (`control`, `destination`), 50,000 random sequences
-  (`trace`), 4,000 sequences of a `lui` and one to three register moves
-  with `$zero` as their first or second source (`trace`; random words
-  rarely make them), 5,000 random programs with difficulty loads and
-  branches (`flow`, `gate`, `describe`, `callback_span`), each of the 25
-  files `list` shows, stock and 24 times with one to three words corrupted
-  (`read_table`, `read_formations`, `layout`, `render`, and `build` on what
-  renders), the three parsers at both edges of every range they check and
-  with lists of the wrong length (`parse`, `parse_recipe`,
-  `parse_formations`) and 1,980 random remix edits of the disc's 33
-  formation records (`reshape`): 481,061 inputs, no difference
-  (`r2/differential.log`). Round 2 added the moves, the delay's low edge in
-  `parse_recipe` and the lists of the wrong length (round 1: 475,289
-  inputs, `differential.log`). The inputs reach past the trivial cases: 49
-  `gate` results depend on the difficulty word, 4,395 hold only on some
-  paths and 556 on every path; 11,080 random sequences and 3,405 of the
-  moves trace a value; every reader and parser fails on some.
-- `mutations.py` plants 27 bugs, one per run, in the new names: opcodes,
-  registers, field decoders, jump targets, branch targets one word early
-  and one word late (added in round 2), record formats, ISO offsets, the
-  two properties, the ranges and the limits. The tests fail for 24
-  (`r2/mutations.log`) and pass for three: moves recognised only with
-  `$zero` as the second source, a delay of 2**31 accepted, and branch
-  targets one word late. Only `test_the_dump_says_when_a_call_runs` catches
-  an early target, through its case where the `lw`'s base differs on two
-  paths (case 15); a branch landing one word later gives the same note in
-  every case. Planted in HEAD's code, the same three bugs pass HEAD's tests
-  (`gaps_at_head.py`, `r2/gaps_at_head.log`), so those gaps were in the
-  tests before this change. Planted in the new tool, each of them, and a
-  fourth that passed review round 1's own mutations (lists of four values
-  taken where three are needed), makes `differential.py` report
-  differences (`gaps_differential.py`, `r2/gaps_differential.log`). Tests
-  for them belong to the tests step (Next action).
-- The audit's three `zone_data.py` probes still reproduce their log
-  (`probes-zone.log`, equal to `code-quality/probes/probes-zone.log`): the
-  latent bugs that the next changes fix are still there, as a refactor
-  leaves them.
-- One expression is rewritten rather than renamed: `describe()` now takes a
-  `jal`'s target region from the address after the instruction, through
-  `jump_target()`, as `flow()` always did, instead of from the load
-  address. The two agree for any file shorter than about 267 MB (Derived);
-  the largest file `list` shows, `TITLE/TITLE.BIN`, has 131,384 bytes.
-- Two older evidence scripts, `phase5-7/remix_check.py` (line 90) and
-  `phase5-7/remix_watch.py` (line 128), import the working tool and unpack
-  `layout()` into six names, so with this change they raise a ValueError
-  (review round 1). Reuse them with commit `0761991`'s tool, or unpack the
-  `Layout`.
-- Change 1's round 3 suggestions: 1 (`isinstance(frame, int)` accepts a
-  JSON `true`) changes the driver, so it goes with the route-scripts change,
-  which runs every route in both Beetle modes anyway; 2 is done (the base
-  driver's traceback is kept as `phase6-1/r3/regression-base-tests.log`); 3
-  (`mutation_compare.py` matches catches by test name only) belongs to the
-  tests step, with a fake that waits for the driver; 4 (two line numbers in
-  the round-3 request) needs no change, the passages being at lines 1432 to
-  1437 and 1389 of that snapshot's file; 5 and 6 are applied (the short line
-  in Next action; `AGENTS.md`).
+The audit's steps 2 to 4 for `scripts/zones/zone_data.py` (findings 5, 6
+and 8) named what the tool passed as positional tuples or raw numbers:
+named tuples `Timeline` (with `slots`), `Part`, `Layout` (with `span`) and
+`ZoneEdit`; struct formats and value ranges named once, the ranges checked
+with `in_range()`; MIPS opcode, function and register constants and small
+decoders; ISO 9660 offsets; terse locals renamed. Round 2 also renamed
+`Timeline.call` to `call_at`, `HI_LO` to `MULT_DIV` and the stock `Layout`
+in `build()` to `stock_layout`, gave `branch_target()` the argument order of
+`jump_target()`, and reworded three comments: the root directory's record,
+`is_move()`'s docstring and `branch_target()`'s. One expression was
+rewritten: `describe()` takes a `jal`'s target region from the address
+after it, as `flow()` does, which agrees with the old one for any file
+shorter than 267,255,808 bytes (the largest has 131,384). Every output stayed
+the same: the 142 outputs of `code-quality/zone-baseline/zone_baseline.sh`
+equal `baseline-head/` (from commit `0761991`'s tool; this tool reproduces
+them, so they stay the reference), the 61 tests passed unchanged, and
+`phase6-2/differential.py` found no difference between HEAD's tool and the
+new one on 481,061 generated inputs, among them the three parsers at both
+edges of every named range they check (it never tries `parse_recipe`'s
+`wave >= 0`, `spread > 0` or `pace > 0` at their bounds, which the tests
+pin). Of 27 bugs planted in the new names the tests caught 24; the other
+three (moves recognised only with `$zero` as the second source, a delay of
+2**31 accepted, branch targets one word late) pass HEAD's tests too, and
+the differential reports each. Counted per check by change 3's
+`phase6-3/gaps_differential.py`, change 2's checks give 2,245 differences
+in the move traces, 165 for the delay (11 in `parse`, 154 in
+`parse_recipe`) and 3,688 for the branch target (3,654 in `flow`, 34 in
+`gate`), and 28 for a fourth bug the tests miss, which review round 1
+found: lists of four values taken where three are needed (24 in
+`parse_recipe`, 4 in `parse_formations`). `AGENTS.md`'s Beetle oracle
+section names a ping reply without a frame number among the reasons a run
+fails (change 1's round 3 suggestion 6). `phase5-7/remix_check.py` and
+`remix_watch.py` unpack `layout()` into six names, so reuse them with
+`0761991`'s tool. Review: round 2 PASS on tree `2eebd73` (staged diff
+`54fd5604…`), after round 1 NEEDS CHANGES (see Review and commit state).
+The full record is in `git show 0292801:.agent/HANDOFF.md`.
 
-## Phase 6 change 2 changes
+## Phase 6 change 3 observations (`.cache/evidence/phase6-3/`)
 
-- `scripts/zones/zone_data.py`: named tuples `Timeline` (call_at, address,
-  waves, end; `slots`), `Part` (start, stop, label), `Layout` (timeline,
-  formations, parts; `span`) and `ZoneEdit` (path, lba, stock, built).
-  `read_table` returns a `Timeline`, which still equals the plain tuples the
-  tests compare it with, and `layout` a `Layout` in place of its 6-tuple
-  (its one test checks only its errors). Struct formats `ENTRY`,
-  `POINTERS`, `PLACEMENT`, `STEP_FIELDS` and `OFFSET`, with the step and
-  record sizes taken from them; ranges `S16`, `U16`, `S32`, `U32` and
-  `TICK_COUNT`, checked by `in_range()` and `integers(value, count, bounds)`;
-  `MAX_COUNT` and `FULL_TURN`. MIPS constants (opcodes, `SPECIAL` functions,
-  registers, `JR_RA`, `SCAN_LIMIT`) and decoders (`opcode`, `rs`, `rt`,
-  `rd`, `funct`, `immediate`, `jump_target`, `branch_target`, `is_call`,
-  `is_move`, `address_of`, `index_of`); ISO 9660 offsets and
-  `little_endian()`. Locals named `ws`, `k`, `f` and `cb` are now `code`,
-  `index` or `call`, `formation` or `edit`, and `callback`. The module
-  docstring, the messages and the command line are unchanged.
-- Round 2, for review round 1 (Review and commit state): `Timeline.call` is
-  `call_at`, an address, since `call` in `gate()` is a word index; `HI_LO`
-  is `MULT_DIV`; `branch_target(word, index)` takes its arguments in
-  `jump_target(word, address)`'s order; the `Layout` that `build()` reads is
-  `stock_layout`, and `render()` and `cmd_list()`, which use only its
-  timeline and formations, unpack it; the last formation `f` is `edit`;
-  `cmd_list()`'s `waves` is `wave_count`; and two comments are reworded
-  (the root directory's record, and `is_move()`'s docstring).
-- `AGENTS.md`: the Beetle oracle section's list of what fails a run adds
-  "or reports no frame number" (change 1's round 3 suggestion 6; the
-  paragraph reflowed, its other words unchanged).
-- `.agent/HANDOFF.md`: the scope; change 1 condensed; these sections; the
-  review state; the next action (where the hang fix goes, the test gaps,
-  round 3's short line).
-- Untracked (ignored): `.cache/evidence/phase6-2/` (the baseline rerun,
-  `differential.py`, `mutations.py`, `gaps_at_head.py`,
-  `gaps_differential.py`, the probes' log, the checks, the snapshots, the
-  review requests and reports, and round 2's logs in `r2/`), the baseline in
-  `.cache/evidence/code-quality/zone-baseline/`, and
-  `.cache/evidence/phase6-1/r3/regression-base-tests.log`.
+- `gate()` did three jobs in 43 lines (the audit's finding 7, complexity
+  about 24): it found where flow()'s basic blocks start, found the beqz and
+  bnez on a register that its block loaded from the difficulty word, and
+  walked the paths twice, once for each value of that word. The first two
+  jobs are now `difficulty_branches()` and the walk is `reach()`, which
+  `gate()` calls twice; its docstring and answers are as before.
+- With the new tool, `zone_baseline.sh` gives the 142 outputs of
+  `baseline-head/` (`baseline.log`), and change 2's `differential.py`, run on
+  HEAD's tool and the new one, finds no difference, with exactly the tallies
+  of change 2's round-2 log (`differential-change2-script.log`).
+- That run reaches `gate()` through 5,000 random programs, and only 49 of
+  their answers depend on the difficulty word. This change's
+  `differential.py` keeps change 2's checks first, unchanged and drawing the
+  same random numbers, adds 20,000 programs shaped like wave callbacks
+  (loads of the difficulty word with beqz or bnez on them, the same on
+  another word, other branches, calls of the formation routine, returns,
+  jumps within the program and out of the file) and counts the differences
+  per check. On 542,961 inputs, 61,900 of them `gate()` calls on the new
+  programs, it finds no difference (`differential.log`); of those calls,
+  1,316 answer "only while ... zero", 1,254 "non-zero", 48,036 "only on some
+  paths" and 11,294 "every path". Its lines for change 2's checks equal
+  change 2's log.
+- `mutations.py` plants 14 bugs in the three functions, one per run. The
+  tests fail for 13 (`mutations.log`), each time through
+  `test_the_dump_says_when_a_call_runs`, and pass for one: a branch on any
+  word that `loaded()` can trace, read as a branch on the difficulty word.
+  The gate test's one case with another word loads it through `$a0`, which
+  the analysis cannot trace, so the bug changes no answer there. Planted in
+  HEAD's `gate()`, it passes HEAD's tests too (`gaps_at_head.py`, `.log`),
+  so the gap was in the tests before this change. The new programs catch
+  it: 1,173 differences, 1,172 of them in the callback-like programs and
+  one in change 2's `gate` check (`gaps_differential.py`, `.log`). A test
+  for it belongs to the tests step (Next action).
 
-## Phase 6 change 2 checks
+## Phase 6 change 3 changes
+
+- `scripts/zones/zone_data.py`: `difficulty_branches(code, graph, entry)`
+  returns, for each beqz or bnez in flow()'s graph on a register that its
+  basic block loaded from the difficulty word, whether it is taken while
+  the word is zero; `reach(graph, entry, call, branches, word_is_zero)`
+  returns whether a path reaches the call and whether one ends without
+  reaching it, for one value of the word; `gate()` calls the first once and
+  the second twice. Their locals have plain names: `taken_while_zero` for
+  `zero`, `block` for `start`, `successors` for `nxt`, and `reaches` and
+  `avoids` for `ran` and `left`. Nothing else changes.
+- `.agent/HANDOFF.md`: the scope; change 2 condensed, with its round 2
+  suggestions taken up (every named range; the gaps' differences counted
+  per check; `branch_target()`'s reworded docstring listed); these
+  sections; the review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase6-3/` (the baseline and
+  differential logs; `differential.py`, `mutations.py`, `gaps_at_head.py`
+  and `gaps_differential.py` with their logs; the checks, the snapshot and
+  the review).
+
+## Phase 6 change 3 checks
 
 - `python3 -B scripts/zones/test_zone_data.py`: 61 OK with the player's
-  disc, the test file unchanged; pyflakes is clean; the tool's longest line
-  is 99 columns.
-- `zone_baseline.sh` with the staged tool: its 142 outputs and their
-  `SHA256SUMS` equal `baseline-head/`, which HEAD's tool reproduces today
-  (`baseline-head-now.log`).
-- `differential.py` / `r2/differential.log`: 481,061 inputs, no difference
-  (round 1: 475,289, `differential.log`).
-- `mutations.py` / `r2/mutations.log`: the unmutated copy passes with
-  nothing skipped, and 24 of the 27 planted bugs fail the tests (round 1: 23
-  of 25, `mutations.log`); `gaps_at_head.py` / `r2/gaps_at_head.log` shows
-  that the other three pass HEAD's tests too, and `gaps_differential.py` /
-  `r2/gaps_differential.log` that each of them, and lists of four values,
-  makes `differential.py` report differences (2,245, 165, 3,688 and 28 of
-  them).
-- `probes-zone.log`: the audit's three `zone_data.py` probes reproduce their
-  log.
-- Round 1, `checks-p6-2.sh` / `.log` (the staged tree): only `zone_data.py`,
-  this file and `AGENTS.md` change; the `AGENTS.md` words differ from HEAD only
-  by the inserted "reports no frame number, or"; the tool's docstring and
-  imports, this file's header, its Phase 0 to Phase 5 change 8 sections and
-  its review state up to change 1's round 2 entry equal HEAD; no
-  placeholder, doubled blank line, heading without a blank line before it,
-  added line over 80 columns in the Markdown files or over 99 in the tool,
-  new reflow leftover or local path; the three gates pass, the pins equal
-  `framework_pins.txt` and the submodules are clean; pyflakes; the four
-  test files pass with nothing left behind; `--help` of the tool and of
-  each subcommand equals HEAD's; the baseline, the differential, the probes
-  and the mutations reproduce their logs; nothing listens on 4370 to 4389;
-  and `git diff --cached --check` is clean.
-- Round 2, `r2/checks-p6-2-r2.sh` / `.log` (the staged tree): round 1's
-  checks, with the differential, the mutations and both gap scripts run on
-  the staged tool and equal to round 2's logs; round 1's tree rebuilt from
-  its frozen index entries, and the delta from it (this file and the tool;
-  `AGENTS.md` unchanged since round 1); the saved report equal to session
-  message 648; no `f`, `HI_LO`, `zone = layout(` or `.call` left in the
-  tool; the case that catches an early branch target (case 15) and none
-  that catches a late one; and no old wording outside quotations and round
-  1's figures. All pass. The first run (`r2/checks-p6-2-r2-first.log`) found
-  two short lines that round 2's edits left in the scope, since reflowed
-  with no word changed.
+  disc, the test file unchanged; pyflakes is clean; no line in the tool is
+  over 99 columns.
+- `zone_baseline.sh` with the new tool (`baseline.log`): its 142 outputs and
+  their `SHA256SUMS` equal `baseline-head/`.
+- Change 2's `differential.py` (`differential-change2-script.log`): 481,061
+  inputs, no difference, change 2's tallies. This change's `differential.py`
+  (`differential.log`): 542,961 inputs, no difference.
+- `mutations.py` / `mutations.log`: the unmutated copy passes with nothing
+  skipped, and 13 of the 14 planted bugs fail the tests; `gaps_at_head.py` /
+  `.log` shows that the other passes HEAD's tests too, and
+  `gaps_differential.py` / `.log` that it, and change 2's four gaps, each
+  make `differential.py` report differences (1,173; 2,245; 165; 6,259 with
+  the callback-like programs; 28).
+- `checks-p6-3.sh` / `.log` (the staged tree): only `zone_data.py` and this
+  file change; the tool equals HEAD's outside `gate()` and the two functions
+  split from it, and `gate()`'s signature and docstring are unchanged; this
+  file's header, overall paragraph, Phase 0 to Phase 6 change 1 sections and
+  review state up to change 2's round 2 entry equal HEAD; no placeholder,
+  doubled blank line, heading without a blank line before it, added line
+  over 80 columns here or over 99 in the tool, new reflow leftover or local
+  path; the three gates pass, the pins equal `framework_pins.txt` and the
+  submodules are clean; change 2's round 2 report equals session message
+  1023, and the change 2 figures this file cites print as quoted; pyflakes;
+  the four test files pass with nothing left behind, the Beetle driver's
+  within the three runs the script allows, since the late event recorded
+  under Phase 6 change 1 can fail a run while the host is busy; `--help` of
+  the tool and of each subcommand equals HEAD's; the staged tool's 142
+  baseline outputs, and HEAD's, equal `baseline-head/`; both comparisons,
+  the audit's three probes, the mutations and the two gap scripts reproduce
+  their logs; nothing listens on 4370 to 4389; and the staged diff has no
+  whitespace errors (`git diff --cached --check`). All pass.
 
 ## Hypotheses and unknowns
 
@@ -1320,7 +1281,18 @@ format decoded. The full record is in `git show 0761991:.agent/HANDOFF.md`.
   (`stock_layout`) and 5 (four small names and wordings) are applied; so is
   6 (this file: the gaps phrased as bugs, the Ctrl-C path's label kept, the
   scope bounded by the file size, the two Phase 5 scripts).
-- Phase 6 change 2, round 2: pending delta re-review.
+- Phase 6 change 2, round 2: PASS on tree `2eebd73` (staged diff
+  `54fd5604…`), from the same reviewer, with no findings: it planted the
+  move bug and its mirror image and a recipe delay of -1, for each of which
+  the differential reported differences, read the tool's round-2 delta line
+  by line, and re-ran the checks script and its own comparison of HEAD's
+  tool with the new one. Report: `phase6-2/r2/review-r2.md` (session message
+  1023). Commit `0292801`, pushed to `origin/master`. Its three suggestions
+  are taken up in change 3 (the change 2 section): "every named range" for
+  the parsers' edges; the gaps' differences counted per check
+  (`phase6-3/gaps_differential.py`); `branch_target()`'s reworded docstring
+  listed.
+- Phase 6 change 3, round 1: pending.
 
 ## Next action
 
@@ -1328,10 +1300,10 @@ After a PASS: commit and push. Then the rest of the code-quality work the
 user chose (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives
 the order and section 5 what must not change), each step its own reviewed
 change, and each `zone_data.py` step proven against the baseline in
-`code-quality/zone-baseline/` and with `phase6-2/differential.py`:
-splitting `gate()`, then `parse_recipe()` (which should also stop changing
-its input), `build()` and `package()` (which should take its text from its
-callers), and perhaps modules for the disc reader and the MIPS analysis;
+`code-quality/zone-baseline/` and with `phase6-3/differential.py`:
+splitting `parse_recipe()` (which should also stop changing its input),
+`build()` and `package()` (which should take its text from its callers),
+and perhaps modules for the disc reader and the MIPS analysis;
 the three fixes (register values traced across a join, a "calls nothing"
 note for a callback that returns before the formation it starts, a
 traceback on a malformed directory record; the probes in
@@ -1353,7 +1325,9 @@ reading a `struct.error` traceback, not run), the low edge of 16-bit signed
 fields and the high edges of 16- and 32-bit unsigned ones, a record size
 without its pointers, the destinations of `cfc`, `mfc2`, `lui` and `lwr`,
 `or` moves, `jalr` in `is_call()` and `control()`, and the order of `blez`
-and `bgtz`; `differential.py` reports the first four); names for the C
+and `bgtz`; and one that change 3 planted, a branch on a register loaded
+from a word other than the difficulty word that `loaded()` can trace;
+`differential.py` reports the first four and the last); names for the C
 plugins' registers (the same object code). For new zones (the
 doc's section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
