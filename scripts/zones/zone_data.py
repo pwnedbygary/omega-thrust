@@ -94,7 +94,6 @@ BASE = 0x80120000         # every zone file loads whole at this address
 RUNNER_NEW = 0x80071624   # the timeline runner's constructor; $a1 = the table
 CLEAR_ROUTINE = 0x80034104
 FORMATION = 0x80057F0C    # the call wave callbacks use to start a formation
-STEP, MEMBER, RECORD = 20, 8, 32  # bytes in a formation step, member and record
 DIFFICULTY = 0x800A7C34   # the zone handler's copy of the difficulty (0 on NORMAL)
 WAIT = -100               # a delay that waits only for the runner's children
 FORMAT = 2                # dumps of format 1 have no formations
@@ -105,6 +104,44 @@ SECTOR, HEADER, USER = 2352, 24, 2048  # MODE2/2352 form 1 sectors
 LABELS = {"S1": "1ST ZONE", "S2": "2ND ZONE", "S3": "3RD ZONE", "S4": "4TH ZONE",
           "S5": "5TH ZONE", "S6": "6TH ZONE", "S8": "7TH ZONE", "S9": "8TH ZONE",
           "S10": "LAST ZONE"}
+
+# The game's records, little-endian.
+ENTRY = struct.Struct("<Ii")          # a timeline entry: callback, delay
+POINTERS = struct.Struct("<2I")       # a formation record: its steps' and members' addresses
+PLACEMENT = struct.Struct("<3i3I")    # then position (x, y, z) and angles (pitch, yaw, roll)
+STEP_FIELDS = struct.Struct("<4iHH")  # a step: turn (pitch, yaw, roll), speed, ticks, flags
+OFFSET = struct.Struct("<3h")         # a member: x, y, z, then a halfword of padding
+STEP, MEMBER = STEP_FIELDS.size, 8    # bytes in a formation step and member
+RECORD = POINTERS.size + PLACEMENT.size  # bytes in a formation record
+MAX_COUNT = 0x7FFF        # steps and members come as positive 16-bit immediates
+FULL_TURN = 2**32         # a full turn in binary angle units
+
+# The values a field can hold, both ends included.
+S16, U16 = (-0x8000, 0x7FFF), (0, 0xFFFF)
+S32, U32 = (-2**31, 2**31 - 1), (0, 2**32 - 1)
+TICK_COUNT = (0, 2**31 - 1)  # a delay in ticks: a signed word, not negative
+
+# MIPS I (R3000A) encodings that the code analysis reads.
+SPECIAL, REGIMM, J, JAL, BEQ, BNE, BLEZ, BGTZ = range(8)  # opcodes 0 to 7
+BRANCHES = (REGIMM, BEQ, BNE, BLEZ, BGTZ)  # the conditional branches
+ADDIU, ORI, LUI, LW = 0x09, 0x0D, 0x0F, 0x23
+IMMEDIATE_OPS, LOADS = range(0x08, 0x10), range(0x20, 0x27)  # these write rt
+COP0, COP2 = 0x10, 0x12
+COP_MOVES = (0, 2)        # rs of mfc and cfc, coprocessor ops that write rt
+JR, JALR = 0x08, 0x09     # SPECIAL functions that jump through a register
+ADDU, OR = 0x21, 0x25     # SPECIAL functions that move when one source is $zero
+MULT_DIV = range(0x18, 0x1C)  # SPECIAL functions mult to divu, which write no rd
+LINK = 0x10               # REGIMM's rt bit for bltzal and bgezal, which link
+ZERO, A1, A2, A3, RA = 0, 5, 6, 7, 31  # registers
+JR_RA = 0x03E00008        # jr $ra
+SCAN_LIMIT = 256          # the most words of a callback its notes read
+
+# ISO 9660: the primary volume descriptor, and the fields of a directory record.
+PVD_SECTOR, PVD_MAGIC, PVD_ROOT = 16, b"\x01CD001", slice(156, 190)  # the root directory's record
+DIR_FLAGS, DIR_NAME_LENGTH, DIR_NAME = 25, 32, 33  # byte 0 is the record's length
+DIR_EXTENT, DIR_SIZE = slice(2, 6), slice(10, 14)  # the little-endian copies
+IS_DIRECTORY = 2          # the flag of a directory
+SELF_AND_PARENT = (b"\x00", b"\x01")  # the names of the "." and ".." records
 
 
 class ZoneError(Exception):
@@ -117,6 +154,41 @@ class NoTimeline(ZoneError):
 
 Formation = collections.namedtuple(
     "Formation", "address steps_at steps members_at members calls")
+
+
+class Timeline(collections.namedtuple("Timeline", "call_at address waves end")):
+    """A zone's wave table: the address of the call that passes it to the
+    runner, its address, its waves as (callback, delay) pairs, and its end
+    entry's delay, or None if it has no end entry."""
+    __slots__ = ()
+
+    @property
+    def slots(self):
+        """The table's 8-byte entries in place, the end entry included."""
+        return len(self.waves) + (self.end is not None)
+
+
+# A byte range that build may write: its first address, the address after its
+# last byte, and what it holds.
+Part = collections.namedtuple("Part", "start stop label")
+
+
+class Layout(collections.namedtuple("Layout", "timeline formations parts")):
+    """A zone's Timeline, its Formations, and the Parts build may write,
+    sorted by address and never overlapping."""
+    __slots__ = ()
+
+    @property
+    def span(self):
+        """The file offsets of the first byte build may write and of the byte
+        after the last: the parts never overlap, so the first part starts the
+        span and the last ends it."""
+        return self.parts[0].start - BASE, self.parts[-1].stop - BASE
+
+
+# A zone that a package edits: its zone file's path on the disc and first
+# sector, and the file's stock and built bytes.
+ZoneEdit = collections.namedtuple("ZoneEdit", "path lba stock built")
 
 
 class Disc:
@@ -153,23 +225,23 @@ class Disc:
         data = self.sectors(lba, -(-size // USER))
         for start in range(0, len(data), USER):
             pos = start
-            while pos < start + USER and data[pos]:
-                rec = data[pos:pos + data[pos]]
-                name = rec[33:33 + rec[32]]
-                if name not in (b"\x00", b"\x01"):
-                    yield (name.decode("ascii"), int.from_bytes(rec[2:6], "little"),
-                           int.from_bytes(rec[10:14], "little"), bool(rec[25] & 2))
-                pos += rec[0]
+            while pos < start + USER and (length := data[pos]):  # a record starts with its length
+                rec = data[pos:pos + length]
+                name = rec[DIR_NAME:DIR_NAME + rec[DIR_NAME_LENGTH]]
+                if name not in SELF_AND_PARENT:
+                    yield (name.decode("ascii"), little_endian(rec[DIR_EXTENT]),
+                           little_endian(rec[DIR_SIZE]), bool(rec[DIR_FLAGS] & IS_DIRECTORY))
+                pos += length
 
     def zone_files(self):
         """{"S1/S1.BIN": (lba, size), ...}: each directory's file named after it."""
-        pvd = self.sectors(16, 1)
-        if pvd[:6] != b"\x01CD001":
+        pvd = self.sectors(PVD_SECTOR, 1)
+        if not pvd.startswith(PVD_MAGIC):
             raise ZoneError(f"{self.bin}: no ISO 9660 volume")
-        root = pvd[156:190]
+        root = pvd[PVD_ROOT]
         found = {}
-        for name, lba, size, is_dir in self.directory(
-                int.from_bytes(root[2:6], "little"), int.from_bytes(root[10:14], "little")):
+        for name, lba, size, is_dir in self.directory(little_endian(root[DIR_EXTENT]),
+                                                      little_endian(root[DIR_SIZE])):
             if is_dir:
                 for fname, flba, fsize, fdir in self.directory(lba, size):
                     if not fdir and fname.split(";")[0] == f"{name}.BIN":
@@ -196,8 +268,12 @@ def words(blob):
     return struct.unpack_from(f"<{len(blob) // 4}I", blob)
 
 
+def little_endian(field):
+    return int.from_bytes(field, "little")
+
+
 def jal(target):
-    return 0x0C000000 | (target & 0x0FFFFFFF) >> 2
+    return (JAL << 26) | (target & 0x0FFFFFFF) >> 2
 
 
 def sx16(value):
@@ -208,145 +284,210 @@ def sx32(value):
     return value - 2**32 if value & 0x80000000 else value
 
 
+def opcode(word):
+    return word >> 26
+
+
+def rs(word):
+    return (word >> 21) & 31
+
+
+def rt(word):
+    return (word >> 16) & 31
+
+
+def rd(word):
+    return (word >> 11) & 31
+
+
+def funct(word):
+    return word & 0x3F
+
+
+def immediate(word):
+    return word & 0xFFFF
+
+
+def address_of(index):
+    """The address of a zone file's word index, as loaded."""
+    return BASE + 4 * index
+
+
+def index_of(address):
+    """The word index of an address in a zone file, as loaded."""
+    return (address - BASE) // 4
+
+
+def jump_target(word, address):
+    """Where the j or jal at address goes, within the region of the word after it."""
+    return ((address + 4) & 0xF0000000) | (word & 0x03FFFFFF) << 2
+
+
+def branch_target(word, index):
+    """Where the branch at word index goes when taken, as a word index."""
+    return index + 1 + sx16(immediate(word))
+
+
+def is_call(word):
+    """True for jal, jalr, bltzal and bgezal, which come back after their delay slot."""
+    op = opcode(word)
+    if op == SPECIAL:
+        return funct(word) == JALR
+    return op == JAL or (op == REGIMM and (rt(word) & LINK) != 0)
+
+
+def is_move(word):
+    """True for `move rd, rs`: an `addu` or an `or` with $zero as one source."""
+    return opcode(word) == SPECIAL and funct(word) in (ADDU, OR) and ZERO in (rs(word), rt(word))
+
+
 def control(word):
     """True for jumps and branches, whose delay slots end straight-line code."""
-    op = word >> 26
-    return 1 <= op <= 7 or (op == 0 and word & 0x3F in (0x08, 0x09))
+    op = opcode(word)
+    return REGIMM <= op <= BGTZ or (op == SPECIAL and funct(word) in (JR, JALR))
 
 
 def destination(word):
     """The register an instruction writes, if any (common MIPS I forms)."""
-    op = word >> 26
-    if op == 0:
-        return (word >> 11) & 31 if word & 0x3F not in (0x08, 0x18, 0x19, 0x1A, 0x1B) else None
-    if 0x08 <= op <= 0x0F or 0x20 <= op <= 0x26:
-        return (word >> 16) & 31
-    if op in (0x10, 0x12) and (word >> 21) & 31 in (0, 2):  # mfc0, mfc2, cfc2
-        return (word >> 16) & 31
-    return 31 if op == 3 else None
+    op = opcode(word)
+    if op == SPECIAL:
+        return None if funct(word) == JR or funct(word) in MULT_DIV else rd(word)
+    if op in IMMEDIATE_OPS or op in LOADS:
+        return rt(word)
+    if op in (COP0, COP2) and rs(word) in COP_MOVES:  # mfc0, mfc2, cfc2
+        return rt(word)
+    return RA if op == JAL else None
 
 
-def trace(seq, k, reg, steps=32):
-    """Value of reg after seq[k], from straight-line lui/addiu/ori/move code."""
-    while reg and k >= 0 and steps > 0:
-        word = seq[k]
-        op, rs, rt, imm = word >> 26, (word >> 21) & 31, (word >> 16) & 31, word & 0xFFFF
-        if op == 0x0F and rt == reg:
-            return imm << 16
-        if op in (0x09, 0x0D) and rt == reg:
-            base = trace(seq, k - 1, rs, steps - 1)
+def trace(seq, index, reg, steps=32):
+    """Value of reg after seq[index], from straight-line lui/addiu/ori/move code."""
+    while reg != ZERO and index >= 0 and steps > 0:
+        word = seq[index]
+        op = opcode(word)
+        if op == LUI and rt(word) == reg:
+            return immediate(word) << 16
+        if op in (ADDIU, ORI) and rt(word) == reg:
+            base = trace(seq, index - 1, rs(word), steps - 1)
             if base is None:
                 return None
-            return (base + sx16(imm)) & 0xFFFFFFFF if op == 0x09 else base | imm
-        if (op == 0 and word & 0x3F in (0x21, 0x25) and (word >> 11) & 31 == reg
-                and 0 in (rs, rt)):
-            reg = rs or rt
+            if op == ADDIU:
+                return (base + sx16(immediate(word))) & 0xFFFFFFFF
+            return base | immediate(word)
+        if is_move(word) and rd(word) == reg:
+            reg = rs(word) or rt(word)
         elif destination(word) == reg or control(word):
             return None
-        k -= 1
+        index -= 1
         steps -= 1
-    return 0 if reg == 0 else None
+    return 0 if reg == ZERO else None
 
 
-def argument(ws, call, reg):
-    """Register reg as the function called by the jal at ws[call] receives it."""
-    seq = ws[:call] + ws[call + 1:call + 2]  # the delay slot runs before the call
+def argument(code, call, reg):
+    """Register reg as the function called by the jal at code[call] receives it."""
+    seq = code[:call] + code[call + 1:call + 2]  # the delay slot runs before the call
     return trace(seq, len(seq) - 1, reg)
 
 
 def read_table(blob):
-    """(call address, table address, [(callback, delay)], end delay or None)."""
-    ws = words(blob)
-    calls = [i for i, w in enumerate(ws) if w == jal(RUNNER_NEW)]
+    """The zone's Timeline: the address of the call that passes the table, the
+    table's address, its [(callback, delay)] waves, and its end delay or None."""
+    code = words(blob)
+    calls = [i for i, word in enumerate(code) if word == jal(RUNNER_NEW)]
     if not calls:
         raise NoTimeline(f"no shared wave timeline: nothing calls 0x{RUNNER_NEW:08X}")
     if len(calls) > 1:
         raise ZoneError(f"{len(calls)} calls to 0x{RUNNER_NEW:08X}; expected one")
-    address = argument(ws, calls[0], 5)
-    if address is None or address % 4 or not BASE <= address < BASE + len(blob) - 7:
+    address = argument(code, calls[0], A1)
+    if (address is None or address % 4
+            or not BASE <= address <= BASE + len(blob) - ENTRY.size):
         raise ZoneError("cannot trace the table address passed at "
-                        f"0x{BASE + 4 * calls[0]:08X}")
-    waves, end, off = [], None, address - BASE
-    while off + 8 <= len(blob):
-        callback, delay = struct.unpack_from("<Ii", blob, off)
+                        f"0x{address_of(calls[0]):08X}")
+    waves, end, offset = [], None, address - BASE
+    while offset + ENTRY.size <= len(blob):
+        callback, delay = ENTRY.unpack_from(blob, offset)
         if callback == 0:
             end = delay
             break
         if callback % 4 or not BASE <= callback < BASE + len(blob):
             break  # no end entry: the table runs into other data
         waves.append((callback, delay))
-        off += 8
+        offset += ENTRY.size
     if not waves:
         raise ZoneError(f"the table at 0x{address:08X} does not start with a wave")
-    return BASE + 4 * calls[0], address, waves, end
+    return Timeline(address_of(calls[0]), address, waves, end)
 
 
 def read_formations(blob):
     """A Formation for every record the zone passes to 0x80057F0C, by address."""
-    ws = words(blob)
+    code = words(blob)
     found = {}
-    for k, word in enumerate(ws):
+    for index, word in enumerate(code):
         if word != jal(FORMATION):
             continue
-        at = BASE + 4 * k
-        rec, steps, members = (argument(ws, k, reg) for reg in (5, 6, 7))
-        if rec is None or steps is None or members is None:
+        at = address_of(index)
+        record, steps, members = (argument(code, index, reg) for reg in (A1, A2, A3))
+        if record is None or steps is None or members is None:
             raise ZoneError(f"cannot trace the formation record and counts passed at 0x{at:08X}")
-        if not (0 < steps < 0x8000 and 0 < members < 0x8000):
+        if not (0 < steps <= MAX_COUNT and 0 < members <= MAX_COUNT):
             raise ZoneError(f"the call at 0x{at:08X} starts a formation with {sx32(steps)} steps"
                             f" and {sx32(members)} members")
-        if rec % 4 or not BASE <= rec <= BASE + len(blob) - RECORD:
-            raise ZoneError(f"the formation record 0x{rec:08X} passed at 0x{at:08X} is not in"
-                            " the file")
-        counts = found.setdefault(rec, [steps, members, []])
+        if record % 4 or not BASE <= record <= BASE + len(blob) - RECORD:
+            raise ZoneError(f"the formation record 0x{record:08X} passed at 0x{at:08X} is not"
+                            " in the file")
+        counts = found.setdefault(record, [steps, members, []])
         if counts[:2] != [steps, members]:
-            raise ZoneError(f"the formation record 0x{rec:08X} is passed with {counts[0]} steps"
-                            f" and {counts[1]} members, and at 0x{at:08X} with {steps} and"
-                            f" {members}")
+            raise ZoneError(f"the formation record 0x{record:08X} is passed with {counts[0]}"
+                            f" steps and {counts[1]} members, and at 0x{at:08X} with {steps}"
+                            f" and {members}")
         counts[2].append(at)
     formations = []
-    for rec in sorted(found):
-        steps, members, calls = found[rec]
-        steps_at, members_at = struct.unpack_from("<2I", blob, rec - BASE)
+    for record in sorted(found):
+        steps, members, calls = found[record]
+        steps_at, members_at = POINTERS.unpack_from(blob, record - BASE)
         for part, start, size in (("steps", steps_at, STEP * steps),
                                   ("members", members_at, MEMBER * members)):
             if start % 4 or not BASE <= start <= BASE + len(blob) - size:
-                raise ZoneError(f"the {part} of the formation record 0x{rec:08X}, at"
+                raise ZoneError(f"the {part} of the formation record 0x{record:08X}, at"
                                 f" 0x{start:08X}, are not in the file")
-        formations.append(Formation(rec, steps_at, steps, members_at, members, calls))
+        formations.append(Formation(record, steps_at, steps, members_at, members, calls))
     return formations
 
 
 def layout(blob):
-    """read_table, read_formations, and the byte ranges build may write: the
-    table's slots and each formation's record, steps and members. They must
-    not overlap, since build writes each in place."""
-    call, address, waves, end = read_table(blob)
+    """The zone's Layout: read_table's Timeline, read_formations' records, and
+    the Parts build may write: the table's slots and each formation's record,
+    steps and members. They must not overlap, since build writes each in
+    place."""
+    timeline = read_table(blob)
     formations = read_formations(blob)
-    ranges = [(address, address + 8 * (len(waves) + (end is not None)), "the table")]
-    for f in formations:
-        ranges += [(f.address, f.address + RECORD, f"formation record 0x{f.address:08X}"),
-                   (f.steps_at, f.steps_at + STEP * f.steps, f"the steps of 0x{f.address:08X}"),
-                   (f.members_at, f.members_at + MEMBER * f.members,
-                    f"the members of 0x{f.address:08X}")]
-    ranges.sort()
-    for before, after in zip(ranges, ranges[1:]):  # sorted by start: neighbours suffice
-        if after[0] < before[1]:
-            raise ZoneError(f"{before[2]} and {after[2]} overlap")
-    return call, address, waves, end, formations, ranges
+    parts = [Part(timeline.address, timeline.address + ENTRY.size * timeline.slots,
+                  "the table")]
+    for formation in formations:
+        name = f"0x{formation.address:08X}"
+        parts += [Part(formation.address, formation.address + RECORD,
+                       f"formation record {name}"),
+                  Part(formation.steps_at, formation.steps_at + STEP * formation.steps,
+                       f"the steps of {name}"),
+                  Part(formation.members_at, formation.members_at + MEMBER * formation.members,
+                       f"the members of {name}")]
+    parts.sort()
+    for before, after in zip(parts, parts[1:]):  # sorted by start: neighbours suffice
+        if after.start < before.stop:
+            raise ZoneError(f"{before.label} and {after.label} overlap")
+    return Layout(timeline, formations, parts)
 
 
-def callback_span(ws, callback):
+def callback_span(code, callback):
     """Word indices of a callback's code up to its first `jr $ra` and delay slot,
     whose calls the timeline's notes list."""
-    start = (callback - BASE) // 4
-    for k in range(start + 1, min(len(ws), start + 256)):
-        if ws[k - 1] == 0x03E00008:
-            return range(start, k + 1)
-    return range(start, min(len(ws), start + 256))
+    start = index_of(callback)
+    for i in range(start + 1, min(len(code), start + SCAN_LIMIT)):
+        if code[i - 1] == JR_RA:
+            return range(start, i + 1)
+    return range(start, min(len(code), start + SCAN_LIMIT))
 
 
-def flow(ws, entry):
+def flow(code, entry):
     """{word index: where control goes next} for the code reached from word
     entry. A jump or branch runs its delay slot, then goes to its target and,
     if conditional, to the word after the slot; a call (jal, jalr, bltzal,
@@ -355,18 +496,17 @@ def flow(ws, entry):
     graph, todo = {}, [entry]
     while todo:
         i = todo.pop()
-        while 0 <= i < len(ws) and i not in graph:
-            word = ws[i]
-            op, rt, funct = word >> 26, (word >> 16) & 31, word & 0x3F
-            if op == 0 and funct == 0x08:  # jr
+        while 0 <= i < len(code) and i not in graph:
+            word = code[i]
+            op = opcode(word)
+            if op == SPECIAL and funct(word) == JR:
                 graph[i] = []
-            elif op == 0x02:  # j
-                target = ((BASE + 4 * i + 4) & 0xF0000000) | ((word & 0x03FFFFFF) << 2)
-                graph[i] = [(target - BASE) >> 2]
-            elif op == 0x03 or (op == 0 and funct == 0x09) or (op == 0x01 and rt & 0x10):
+            elif op == J:
+                graph[i] = [index_of(jump_target(word, address_of(i)))]
+            elif is_call(word):
                 graph[i] = [i + 2]
-            elif op in (0x01, 0x04, 0x05, 0x06, 0x07):  # conditional branches
-                graph[i] = [i + 1 + sx16(word & 0xFFFF), i + 2]
+            elif op in BRANCHES:
+                graph[i] = [branch_target(word, i), i + 2]
             else:
                 graph[i] = [i + 1]
                 i += 1
@@ -376,35 +516,35 @@ def flow(ws, entry):
     return graph
 
 
-def loaded(ws, start, j, reg):
-    """The address of the word reg holds at word j, if an lw from word start on
-    wrote reg last and the code from start to it gives the address."""
-    for i in range(j - 1, start - 1, -1):
-        if destination(ws[i]) == reg:
-            if ws[i] >> 26 != 0x23:  # lw
+def loaded(code, start, index, reg):
+    """The address of the word reg holds at word index, if an lw from word start
+    on wrote reg last and the code from start to it gives the address."""
+    for i in range(index - 1, start - 1, -1):
+        if destination(code[i]) == reg:
+            if opcode(code[i]) != LW:
                 return None
-            base = trace(ws[start:i], i - 1 - start, (ws[i] >> 21) & 31)
-            return None if base is None else (base + sx16(ws[i] & 0xFFFF)) & 0xFFFFFFFF
+            base = trace(code[start:i], i - 1 - start, rs(code[i]))
+            return None if base is None else (base + sx16(immediate(code[i]))) & 0xFFFFFFFF
     return None
 
 
-def gate(ws, entry, k):
+def gate(code, entry, call):
     """When the callback whose code starts at word entry runs the instruction at
-    word k: None if on every path, "only while the difficulty word ... is zero"
-    (or "non-zero") if that word decides it, else "only on some paths". The
-    paths are flow()'s. A conditional branch goes both ways, except a beqz or
-    bnez on a register that its basic block loaded from the difficulty word:
-    that goes the way the word sends it, once with the word zero and once
-    non-zero."""
-    graph = flow(ws, entry)
-    starts = {entry} | {n for i, nxt in graph.items() if control(ws[i]) for n in nxt}
+    word call: None if on every path, "only while the difficulty word ... is
+    zero" (or "non-zero") if that word decides it, else "only on some paths".
+    The paths are flow()'s. A conditional branch goes both ways, except a beqz
+    or bnez on a register that its basic block loaded from the difficulty
+    word: that goes the way the word sends it, once with the word zero and
+    once non-zero."""
+    graph = flow(code, entry)
+    starts = {entry} | {n for i, nxt in graph.items() if control(code[i]) for n in nxt}
     zero = {}  # the branches on the difficulty word: whether taken while it is zero
     for i in graph:
-        op, rs, rt = ws[i] >> 26, (ws[i] >> 21) & 31, (ws[i] >> 16) & 31
-        if op in (0x04, 0x05) and rt == 0 and rs:
+        word = code[i]
+        if opcode(word) in (BEQ, BNE) and rt(word) == ZERO and rs(word) != ZERO:
             start = max((s for s in starts if s <= i), default=i)
-            if loaded(ws, start, i, rs) == DIFFICULTY:
-                zero[i] = op == 0x04
+            if loaded(code, start, i, rs(word)) == DIFFICULTY:
+                zero[i] = opcode(word) == BEQ
     found = []
     for value in (0, 1):
         ran = left = False
@@ -414,7 +554,7 @@ def gate(ws, entry, k):
             if i in seen:
                 continue
             seen.add(i)
-            if i == k:  # this path runs it; only paths that avoid it go on
+            if i == call:  # this path runs it; only paths that avoid it go on
                 ran = True
                 continue
             nxt = graph.get(i, [])
@@ -435,14 +575,14 @@ def gate(ws, entry, k):
 
 def describe(blob, callback):
     """The calls a callback makes before its first `jr $ra`."""
-    ws = words(blob)
+    code = words(blob)
     notes = []
-    for k in callback_span(ws, callback):
-        if ws[k] >> 26 == 3:
-            target = (BASE & 0xF0000000) | (ws[k] & 0x03FFFFFF) << 2
+    for i in callback_span(code, callback):
+        if opcode(code[i]) == JAL:
+            target = jump_target(code[i], address_of(i))
             note = f"0x{target:08X}"
             if target == FORMATION:
-                args = (argument(ws, k, reg) for reg in (5, 6, 7))
+                args = (argument(code, i, reg) for reg in (A1, A2, A3))
                 note += "(" + ", ".join("?" if a is None else f"0x{a:08X}" if a > 0xFFFF
                                         else str(a) for a in args) + ")"
             if note not in notes:
@@ -464,7 +604,7 @@ def listing(numbers):
 
 
 def degrees(value):
-    return f"{value * 360 / 2**32:g}"
+    return f"{value * 360 / FULL_TURN:g}"
 
 
 FORMATION_NOTES = comment(
@@ -481,37 +621,39 @@ FORMATION_NOTES = comment(
     " is, is also the zone's code.")
 
 
-def render_formation(blob, ws, f, users):
+def render_formation(blob, code, formation, users):
     """The [[formations]] entry of one record."""
     lines = ["", "[[formations]]"]
-    for at in f.calls:
-        parts = []
-        for cb, n in users.get(at, {}).items():
-            when = gate(ws, (cb - BASE) // 4, (at - BASE) // 4)
-            parts.append(f"wave{'s' * (len(n) > 1)} {listing(n)} (callback 0x{cb:08X})"
-                         + (f", {when}" if when else ""))
-        how = "; ".join(parts) or "code outside this table's callbacks"
-        lines += comment(f"Started at 0x{at:08X} by {how}, with {f.steps} steps and"
-                         f" {f.members} members. Its steps are at 0x{f.steps_at:08X}, its"
-                         f" members at 0x{f.members_at:08X}.")
-    position = struct.unpack_from("<3i", blob, f.address - BASE + 8)
-    angles = struct.unpack_from("<3I", blob, f.address - BASE + 20)
-    lines += [f"address = 0x{f.address:08X}  # file offset 0x{f.address - BASE:X}",
+    for at in formation.calls:
+        starters = []
+        for callback, waves in users.get(at, {}).items():
+            when = gate(code, index_of(callback), index_of(at))
+            starters.append(f"wave{'s' * (len(waves) > 1)} {listing(waves)}"
+                            f" (callback 0x{callback:08X})" + (f", {when}" if when else ""))
+        how = "; ".join(starters) or "code outside this table's callbacks"
+        lines += comment(f"Started at 0x{at:08X} by {how}, with {formation.steps} steps and"
+                         f" {formation.members} members. Its steps are at"
+                         f" 0x{formation.steps_at:08X}, its members at"
+                         f" 0x{formation.members_at:08X}.")
+    offset = formation.address - BASE
+    placement = PLACEMENT.unpack_from(blob, offset + POINTERS.size)
+    position, angles = placement[:3], placement[3:]
+    lines += [f"address = 0x{formation.address:08X}  # file offset 0x{offset:X}",
               f"position = [{', '.join(map(str, position))}]",
               f"angles = [{', '.join(f'0x{a:08X}' for a in angles)}]  # degrees: "
               + ", ".join(degrees(a) for a in angles),
               "steps = ["]
-    for m in range(f.steps):
-        at = f.steps_at - BASE + STEP * m
-        *turn, speed, ticks, flags = struct.unpack_from("<4iHH", blob, at)
+    for m in range(formation.steps):
+        *turn, speed, ticks, flags = STEP_FIELDS.unpack_from(
+            blob, formation.steps_at - BASE + STEP * m)
         turns = [f"{axis} {degrees(t)}" for axis, t in zip(("pitch", "yaw", "roll"), turn) if t]
         lines.append(f"  {{ turn = [{', '.join(map(str, turn))}], speed = {speed},"
                      f" ticks = {ticks}, flags = 0x{flags:04X} }},"
                      + (f"  # {', '.join(turns)} (degrees a tick)" if turns else ""))
     lines.append("]")
     lines.append("members = [")
-    for m in range(f.members):
-        x, y, z = struct.unpack_from("<3h", blob, f.members_at - BASE + MEMBER * m)
+    for m in range(formation.members):
+        x, y, z = OFFSET.unpack_from(blob, formation.members_at - BASE + MEMBER * m)
         lines.append(f"  [{x}, {y}, {z}],")
     lines.append("]")
     return lines
@@ -519,13 +661,13 @@ def render_formation(blob, ws, f, users):
 
 def render(path, blob):
     """The TOML dump of a zone file's timeline and formations."""
-    call, address, waves, end, formations, _ = layout(blob)
-    slots = len(waves) + (end is not None)
+    timeline, formations, _ = layout(blob)
     folder = path.split("/")[0]
     label = f", the {LABELS[folder]}" if folder in LABELS else ""
-    ws = words(blob)
-    own = ws.count(jal(CLEAR_ROUTINE))
-    entries = [f"{{ callback = 0x{cb:08X}, delay = {delay_text(d)} }}," for cb, d in waves]
+    code = words(blob)
+    own = code.count(jal(CLEAR_ROUTINE))
+    entries = [f"{{ callback = 0x{callback:08X}, delay = {delay_text(delay)} }},"
+               for callback, delay in timeline.waves]
     width = max(len(e) for e in entries)
     what = "Wave timeline and formations" if formations else "Wave timeline"
     lines = [
@@ -539,7 +681,7 @@ def render(path, blob):
         f'sha256 = "{hashlib.sha256(blob).hexdigest()}"',
         "",
         "[timeline]",
-        f"# The zone passes this table to 0x{RUNNER_NEW:08X} at 0x{call:08X}. Entry 0",
+        f"# The zone passes this table to 0x{RUNNER_NEW:08X} at 0x{timeline.call_at:08X}. Entry 0",
         "# starts with the zone. Each later one starts when the previous delay has",
         "# run out, in runner ticks of about two frames, or as soon as the runner",
         "# has no child task left (the tasks the waves create are its children);",
@@ -553,24 +695,26 @@ def render(path, blob):
         lines.append(f"# This zone also calls the clear routine from its own code ({own}"
                      f" call{'s' if own > 1 else ''}), so it can end before its table does.")
     lines += [
-        f"address = 0x{address:08X}  # file offset 0x{address - BASE:X}",
-        f"slots = {slots}  # 8-byte entries in place, the end entry included",
+        f"address = 0x{timeline.address:08X}  # file offset 0x{timeline.address - BASE:X}",
+        f"slots = {timeline.slots}  # 8-byte entries in place, the end entry included",
         "waves = [",
-        *(f"  {e:<{width}}  # {describe(blob, cb)}" for e, (cb, _) in zip(entries, waves)),
+        *(f"  {entry:<{width}}  # {describe(blob, callback)}"
+          for entry, (callback, _) in zip(entries, timeline.waves)),
         "]",
     ]
-    if end is None:
+    if timeline.end is None:
         lines.append("end = false  # no end entry: the stock table runs into other data")
     else:
-        lines.append(f"end = {end}  # the end entry's second word, which the runner never reads")
+        lines.append(f"end = {timeline.end}  # the end entry's second word, which the runner"
+                     " never reads")
     if formations:
         users = {}
-        for n, (cb, _) in enumerate(waves):  # every word the callback can reach
-            for k in flow(ws, (cb - BASE) // 4):
-                users.setdefault(BASE + 4 * k, {}).setdefault(cb, []).append(n)
+        for n, (callback, _) in enumerate(timeline.waves):  # every word the callback can reach
+            for i in flow(code, index_of(callback)):
+                users.setdefault(address_of(i), {}).setdefault(callback, []).append(n)
         lines += ["", *FORMATION_NOTES]
-        for f in formations:
-            lines += render_formation(blob, ws, f, users)
+        for formation in formations:
+            lines += render_formation(blob, code, formation, users)
     return "\n".join(lines) + "\n"
 
 
@@ -588,35 +732,40 @@ def integer(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def integers(value, count, low, high):
+def in_range(value, bounds):
+    """True for an integer, not a bool, from bounds' low to its high, both included."""
+    low, high = bounds
+    return integer(value) and low <= value <= high
+
+
+def integers(value, count, bounds):
     return (isinstance(value, list) and len(value) == count
-            and all(integer(v) and low <= v <= high for v in value))
+            and all(in_range(v, bounds) for v in value))
 
 
 def parse_formations(formations, source):
     if not isinstance(formations, list):
         raise ZoneError(f"{source}: formations must be a list")
-    for n, f in enumerate(formations):
+    for n, formation in enumerate(formations):
         where = f"{source} formation {n}"
-        expect_keys(f, {"address", "position", "angles", "steps", "members"}, where)
-        if not integer(f["address"]):
+        expect_keys(formation, {"address", "position", "angles", "steps", "members"}, where)
+        if not integer(formation["address"]):
             raise ZoneError(f"{where}: address must be an integer")
-        if not integers(f["position"], 3, -2**31, 2**31 - 1):
+        if not integers(formation["position"], 3, S32):
             raise ZoneError(f"{where}: position must be three 32-bit integers")
-        if not integers(f["angles"], 3, 0, 2**32 - 1):
+        if not integers(formation["angles"], 3, U32):
             raise ZoneError(f"{where}: angles must be three integers from 0 to 0xFFFFFFFF")
-        if not isinstance(f["steps"], list) or not isinstance(f["members"], list):
+        if not isinstance(formation["steps"], list) or not isinstance(formation["members"], list):
             raise ZoneError(f"{where}: steps and members must be lists")
-        for m, step in enumerate(f["steps"]):
+        for m, step in enumerate(formation["steps"]):
             expect_keys(step, {"turn", "speed", "ticks", "flags"}, f"{where} step {m}")
-            if not (integers(step["turn"], 3, -2**31, 2**31 - 1)
-                    and integers([step["speed"]], 1, -2**31, 2**31 - 1)):
+            if not (integers(step["turn"], 3, S32) and in_range(step["speed"], S32)):
                 raise ZoneError(f"{where} step {m}: turn must be three 32-bit integers, and"
                                 " speed one")
-            if not integers([step["ticks"], step["flags"]], 2, 0, 0xFFFF):
+            if not (in_range(step["ticks"], U16) and in_range(step["flags"], U16)):
                 raise ZoneError(f"{where} step {m}: ticks and flags must be from 0 to 65535")
-        for m, member in enumerate(f["members"]):
-            if not integers(member, 3, -0x8000, 0x7FFF):
+        for m, member in enumerate(formation["members"]):
+            if not integers(member, 3, S16):
                 raise ZoneError(f"{where} member {m}: must be three integers from -32768"
                                 " to 32767")
 
@@ -649,11 +798,11 @@ def parse(text, source):
         delay = wave["delay"]
         if not integer(wave["callback"]):
             raise ZoneError(f"{source} wave {n}: callback must be an address")
-        if delay != "clear" and not (integer(delay) and 0 <= delay < 2**31):
+        if delay != "clear" and not in_range(delay, TICK_COUNT):
             raise ZoneError(f"{source} wave {n}: delay must be a tick count of 0 or more,"
                             " or \"clear\"")
     end = timeline["end"]
-    if end is not False and not (integer(end) and -2**31 <= end < 2**31):
+    if end is not False and not in_range(end, S32):
         raise ZoneError(f"{source}: end must be a 32-bit integer or false")
     if "formations" in doc:
         parse_formations(doc["formations"], source)
@@ -665,12 +814,13 @@ def build(blob, doc, source):
     if len(blob) != doc["size"] or hashlib.sha256(blob).hexdigest() != doc["sha256"]:
         raise ZoneError(f"{source}: {doc['file']} on this disc is not the file the dump"
                         " was read from")
-    _, address, stock, stock_end, formations, _ = layout(blob)
-    slots = len(stock) + (stock_end is not None)
+    stock_layout = layout(blob)
+    stock = stock_layout.timeline
     timeline = doc["timeline"]
-    if timeline["address"] != address or timeline["slots"] != slots:
-        raise ZoneError(f"{source}: address and slots must stay 0x{address:08X} and {slots}")
-    allowed = {callback for callback, _ in stock}
+    if timeline["address"] != stock.address or timeline["slots"] != stock.slots:
+        raise ZoneError(f"{source}: address and slots must stay 0x{stock.address:08X} and"
+                        f" {stock.slots}")
+    allowed = {callback for callback, _ in stock.waves}
     entries = []
     for n, wave in enumerate(timeline["waves"]):
         if wave["callback"] not in allowed:
@@ -681,37 +831,37 @@ def build(blob, doc, source):
         raise ZoneError(f"{source}: needs a wave first; the constructor calls entry 0"
                         " without checking it")
     if timeline["end"] is False:
-        if stock_end is not None or len(entries) != slots:
+        if stock.end is not None or len(entries) != stock.slots:
             raise ZoneError(f"{source}: end = false fits only a stock table without an end"
                             " entry, with every slot used")
     else:
         entries.append((0, timeline["end"]))
-        if len(entries) > slots:
+        if len(entries) > stock.slots:
             raise ZoneError(f"{source}: {len(entries)} entries with the end entry; this table"
-                            f" has {slots} slots")
+                            f" has {stock.slots} slots")
     out = bytearray(blob)
-    for n in range(slots):
-        struct.pack_into("<Ii", out, address - BASE + 8 * n,
-                         *(entries[n] if n < len(entries) else (0, 0)))
+    for n in range(stock.slots):
+        ENTRY.pack_into(out, stock.address - BASE + ENTRY.size * n,
+                        *(entries[n] if n < len(entries) else (0, 0)))
     if "formations" in doc:
-        stock_formations = {f.address: f for f in formations}
-        if sorted(f["address"] for f in doc["formations"]) != sorted(stock_formations):
+        stock_formations = {formation.address: formation for formation in stock_layout.formations}
+        if sorted(edit["address"] for edit in doc["formations"]) != sorted(stock_formations):
             raise ZoneError(f"{source}: formations must list each of this zone's records once: "
                             + (", ".join(f"0x{a:08X}" for a in sorted(stock_formations))
                                or "it has none"))
         for edit in doc["formations"]:
-            f = stock_formations[edit["address"]]
-            if len(edit["steps"]) != f.steps or len(edit["members"]) != f.members:
-                raise ZoneError(f"{source}: formation 0x{f.address:08X} must keep {f.steps}"
-                                f" steps and {f.members} members, which the code that passes"
-                                " it fixes")
-            struct.pack_into("<3i3I", out, f.address - BASE + 8, *edit["position"],
-                             *edit["angles"])
+            formation = stock_formations[edit["address"]]
+            if len(edit["steps"]) != formation.steps or len(edit["members"]) != formation.members:
+                raise ZoneError(f"{source}: formation 0x{formation.address:08X} must keep"
+                                f" {formation.steps} steps and {formation.members} members,"
+                                " which the code that passes it fixes")
+            PLACEMENT.pack_into(out, formation.address - BASE + POINTERS.size,
+                                *edit["position"], *edit["angles"])
             for m, step in enumerate(edit["steps"]):
-                struct.pack_into("<4iHH", out, f.steps_at - BASE + STEP * m, *step["turn"],
-                                 step["speed"], step["ticks"], step["flags"])
+                STEP_FIELDS.pack_into(out, formation.steps_at - BASE + STEP * m, *step["turn"],
+                                      step["speed"], step["ticks"], step["flags"])
             for m, member in enumerate(edit["members"]):
-                struct.pack_into("<3h", out, f.members_at - BASE + MEMBER * m, *member)
+                OFFSET.pack_into(out, formation.members_at - BASE + MEMBER * m, *member)
     return bytes(out)
 
 
@@ -762,7 +912,7 @@ def parse_recipe(text, source):
             if not (integer(wave["wave"]) and wave["wave"] >= 0):
                 raise ZoneError(f"{where} wave {m}: wave must be a stock wave's number, 0 or more")
             delay = wave["delay"]
-            if delay not in ("clear", "stock") and not (integer(delay) and 0 <= delay < 2**31):
+            if delay not in ("clear", "stock") and not in_range(delay, TICK_COUNT):
                 raise ZoneError(f'{where} wave {m}: delay must be a tick count of 0 or more,'
                                 ' "clear" or "stock"')
         if not isinstance(edits.get("formations", []), list):
@@ -773,7 +923,7 @@ def parse_recipe(text, source):
             if not isinstance(edit, dict) or "address" not in edit:
                 raise ZoneError(f"{at}: expected a table with an address")
             expect_keys(edit, {"address"} | (edit.keys() & EDITS), at)
-            if not (integer(edit["address"]) and 0 <= edit["address"] < 2**32):
+            if not in_range(edit["address"], U32):
                 raise ZoneError(f"{at}: address must be an address")
             if edit["address"] in addresses:
                 raise ZoneError(f"{where}: formation 0x{edit['address']:08X} is listed twice")
@@ -785,12 +935,12 @@ def parse_recipe(text, source):
                 raise ZoneError(f"{at}: pace must be a number above 0")
             if "yaw" in edit and not number(edit["yaw"]):
                 raise ZoneError(f"{at}: yaw must be a number of degrees")
-            if "move" in edit and not integers(edit["move"], 3, -2**31, 2**31 - 1):
+            if "move" in edit and not integers(edit["move"], 3, S32):
                 raise ZoneError(f"{at}: move must be three 32-bit integers")
     return doc
 
 
-def reshape(f, edit, where):
+def reshape(formation, edit, where):
     """A formation's values, as a dump gives them, with a recipe's edits, in
     place: spread scales the members' offsets; pace multiplies the steps'
     speeds and turns and divides their durations (the first step lasts ticks
@@ -799,39 +949,40 @@ def reshape(f, edit, where):
     starts; move is then added to the position."""
     try:
         if "spread" in edit:
-            f["members"] = [[round(c * edit["spread"]) for c in member] for member in f["members"]]
-            for m, member in enumerate(f["members"]):
-                if not integers(member, 3, -0x8000, 0x7FFF):
+            formation["members"] = [[round(c * edit["spread"]) for c in member]
+                                    for member in formation["members"]]
+            for m, member in enumerate(formation["members"]):
+                if not integers(member, 3, S16):
                     raise ZoneError(f"{where}: spread {edit['spread']} gives member {m} the offset"
                                     f" {member}, beyond -32768 to 32767")
         if "pace" in edit:
-            k = edit["pace"]
-            for n, step in enumerate(f["steps"]):
+            pace = edit["pace"]
+            for n, step in enumerate(formation["steps"]):
                 later = 1 if n else 0
-                step["turn"] = [round(t * k) for t in step["turn"]]
-                step["speed"] = round(step["speed"] * k)
-                ticks = max(0, round((step["ticks"] + later) / k) - later)
+                step["turn"] = [round(t * pace) for t in step["turn"]]
+                step["speed"] = round(step["speed"] * pace)
+                ticks = max(0, round((step["ticks"] + later) / pace) - later)
                 if step["ticks"] and not ticks and not later:
-                    raise ZoneError(f"{where}: pace {k} leaves step 0 no ticks; what the game"
+                    raise ZoneError(f"{where}: pace {pace} leaves step 0 no ticks; what the game"
                                     " does with a first step of 0 ticks is unknown")
                 step["ticks"] = ticks
-                if not (integers(step["turn"], 3, -2**31, 2**31 - 1)
-                        and integers([step["speed"]], 1, -2**31, 2**31 - 1)
-                        and step["ticks"] <= 0xFFFF):
-                    raise ZoneError(f"{where}: pace {k} gives step {n} a turn, speed or tick"
+                if not (integers(step["turn"], 3, S32) and in_range(step["speed"], S32)
+                        and in_range(step["ticks"], U16)):
+                    raise ZoneError(f"{where}: pace {pace} gives step {n} a turn, speed or tick"
                                     " count beyond its field")
         if "yaw" in edit:
-            x, y, z = f["position"]
+            x, y, z = formation["position"]
             cos, sin = math.cos(math.radians(edit["yaw"])), math.sin(math.radians(edit["yaw"]))
-            f["position"] = [round(x * cos + z * sin), y, round(z * cos - x * sin)]
-            f["angles"][1] = (f["angles"][1] + round(edit["yaw"] * 2**32 / 360)) % 2**32
+            formation["position"] = [round(x * cos + z * sin), y, round(z * cos - x * sin)]
+            turn = round(edit["yaw"] * FULL_TURN / 360)
+            formation["angles"][1] = (formation["angles"][1] + turn) % FULL_TURN
     except OverflowError:
         raise ZoneError(f"{where}: the edits give values beyond the record's fields")
     if "move" in edit:
-        f["position"] = [p + d for p, d in zip(f["position"], edit["move"])]
-    if not integers(f["position"], 3, -2**31, 2**31 - 1):
-        raise ZoneError(f"{where}: the edits give the position {f['position']}, beyond 32-bit"
-                        " integers")
+        formation["position"] = [p + d for p, d in zip(formation["position"], edit["move"])]
+    if not integers(formation["position"], 3, S32):
+        raise ZoneError(f"{where}: the edits give the position {formation['position']},"
+                        " beyond 32-bit integers")
 
 
 def remix_zone(doc, edits, where):
@@ -847,7 +998,7 @@ def remix_zone(doc, edits, where):
             waves.append({"callback": old["callback"],
                           "delay": old["delay"] if wave["delay"] == "stock" else wave["delay"]})
         doc["timeline"]["waves"] = waves
-    records = {f["address"]: f for f in doc.get("formations", [])}
+    records = {formation["address"]: formation for formation in doc.get("formations", [])}
     for edit in edits.get("formations", []):
         if edit["address"] not in records:
             raise ZoneError(f"{where}: no formation record 0x{edit['address']:08X}; this zone's"
@@ -893,36 +1044,35 @@ def toml_string(value):
 
 
 def package(zones, image, image_sha256, pkg_id, version, name, description=None):
-    """manifest.toml and the overlay files, as (name, bytes): for each zone,
-    given as (path, lba, stock file, built file), the built file from the
-    first byte build may change to the last, put on the disc in place of the
-    stock bytes. Without a description the package holds one zone, and that
-    zone's edits describe it."""
+    """manifest.toml and the overlay files, as (name, bytes): for each
+    ZoneEdit, the built file from the first byte build may change to the last,
+    put on the disc in place of the stock bytes. Without a description the
+    package holds one zone, and that zone's edits describe it."""
     overlays, members, spans, labels, formations = [], [], [], [], False
-    for path, lba, stock, built in zones:
-        *_, records, ranges = layout(stock)
-        start, stop = ranges[0][0] - BASE, ranges[-1][1] - BASE
-        folder = path.split("/")[0]
-        member, payload = f"{folder}.remix.bin", built[start:stop]
+    for zone in zones:
+        stock_layout = layout(zone.stock)
+        start, stop = stock_layout.span
+        folder = zone.path.split("/")[0]
+        member, payload = f"{folder}.remix.bin", zone.built[start:stop]
         members.append((member, payload))
-        spans.append(f"{path}, bytes 0x{start:X} to 0x{stop - 1:X}")
+        spans.append(f"{zone.path}, bytes 0x{start:X} to 0x{stop - 1:X}")
         labels.append(f"the {LABELS.get(folder, folder)}")
-        formations = formations or bool(records)
+        formations = formations or bool(stock_layout.formations)
         overlays += [
             "",
             "[[overlay]]",
             'feature = "remix"',
             'target = "disc_user"',
-            f"offset = {lba * USER + start}  # sector {lba} * 2048 + 0x{start:X}",
+            f"offset = {zone.lba * USER + start}  # sector {zone.lba} * 2048 + 0x{start:X}",
             f"file = {toml_string(member)}",
             f"sha256 = {toml_string(hashlib.sha256(payload).hexdigest())}",
-            f"expected_sha256 = {toml_string(hashlib.sha256(stock[start:stop]).hexdigest())}"]
+            f"expected_sha256 = {toml_string(hashlib.sha256(zone.stock[start:stop]).hexdigest())}"]
     disc_note = (f"Built for one disc image, {image.name}; the game must be started from that"
                  " image.")
     if description is None:
-        [(path, *_)] = zones
+        [zone] = zones
         edits = "an edited wave timeline" + (" and formations" if formations else "")
-        header = [f"# Built by scripts/zones/zone_data.py from {path} on the player's disc.",
+        header = [f"# Built by scripts/zones/zone_data.py from {zone.path} on the player's disc.",
                   f"# {members[0][0]} holds data from that disc: keep this package out of the",
                   "# repository."]
         about = f"Off by default. While on, {labels[0]} plays {edits} ({spans[0]}). {disc_note}"
@@ -930,7 +1080,7 @@ def package(zones, image, image_sha256, pkg_id, version, name, description=None)
     else:
         header = comment(
             "Built by scripts/zones/zone_data.py from a remix recipe and"
-            f" {listing([path for path, *_ in zones])} on the player's disc."
+            f" {listing([zone.path for zone in zones])} on the player's disc."
             f" {listing([member for member, _ in members])} hold{'s' * (len(members) == 1)}"
             " data from that disc: keep this package out of the repository.")
         about = (f"Off by default. While on, the game reads this remix's edits of"
@@ -1002,17 +1152,19 @@ def cmd_list(disc, files, _args):
         blob = zone_blob(disc, files, path)
         folder = path.split("/")[0]
         try:
-            _, address, waves, end, formations, _ = layout(blob)
+            timeline, formations, _ = layout(blob)
         except ZoneError as exc:
             status = str(exc)
         else:
-            clear = sum(1 for _, d in waves if d == WAIT)
-            status = (f"table 0x{address:08X}, {len(waves)} wave{'s' * (len(waves) != 1)}"
+            wave_count = len(timeline.waves)
+            clear = sum(1 for _, delay in timeline.waves if delay == WAIT)
+            status = (f"table 0x{timeline.address:08X}, {wave_count} wave{'s' * (wave_count != 1)}"
                       f" ({clear} clear), "
-                      + ("an end entry" if end is not None else "no end entry")
-                      + f", {len(waves) + (end is not None)} slots")
+                      + ("an end entry" if timeline.end is not None else "no end entry")
+                      + f", {timeline.slots} slots")
             if formations:
-                status += f", {len(formations)} formation{'s' * (len(formations) != 1)}"
+                count = len(formations)
+                status += f", {count} formation{'s' * (count != 1)}"
         print(f"{path:<16} {LABELS.get(folder, ''):<9} {len(blob):>6} bytes  {status}")
     return 0
 
@@ -1079,7 +1231,7 @@ def cmd_package(disc, files, args):
     except UnicodeEncodeError:
         raise ZoneError(f"--name {name!r} is not valid UTF-8 text")
     out = output_path(args.out or OUT_DIR / f"{pkg_id}-{args.version}.psxmod")
-    manifest, members = package([(path, files[path][0], stock, built)], disc.bin,
+    manifest, members = package([ZoneEdit(path, files[path][0], stock, built)], disc.bin,
                                 disc.image_sha256(), pkg_id, args.version, name)
     write(out, archive([("manifest.toml", manifest.encode()), *members]))
     [(member, payload)] = members
@@ -1106,14 +1258,14 @@ def cmd_remix(disc, files, args):
         except ZoneError as exc:
             raise ZoneError(f"{where}: {exc}")
         remix_zone(doc, edits, where)
-        zones.append((path, files[path][0], stock, build(stock, doc, where)))
+        zones.append(ZoneEdit(path, files[path][0], stock, build(stock, doc, where)))
     out = output_path(args.out or OUT_DIR / f"{recipe['id']}-{recipe['version']}.psxmod")
     manifest, members = package(zones, disc.bin, disc.image_sha256(), recipe["id"],
                                 recipe["version"], recipe["name"], recipe["description"])
     write(out, archive([("manifest.toml", manifest.encode()), *members]))
-    for (path, _, stock, built), (member, payload) in zip(zones, members):
-        changed = sum(a != b for a, b in zip(stock, built))
-        print(f"{path}: {member} replaces {len(payload)} bytes, {changed} of them changed")
+    for zone, (member, payload) in zip(zones, members):
+        changed = sum(a != b for a, b in zip(zone.stock, zone.built))
+        print(f"{zone.path}: {member} replaces {len(payload)} bytes, {changed} of them changed")
     print(f"wrote {out}: {recipe['id']} {recipe['version']},"
           f" {len(zones)} zone{'s' * (len(zones) != 1)}; it applies only to a game started"
           f" from {disc.bin}")
