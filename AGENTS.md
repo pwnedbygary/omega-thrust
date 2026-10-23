@@ -297,16 +297,16 @@ fails. A run also fails if the BIOS image does not have the sha256 in its
 framework profile (`psxrecomp/bios/OpenBIOS.toml` or `SCPH1001.toml`), if
 `beetle.log` does not report that image's SHA-1 for `system/scph5501.bin` (the
 name Beetle wants with this US disc; without it Beetle quietly boots its own,
-different OpenBIOS), or if psx-beetle exits early or the route times out. Both
-memory cards start as formatted blank cards, as psx-runtime formats missing
-ones, and `--card1` follows `run_route.py`'s rules. Beetle reads the cards from
-its working directory under the disc's name, `cwd/Omega Boost (USA).0.mcr` and
-`.1.mcr`. It saves a card the game changed back to that file about two
-emulated seconds after the game's last write to it, and on exit if it changed
-since (beetle-psx `libretro.cpp`, `mednafen/psx/frontio.cpp`), so read the
-cards only after psx-beetle has exited. The `dummy.*.mcr` lines in
-`beetle.log` come from a separate warn-only check
-(`psxrecomp/runtime/src/beetle_libretro.cpp:543-567`) of files it does not
+different OpenBIOS), or if psx-beetle exits early, a ping fails or the route
+times out. Both memory cards start as formatted blank cards, as psx-runtime
+formats missing ones, and `--card1` follows `run_route.py`'s rules. Beetle
+reads the cards from its working directory under the disc's name,
+`cwd/Omega Boost (USA).0.mcr` and `.1.mcr`. It saves a card the game changed
+back to that file about two emulated seconds after the game's last write to it,
+and on exit if it changed since (beetle-psx `libretro.cpp`,
+`mednafen/psx/frontio.cpp`), so read the cards only after psx-beetle has
+exited. The `dummy.*.mcr` lines in `beetle.log` come from a separate warn-only
+check (`psxrecomp/runtime/src/beetle_libretro.cpp:543-567`) of files it does not
 load. The driver writes the cards under Beetle's names and fails the run if
 psx-beetle writes any other file in `cwd/`. Runs are unpaced unless `--paced`.
 Unpaced, Beetle takes about 3 ms per frame on average, and that is all the

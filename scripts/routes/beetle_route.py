@@ -35,10 +35,11 @@ a separate check of files it does not load. The driver writes the cards under
 those names, and fails the run if psx-beetle writes any other file there,
 which would mean it used other cards.
 
-The run fails unless psx-beetle stays up, every press and shot lands on its
-frame and the route ends within --timeout. psx-beetle has no quit command, so
-the driver then stops it with SIGTERM and expects exit code 0. Linux only: the
-driver sets TCP_QUICKACK (see Beetle.reply).
+The run fails unless psx-beetle stays up, every ping succeeds and reports a
+frame number, every press and shot lands on its frame and the route ends
+within --timeout. psx-beetle has no quit command, so the driver then stops it
+with SIGTERM and expects exit code 0. Linux only: the driver sets TCP_QUICKACK
+(see Beetle.reply).
 """
 import argparse
 import hashlib
@@ -180,10 +181,17 @@ class Beetle:
         return reply
 
     def frame(self):
-        reply = self.send({"cmd": "ping"})[0]
-        if not reply.get("ok"):
-            raise RouteError(f"ping failed: {reason(reply)}")
-        return reply["frame"]
+        return ping_frame(self.send({"cmd": "ping"})[0])
+
+
+def ping_frame(reply):
+    """The frame a ping reply reports. A failed ping, or a reply without a frame, fails the run."""
+    if not reply.get("ok"):
+        raise RouteError(f"ping failed: {reason(reply)}")
+    frame = reply.get("frame")
+    if not isinstance(frame, int):
+        raise RouteError(f"ping reply {reply} has no frame number")
+    return frame
 
 
 def wait_for_boot(proc, port, log_path, link, sha1):
@@ -251,8 +259,8 @@ def play(beetle, proc, steps, start, out, result, timeout):
             else:
                 png = out / f"{len(result['records']):02d}-{steps[i]['shot']}.png"
                 cmds.append({"cmd": "screenshot", "path": str(png)})
-        replies = beetle.send(*cmds, {"cmd": "ping"})
-        frame = replies[-1].get("frame")
+        *replies, ping = beetle.send(*cmds, {"cmd": "ping"})
+        frame = ping_frame(ping)
         for (kind, i), reply in zip(events[at], replies):
             if kind == "press":
                 result["presses"].append({"step": i, "nominal_frame": at, "frame": frame})

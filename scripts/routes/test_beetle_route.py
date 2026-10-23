@@ -123,13 +123,22 @@ else:
 client, buf, held, frame, override, remaining = None, b"", [], 0, -1, 0
 
 
-def handle(req):
+def handle(req, with_event):
     global override, remaining
     cmd = req["cmd"]
     note("requests.log", cmd)
     reply = {"id": req["id"], "ok": True}
-    if cmd == "ping":
+    # pingfail fails the ping sent with a press or screenshot, lonepingfail one sent alone.
+    if cmd == "ping" and behavior == ("pingfail" if with_event else "lonepingfail"):
+        reply = {"id": req["id"], "ok": False, "error": "busy"}
+    elif cmd == "ping":
         reply.update(backend="beetle", port=port, frame=frame, guest_cycles=0)
+        # noframe and nullframe answer the ping sent with a press or screenshot without a
+        # frame or with a null one; lonenoframe and lonenullframe do so for one sent alone.
+        if behavior == ("noframe" if with_event else "lonenoframe"):
+            del reply["frame"]
+        elif behavior == ("nullframe" if with_event else "lonenullframe"):
+            reply["frame"] = None
     elif cmd == "press":
         override, remaining = req["buttons"], req.get("frames", 2)
     elif cmd == "screenshot" and behavior == "noshot":
@@ -169,9 +178,11 @@ while True:
         lines.append(line)
     if behavior == "late":  # handle each request one frame late, like a slow driver
         lines, held = held, lines
-    for line in lines:
+    requests = [json.loads(line) for line in lines]
+    with_event = any(req["cmd"] in ("press", "screenshot") for req in requests)
+    for req in requests:
         if client is not None:
-            handle(json.loads(line))
+            handle(req, with_event)
     pad = override if override >= 0 else 0xFFFF
     if override >= 0 and remaining > 0:
         remaining -= 1
@@ -393,6 +404,41 @@ class BeetleRouteTest(unittest.TestCase):
         proc = self.run_driver(self.route(), behavior="late")
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertRegex(self.failures(), "too late to land|landed on frame")
+
+    def test_a_failed_ping_sent_alone_fails_the_run(self):
+        proc = self.run_driver(self.route(), behavior="lonepingfail")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertEqual(self.failures(), "ping failed: busy")
+        self.assertIn("FAIL: ping failed: busy", proc.stdout)
+        self.assertEqual(self.log("requests.log"), ["ping"])  # the run stops at its first ping
+
+    def test_a_failed_ping_sent_with_an_event_fails_the_run(self):
+        proc = self.run_driver(self.route(), behavior="pingfail")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertEqual(self.failures(), "ping failed: busy")
+        self.assertIn("FAIL: ping failed: busy", proc.stdout)
+
+    def test_a_ping_reply_without_a_frame_fails_the_run(self):
+        press_only = [{"frames": 120, "buttons": NEUTRAL}, {"frames": 6, "buttons": START},
+                      {"frames": 30, "buttons": NEUTRAL}]
+        # A run's first ping goes alone; press_only's first event is a press with no shot,
+        # and SHORT's first event holds a shot and a press.
+        for case, behavior, steps in (
+                ("sent alone, no frame", "lonenoframe", SHORT),
+                ("sent alone, null frame", "lonenullframe", SHORT),
+                ("sent with only a press, no frame", "noframe", press_only),
+                ("sent with only a press, null frame", "nullframe", press_only),
+                ("sent with a shot, no frame", "noframe", SHORT),
+                ("sent with a shot, null frame", "nullframe", SHORT)):
+            with self.subTest(case):
+                self.reset()
+                proc = self.run_driver(self.route(steps), behavior=behavior)
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertRegex(self.failures(), r"^ping reply \{.*\} has no frame number$")
+                self.assertIn("FAIL: ping reply", proc.stdout)
 
     def test_exit_during_the_route_fails(self):
         proc = self.run_driver(self.route(), behavior="exit")

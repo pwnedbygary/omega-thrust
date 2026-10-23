@@ -7,36 +7,34 @@ Overall: recompile Omega Boost (USA, SCUS-94449) with psxrecomp nightly
 oracle. Phases: 0 inputs, 1 scaffold, 2 generate + build + smoke, 3 discovery
 cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
-sequel or remake that borrows Colony Wars' free-roaming structure.
+sequel or remake that borrows Colony Wars' free-roaming structure. Phase 6,
+also the user's choice, works through an independent audit of the committed
+code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and
+readability cleanups, each its own small reviewed change.
 
-Current iteration, Phase 5 change 8 (the user's choice: step 5's spike
-toward adding levels, "can a brand-new zone be added", written up with no
-game data committed), round 3. Invariant: `docs/MODDING_FEASIBILITY.md`
-records the spike's answers with labels and evidence: the game finds a file
-added to the disc through a directory record a package adds, with the
-file's sectors in the disc's postgap (case A) or appended after the disc by
-a plugin (case B); on psx-runtime, a cut scene index, 23, loads, starts and
-ends a zone with data patches alone (case C), but its name lookup reads a
-misaligned word, which Beetle and the console's CPU treat as an exception
-(Derived), so a new zone there must be given a name; its result record
-lands on the settings block at 0x800A7D90, moving the ZONE PLAY list's
-selection, and it gets no results panel or music; plus the limits (the
-postgap holds some extra zones' files, not a campaign zone's) and what a
-full new zone still needs. The brief answer, "Scenes and files", the
-hazards in "The campaign", section 6 and section 7 agree with it, and what
-this change re-checked says so. The commit holds text only (the doc,
-`AGENTS.md`'s reflow and this file): no game data and no code. The spike's
-packages, scratch plugin, runs and scripts stay in the ignored
-`.cache/evidence/phase5-8/`. This file records change 7's round 3 PASS and
-commit `feb71aa`, condenses change 7, records the launcher check of the
-Crossfire pack, and applies round 3's suggestions 3 and 4. Round 2
-resolves review round 1's six findings and records its suggestions.
-Round 3 fixes review round 2's finding and applies its suggestions.
-Baseline: `feb71aa`. Out of scope: any plugin, package, hook site or other
-code in the repository; a full new zone; tracing why index 23 shows no
-results panel; running case C on Beetle (it runs no mods); runner, driver,
-tool, framework and submodule changes; play sessions (the user's); CI,
-packaging.
+Current iteration, Phase 6 change 1, round 3: the audit's first finding, in
+the Beetle driver. Invariant: when psx-beetle answers the ping that
+`scripts/routes/beetle_route.py` sends together with a press or a screenshot
+with an error, the run fails with "ping failed: <reason>" in `result.json`
+and the summary, as a ping sent alone already did, instead of ending in a
+TypeError traceback that hides the cause; and an ok ping reply whose frame
+is missing or not an integer, sent alone or with a press or a screenshot,
+fails the run with "ping reply <reply> has no frame number". Nothing else
+in the driver's behaviour, messages or outputs changes, so every committed
+route passes in both Beetle modes with screenshots, cards and `result.json`
+byte-identical to Phase 4 change 1's third batch. The driver's tests gain a
+fake psx-beetle that fails such a ping or answers it without a usable
+frame, tests of the failed ping sent with an event and of the six replies
+without a usable frame (both fail on the base commit's driver), and a test
+that a failed ping sent alone still fails the run; `AGENTS.md`'s Beetle
+oracle section lists the failed ping among the reasons a run fails. This
+file records change 8's round 3 PASS and commit `141aee4`, condenses change
+8 and takes up round 3's two suggestions. Baseline: `141aee4`. Out of
+scope: the audit's other findings and cleanups (each its own change), the
+signal-handling hang the checks found in both route scripts (recorded
+below, its own change), `run_route.py`, the zone tool, the C plugins, the
+routes, the framework and submodules; the Blender MCP setup, which lives
+outside the repository (see the observations).
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -586,157 +584,360 @@ writing (Derived); the whole log, to frame 8,550, passes with more samples
 The page listed the branching package under Gameplay and did not list the
 hidden test package. Play by hand is still the user's.
 
-## Phase 5 change 8 observations (`.cache/evidence/phase5-8/`)
+## Phase 5 change 8 (commit `141aee4`)
 
-- The question, the user's choice: can a brand-new zone be added? Does the
-  game find a file added to the disc, can a mod load and start a new scene,
-  and where do its results go? The answers are written up in
-  `docs/MODDING_FEASIBILITY.md` (section 6, step 5); only text is
-  committed.
-- The disc (`disc_layout.py` / `.log`): 247,711 sectors, each directory one
-  sector; the S1 directory (LBA 112307) has 1,668 bytes free after its five
-  records. The last sector a file uses is 247560 (/MOVIE/STAFF320.IKI);
-  247561 to 247710 are 150 zero Form 2 sectors, the postgap.
-- The EXE (`dis_excerpts.sh` regenerates `dis/` from `disc/SCUS_944.49`
-  with change 6's disassembler and compares; `xref.py` / `.log` counts the
-  references to the key addresses): DsSearchFile and its directory cache
-  (only a directory's first sector; records up to the first empty one, at
-  most 64; names compared on 12 characters), the loader's stall on a
-  missing file, the post-load switch's 42-word table, the 15 places that
-  turn the scene index into a slot (index - 3 if below 21, else -1), the
-  per-slot tables (rating parameters and a jump table with 21 entries,
-  names with 20), slot 20's name lookup (a load from 9 plus 4 times the
-  language index, never aligned), the music table (indexes 3 to 11) and the
-  record write's overlap with the settings block, whose second word,
-  0x800A7D94, is the ZONE PLAY list's selection (TITLE moves and sets it;
-  ZONE PLAY's loop starts the zone it names, 0x8002FC50). Details are in
-  the doc's "Scenes and files" and "The campaign".
-- Packages (`make_spike.py <out dir>` builds them from the player's disc;
-  copies and `pkgs.sha256` here; they hold disc data). The new file,
-  `P2.BIN`, is S1.BIN with change 5's short timeline (sha256 `2161a7f5…`).
-  `spike-a` puts it in the postgap with a `disc_raw` overlay (Form 1
-  sectors with zero error-correction bytes), adds its directory record to
-  S1's directory sector and points the 1ST ZONE's path at it. `spike-b`
-  (format 8) makes its sectors a verified resource that a scratch
-  activation plugin appends after the disc (`scratch-build/`: the plugin,
-  added to `EXTRAS_SOURCES` in a scratch export of `feb71aa` built with the
-  dev flags). `spike-c` keeps A's file and record and gives index 23 the
-  file with seven `main_exe` patches: its path strings, its word in the
-  post-load switch's table and the campaign's first zone step.
-- Runs (`spike_run.sh` makes the build copy and runs the route with a
-  read-only probe, `spike_probe.py`; `spike_batch.sh`, `batch.log`; outputs
-  in `runs/`): CAMPAIGN PLAY with no input (`phase5-5/remix_s1.json`) on
-  port 4374, each case and the stock build in all three boot modes, plus
-  runs of A and C with a pause in the zone (`gen_pause_route.py`,
-  `pause_route.json`): all 14 passed with no miss (start frames 25 to 120).
-  `spike_table.py` / `.log`: in A and B the cached S1 directory listed
-  `P2.BIN;1` at the patched LBA (247561 or 247711), the zone image matched
-  the new file in every sample, the zone played and cleared (player state 3,
-  then 6), slot 0's record became [333, 4096, 15, 0, 0, 2048, 2048, 2, 0],
-  and the campaign went on to index 4. C did the same with index 23 in
-  place of 3; slot 0's record kept its starting values, and the settings
-  block's first three words went from (1, 3, 0) to (0, 4, 0). The stock
-  runs loaded S1.BIN, which the game then wrote into (first seen at frames
-  8,157, 8,201 and 8,243 in the three modes, with player state 2), and did
-  not clear. In each boot mode every case's text-mismatch counter equals the
-  stock run's (7, 3,784 and 57,003).
-- Screens (`sheets/`, from the runs' shots): C's title card reads "ZONE"
-  where A's reads "1ST ZONE"; after the clear C shows no results panel and
-  no HUD, in all three modes; C's pause panel shows "ZO" at the right edge
-  where A's shows "1ST ZONE".
-- The first batch (`runs-first/`, `spike_table-first.log`) had the same
-  outcomes; its probe kept one hash a run, two of them taken mid-load.
-- Change 7's round 3 suggestion 3: `phase5-7/approach.py check` now tests
-  the change of side itself while the formation is behind the player.
-  Round 2's runs still give `approach-check.log` and round 1's runs
-  `round1/approach-check.log` (`approach-check-r2runs.log`,
-  `approach-check-r1runs.log`).
+Step 5's spike, the user's choice: can a brand-new zone be added? Only text
+is committed: the answers are in `docs/MODDING_FEASIBILITY.md` (section 6,
+step 5, with "Scenes and files", the hazards in "The campaign" and section
+7), and the spike's packages, scratch plugin, scripts and runs stay in the
+ignored `.cache/evidence/phase5-8/`. Three scratch packages, built from the
+player's disc by `make_spike.py`, ran CAMPAIGN PLAY, scripted, in all three
+boot modes beside the stock build: all 14 runs passed with no miss. The
+game found a new file, `P2.BIN` (S1.BIN with a short timeline), through a
+directory record a package adds to S1's directory sector, with the file's
+sectors in the disc's postgap, 150 zero Form 2 sectors (case A, a
+`disc_raw` overlay), or appended after the disc by a scratch plugin from a
+verified resource (case B); the 1ST ZONE played that file, cleared, and
+wrote the result record that change 5's remix wrote. With seven `main_exe`
+patches, the cut scene index 23 loaded, started and ended the zone on
+psx-runtime (case C), but its title card read only "ZONE" and its pause
+panel "ZO", it showed no results panel, by the music code it gets no music,
+and its result record (slot 20) overwrote the first three words of the
+settings block at 0x800A7D90, whose second word is the ZONE PLAY list's
+selection. Its name lookup loads a word from 9 plus 4 times the language
+index, never aligned, which Beetle and the console's CPU raise an address
+error for and psx-runtime does not (Derived), so a new zone at index 23
+needs a name. The postgap holds some extra zones' files but no campaign
+zone's (every S directory holds at least 525,806 bytes). In each boot mode
+every case's text-mismatch counter equals the stock run's, so the EXE
+patches changed no code (Derived). Change 7's round 3 suggestions 3 and 4
+were applied (`approach.py check` tests the change of side itself;
+`AGENTS.md`'s remix paragraph reflowed), and the launcher check's saved
+output was explained as read while its watcher was still writing
+(Derived). Review: round 3 PASS on tree `0f3cf66` (staged diff
+`5ca2fc2c…`), after rounds 1 and 2 NEEDS CHANGES (see Review and commit
+state). The full record is in `git show 141aee4:.agent/HANDOFF.md`.
 
-## Phase 5 change 8 changes
+## Phase 6 change 1 observations (`.cache/evidence/phase6-1/`)
 
-- `docs/MODDING_FEASIBILITY.md`: the intro; the brief answer (new zones,
-  and a longer file through a new directory record); "Scenes and files" (P2,
-  the file lookup, the post-load switch, zone slots); the hazards in "The
-  campaign" (slots 19, 20 and -1); section 6's opening and step 5 (the
-  spike); section 7.
-- `AGENTS.md`: the remix paragraph reflowed so it no longer ends on a
-  one-word line (change 7's round 3 suggestion 4).
-- `.agent/HANDOFF.md`: this scope; change 7 condensed, with the launcher
-  check; these sections; the hypotheses; the review state; the next action,
-  with the note that the pad needs `xpad` again after a reboot.
-- Round 2, for review round 1's findings: the doc says index 23's zone
-  starts on psx-runtime only and why (the misaligned name load, in the
-  brief answer, "Scenes and files", step 5 and section 7), and that a new
-  zone there needs a name; it counts 15 slot computations and the index's
-  42 references by kind, names the settings block's second word as the ZONE
-  PLAY list's selection, says which extra zones fit in the postgap, and
-  lists every exit entry of the post-load switch as re-checked. Its
-  suggestions 1 to 6 are applied (the language index, the jump table at
-  0x80014258, "the 1ST ZONE's `.BIN`", the rating parameters with the
-  record's unit of 1/30 s, the four zone checks, the frame range). This
-  file: "the committed pack" corrected, the launcher explanation labelled
-  Derived, the pad note above (suggestion 8), a framework observation in
-  the hypotheses (suggestion 9), and the next action rewritten (the
-  code-quality changes the user chose, in order, and the name a new zone
-  at index 23 needs). Evidence: `r2/dir_totals.py` / `.log`.
-- Round 3, for review round 2's finding: step 5 gives the 1ST ZONE
-  record's clear time as 333 in the record's unit, 0:11.10, where it said
-  "333 frames" (the doc's frames are 60 Hz). From the review's
-  suggestions: the doc cites the sound-bank table at 0x800984E0 for the
-  extra zones' shared banks; the framework observation in the hypotheses
-  names the strict translator's alignment checks and what they do; the
-  bullet above mentions the rewritten next action; `r3/review_text.py`
-  names a saved report by its message's sequence number; and round 3's
-  checks and snapshot compute trees in a scratch copy of the objects,
-  with no alternate.
-- Untracked (ignored): `.cache/evidence/phase5-8/` (scripts, logs, runs,
-  sheets, the scratch plugin, and the spike's packages, which hold disc
-  data).
+- The audit (a separate read-only agent, after the user asked for solid,
+  readable code; report `.cache/evidence/code-quality/audit-r1.md`, its
+  final message verbatim under a short header) found the committed code
+  readable and careful, its 98 tests passing and its linters and strict
+  compiles clean. It found four bugs, each on an input that neither this
+  disc nor the pinned psx-beetle gives: the Beetle driver's traceback
+  below, and in `zone_data.py` register values traced across a join, a
+  "calls nothing" note for a callback that returns before the formation it
+  starts, and a traceback on a malformed directory record. Its probes are
+  kept in `code-quality/probes/`; the three for `zone_data.py`, run again,
+  still reproduce theirs (`probes-zone.log`). The user chose to take all of
+  the audit's fixes and cleanups, one reviewed change each, starting here.
+- The bug: `play()` took the frame from the ping it sends with each press
+  or shot without checking the reply, so a failed ping gave that batch's
+  events the frame None, and `finish()` then raised a TypeError on it
+  (`beetle_route.py:294` at `141aee4`). `result.json` still said FAIL, but
+  named "step 0's shot landed on frame None" instead of the failed ping,
+  and the summary ended in a traceback (the audit's `probe_pingfail.py`,
+  against a fake psx-beetle). The pinned psx-beetle cannot produce this: in
+  `psxrecomp/runtime/src/beetle_debug_server.c`, its `ping` always answers
+  ok (`:300-305`), and its dispatcher answers an error only to a request
+  with no command or an unknown one (`:1725`, `:1733`). The fix guards against
+  a fake or a later psx-beetle; no Beetle run has shown a failed ping.
+- The audit also proposed that `finish()` survive a missing frame, as
+  `run_route.finish()` does by leaving out the offset (`run_route.py:253-254`).
+  Review round 2 found that rounds 1 and 2 had made one such reply worse
+  (`r2/review-r2.md`). Six ok ping replies lack a usable frame: with no
+  frame or a null one, each sent alone, with only a press, or with a shot.
+  On the base driver four of them end in a traceback (KeyError or
+  TypeError) and the two sent with only a press fail cleanly, as "step 1's
+  press landed on frame None", because the base read a batched ping's frame
+  with `.get`. On rounds 1 and 2's driver five end in a traceback: the
+  missing frame sent with only a press now raised a KeyError in
+  `ping_frame` (`r3/regression.log`). Round 3 makes `ping_frame` refuse a
+  reply whose frame is missing or not an integer, so all six fail the run
+  with "ping reply <reply> has no frame number". Every frame the driver
+  records comes from `ping_frame`, so `finish()` never meets a missing one,
+  and the audit's second proposal is no longer needed. The pinned
+  psx-beetle always puts a frame in an ok reply (`h_ping` prints it with
+  `%u`, `:302`), so only a fake or a later psx-beetle could leave it out
+  (Derived).
+- Three runs in the Beetle batch below failed on their first attempt because
+  one shot landed late, and each passed when the batch script ran it again:
+  demo_zone3 in LLE OpenBIOS (step 24's shot on frame 7062 for route frame
+  7060; the run started at 02:30:48), demo_zone4 in LLE OpenBIOS (its first
+  event, the intro shot, on 3937 for 3930; 02:34:20) and demo_zone5 in LLE
+  SCPH-1001 (step 24's shot on 7061 for 7060; 02:38:56). The presses they
+  had sent, 10, 0 and 10, all landed on their frames. Phase 4 change 1's
+  three batches had one late event between them, also a shot (the first
+  batch's demo_zone_u6, 3931 for 3930). The host was busy: `top` at 02:42:55
+  (`host-load-0242.log`) lists three processes named `psp-*`, not this
+  project's, at 100% CPU each, the OpenCode service at 86% and psx-beetle at
+  100%, with load averages 8.00, 9.66 and 9.34. The one-minute average,
+  sampled a minute apart from 02:42:55 to 03:18:55 (`host-load.log`, 37
+  samples), ranged from 5.27 to 31.75, and no event was late after the
+  third, even at that peak (02:49:55). So the load is at most a correlation:
+  that the host held the driver back past its window, about 3 ms a frame
+  unpaced (`AGENTS.md`), is an untested hypothesis. The fix adds to each
+  ping one function call and a check that its frame is an integer, and to
+  the ping sent with each press or shot a check of the reply's `ok` field,
+  which the lone ping already had.
+- The checks script's first run (`checks-p6-1-first.log`) met a hang that
+  both route scripts have at the base commit. Its mutation pass left one
+  mutated driver running: found 11 minutes after it started (03:28:09), it
+  was blocked in `futex_wait`, its fake psx-beetle dead but not reaped
+  (`leftover-process.log`; it was then killed). `lock_leak.py`
+  (`lock_leak.log`) shows how that happens. Both scripts' SIGTERM and SIGHUP
+  handler, `stop_on_signal`, raises SystemExit wherever the script is
+  (`beetle_route.py:312-313`, `run_route.py:268-269`), and both poll their
+  child with `Popen.poll()`, which takes the child's waitpid lock with
+  `acquire(False)` and only then enters the `try` whose `finally` releases
+  it (`subprocess.py:2014-2035` in Python 3.14.8's standard library). A
+  handler that raises between the two leaves the lock held. `stop()`
+  (`beetle_route.py:280-290`, `run_route.py:224-235`) then gets None from
+  `poll()`, waits out its timeout although the child has exited, and ends
+  in `wait()` with no timeout, which blocks on the lock forever (`:2081`).
+  `lock_leak.py` interrupts polls with a timer signal until one leaves the
+  lock held (in the logged run the 16th interrupted poll, of 2,296 polls)
+  and shows each of those steps. That the leftover driver hung this way is
+  derived from its state; its mutation (no ping checked) does not touch
+  signal handling. `test_sigterm_stops_beetle`, which failed in that run,
+  waits 30 s for the driver and then does not kill it (the runner's test
+  does), so a hung driver outlives the test. Ctrl-C can do the same: the
+  scripts handle only SIGTERM and SIGHUP (`beetle_route.py:394`,
+  `run_route.py:342`), so SIGINT raises Python's KeyboardInterrupt, which
+  can start inside `Popen.poll()` just as well (Derived from the source,
+  not tested), and a fix confined to those two handlers would leave it.
+  Fixing this is its own change (Next action).
+- In the same run, four mutations failed more tests than `mutations.log`
+  records for them (`checks-mutations-first.log`), though every mutation
+  was caught: with the BIOS profile check removed, also
+  `test_output_directory_rules`; with the exit code after SIGTERM
+  unchecked, `test_a_failed_ping_sent_with_an_event_fails_the_run`; with
+  the card's size unchecked, `test_scph1001_mode_links_the_given_dump`;
+  with no ping checked, `test_failed_screenshot_is_recorded` and
+  `test_sigterm_stops_beetle` (the hang above). In the script's final run
+  (04:03 to 04:09; its mutation log kept as `checks-mutations-second.log`),
+  one did: with no ping checked, also `test_output_directory_rules`, which
+  so failed in both runs, each time under a mutation that does not touch
+  it. No extra test failed in `flake_check.py`'s 13 runs (the unmutated
+  tests five times and those four mutations twice each, at one-minute load
+  averages from 10 to 21, `flake_check.log`), where each mutation failed
+  exactly its recorded tests with the same messages, nor in the reviewer's
+  run of all the mutations (`review-r1.md`). It failed a third time in round
+  3's regression run, on the base driver with no mutation
+  (`r3/regression.log`): the assertion on the exit code of the test's third
+  run of the driver, the second to reuse the output directory, which prints
+  nothing else. That test alone then passed 25 times in a row at one-minute
+  load averages from 9.8 to 11.2, with its two exit-code assertions changed
+  to print the driver's output (`r3/flake_probe.py`, `.log`). Round 3's
+  mutation pass had such failures in five of its 17 runs:
+  `test_output_directory_rules` four times,
+  `test_scph1001_mode_links_the_given_dump` twice and the new frame test
+  once, each under a mutation that cannot affect it (`r3/mutations.log`).
+  `r3/suite_probe.py` then ran the whole test file five times with every
+  driver run's output logged, at one-minute load averages from 15.8 to 26.4
+  (`r3/suite_probe.log`). Three runs had a failing test, and each time the
+  driver had reported a late event in a run that should pass: "the driver
+  saw frame 420 but not 419, too late to land step 0's shot on frame 420"
+  (in `test_output_directory_rules` and in
+  `test_pass_lands_every_press_and_shot_on_its_frame`), "the driver saw
+  frame 487 but not 485" (`test_card1_image_is_preloaded`) and "step 3's
+  shot landed on frame 491, route frame 490" (the pass test again). The
+  fake psx-beetle's frame clock runs at 300 frames a second whether or not
+  the driver has answered, which leaves the driver about 3.3 ms per ping,
+  close to unpaced Beetle's window. So these failures are the driver
+  missing its window, as in the Beetle batches' retried runs (Observation,
+  from the messages); that the busy host made it miss is a correlation.
+  The earlier failures logged no driver output, so that they were late
+  events too is a hypothesis. The checks now compare a fresh mutation log
+  by what must hold (`mutation_compare.py`): the unmutated tests pass, each
+  mutation fails at least the tests it must fail (since round 3, those
+  `r3/mutations-expected.log` names), and nothing is left behind; extra
+  failing tests are listed but allowed.
+- Outside the repository, at the user's request: the official Blender Lab
+  MCP server, with Blender 5.2.3 LTS and its `mcp` add-on, is installed in
+  the user's home directory and registered in OpenCode's global
+  configuration, for later asset work.
+  `.cache/evidence/blender-mcp/setup.md` records what is installed where,
+  how to run its bridge, the checks and how to remove it. New models or
+  textures for the game still need the OMD model format decoded (the doc's
+  section 7).
 
-## Phase 5 change 8 checks
+## Phase 6 change 1 changes
 
-- `checks-p5-8.sh` / `.log` (staged tree; its first two runs,
-  `checks-p5-8-first.log` and `checks-p5-8-second.log`, found this bullet's
-  placeholder and two short lines left by reflows): only the three text
-  files change, and the `AGENTS.md` change is a reflow (the same words in
-  the same order); the handoff's header and Phase 0 to Phase 5 change 6
-  sections equal HEAD; no placeholder, doubled blank line, heading without
-  a blank line before it, added line over 80 columns, new reflow leftover
-  or local path; the three gates pass, the pins equal `framework_pins.txt`
-  and the submodules are clean (psxrecomp's ignored
-  `overlay_codegen_hash.h` as before). The disc layout, the disassembly
-  excerpts, both cross-reference logs, the packages (`make_spike.py` from
-  the disc, against `pkgs.sha256`), both spike tables, the summaries, the
-  launcher explanation, the launcher check's full re-run and the approach
-  check on both rounds' runs reproduce; all 14 runs passed. The numbers the
-  doc cites are in the evidence: the 1ST ZONE's files, 525,806 bytes; the
-  4TH ZONE's `.BIN`, 114,232; the 150 zero Form 2 sectors from LBA 247561;
-  ZONE PLAY's load at 0x8002FC50. The four test files pass with nothing
-  left behind, and `git diff --cached --check` is clean.
-- Round 2, `r2/checks-p5-8-r2.sh` / `.log` (staged tree): round 1's checks
-  run unchanged and pass as before; round 2 changes only the doc and this
-  file (`AGENTS.md` is as in round 1); no old wording is left but in the
-  records that quote the findings; `review-r1.md` equals the reviewer's
-  final message in the session database; and every fact the fixes rest on
-  reproduces: the two misaligned name loads and the load code they reach
-  in psx-runtime and Beetle, the 16 slot tests at 15 places and the 42
-  references by kind, TITLE's uses of the selection word and the EXE's
-  start values for the block, the directory totals (`r2/dir_totals.log`),
-  the switch's nine exit entries, the four zone checks with their compares
-  to 23, and the stock runs' frame range (`r2/stock_change.py` / `.log`).
-- Round 3, `r3/checks-p5-8-r3.sh` / `.log` (staged tree; its first run,
-  `r3/checks-p5-8-r3-first.log`, showed the status record's failed
-  check-ignore line, since corrected): round 1's checks, run through a copy
-  that computes the tree in a scratch copy of the objects (the log shows
-  the difference), pass as before; round 3 changes only the doc and this
-  file; no old wording is left but in the records that quote the findings,
-  and both doc mentions of the clear time give its unit; both saved reports
-  equal their messages in the session database (950 and 1263); round 2's
-  fact checks reproduce; the generated code has no alignment check, while
-  the strict translator's word load and store have one whose handler halts
-  the run; and `dump_tables.py` reproduces the scene tables of
-  `tables-rerun.txt`, which give U1, U3, U4 and U7 the 1ST, 3RD, 4TH and
-  7TH ZONE's sound banks.
+- `scripts/routes/beetle_route.py`: a module function, `ping_frame(reply)`,
+  returns a ping reply's frame or fails the run with "ping failed:
+  <reason>", and since round 3 with "ping reply <reply> has no frame
+  number" when the frame is missing or not an integer; `Beetle.frame()` and
+  `play()` both use it, so the ping sent with a press or shot is checked as
+  a ping sent alone already was. The docstring's list of what a run needs
+  adds "every ping succeeds and reports a frame number".
+- `scripts/routes/test_beetle_route.py`: the fake psx-beetle's `handle()`
+  is told whether the frame's batch of requests holds a press or a
+  screenshot, and two new behaviours answer a ping with an error:
+  `pingfail` the ping in such a batch, `lonepingfail` a ping sent alone.
+  `test_a_failed_ping_sent_with_an_event_fails_the_run` expects exit 1, no
+  traceback, and "ping failed: busy" both in `result.json` and on stdout;
+  `test_a_failed_ping_sent_alone_fails_the_run` expects the same, and that
+  the run stops at its first ping. The second came in round 2, from review
+  round 1's suggestion 1: no test failed a lone ping, whose check this
+  change moved into `ping_frame`. Round 3 adds four behaviours that answer
+  a ping ok but without a frame (`noframe`, `lonenoframe`) or with a null
+  one (`nullframe`, `lonenullframe`), and
+  `test_a_ping_reply_without_a_frame_fails_the_run`, whose six cases send
+  such a reply alone, with only a press and with a shot, and expect exit 1,
+  no traceback and "ping reply {...} has no frame number". 18 tests.
+- `AGENTS.md`: the Beetle oracle section's list of what fails a run adds "a
+  ping fails" (the paragraph reflowed, its other words unchanged).
+- `.agent/HANDOFF.md`: the scope, with Phase 6 in its overall paragraph;
+  change 8 condensed; these sections; the framework observation in the
+  hypotheses (change 8's round 3 suggestion 1); the review state; the next
+  action.
+- Round 2, for review round 1's two findings, both in this file: the
+  observations now record the extra failing test in the checks' final run
+  (F1) and that the audit's second proposal is left out, and why (F2).
+  Round 2 also adopts suggestions 1 (the lone-ping test above), 2 (the
+  per-ping wording) and 3 (Ctrl-C and the hang), and suggestion 4 in the
+  evidence tooling (the iso probe now writes in the checks' scratch).
+  Suggestion 5 went with F2's proposal to the route-scripts change, until
+  round 3.
+- Round 3, for review round 2's finding (`r2/review-r2.md`): instead of
+  recording the reply that rounds 1 and 2 made worse, `ping_frame` checks
+  the frame (driver bullet), and the frame test covers all six replies
+  without a usable frame (tests bullet); the scope and the F2 observation
+  say so, and the audit's second proposal is closed. That is review round
+  1's suggestion 5, which round 2 had deferred, and review round 2's
+  suggestion 1. Round 3 also applies round 2's suggestions 2 (the next
+  action no longer says the driver tests failed "under load") and 3 (the
+  round-1 review entry: the reviewer's own Beetle runs matched the third
+  batch once the output directory and port were normalised).
+- Untracked (ignored): `.cache/evidence/phase6-1/` (scripts, logs, the
+  Beetle batch's per-run logs and first attempts, the round-1 review
+  report, round 2's evidence and report in `r2/`, round 3's evidence in
+  `r3/` with copies of the driver and tests that rounds 1 and 2 reviewed),
+  and the audit's report and probes in `.cache/evidence/code-quality/`.
+
+## Phase 6 change 1 checks
+
+- `python3 -B scripts/routes/test_beetle_route.py`: 18 OK (16 in round 1,
+  17 in round 2), nothing left behind; pyflakes is clean on the driver and
+  its tests.
+- `regression.sh` / `regression.log`: the new test file against the base
+  commit's driver and `run_route.py` fails only the new test, with the base
+  driver's TypeError, and leaves nothing behind. With round 2's test file
+  (`r2/regression.log`) it still fails only that test; the lone-ping test
+  passes there, since the base driver already failed a lone ping cleanly.
+  Round 3's `r3/regression.py` / `.log` runs round 3's test file against
+  the base driver and against rounds 1 and 2's (`r3/beetle_route-round2.py`)
+  and prints why each failure failed. On the base driver the batched-ping
+  test and all six cases of the frame test fail: five with the driver's own
+  traceback, the two cases sent with only a press with "step 1's press
+  landed on frame None". On rounds 1 and 2's driver only the six cases
+  fail, five with a traceback, among them review round 2's KeyError for a
+  missing frame sent with only a press. On the base driver
+  `test_output_directory_rules` also failed (see the observations).
+- `mutations.py` / `mutations.log`: Phase 4 change 1's eleven driver
+  mutations and two new ones (the ping sent with an event left unchecked;
+  no ping checked at all): the unmutated driver passes and all 13 are
+  caught, the two new ones by the new test alone. Round 2
+  (`r2/mutations.log`) adds a fourteenth, the lone ping left unchecked,
+  which only the lone-ping test catches. That test also fails with no ping
+  checked, and with the cards written under names Beetle does not load,
+  where a stray card file joins the ping's failure; otherwise each mutation
+  failed the same tests as in round 1's log. All 14 are caught. Round 3
+  (`r3/mutations.log`) adds two, the frame check removed or narrowed to a
+  missing key, which only the frame test catches; that test also fails with
+  a failed ping left unchecked, alone or with an event, and with the cards
+  written under names Beetle does not load. All 16 are caught and the
+  unmutated tests pass; five runs also failed tests that their mutation
+  cannot affect (see the observations). Since a run can fail extra tests,
+  `r3/mutations-expected.log` names the tests each mutation must fail:
+  round 2's sets, from a run without extra failures, plus the frame test
+  where round 3's driver makes it fail. `mutation_compare.py` checks fresh
+  logs against it, and `mutations.py` now gives the unmutated copy up to
+  three runs.
+- `beetle_routes.sh` / `beetle_routes.log` (02:26:42 to 03:19:32, with the
+  staged driver, as `inputs-before.sha256` records): every committed route
+  in both Beetle modes with the documented commands. All 44 runs pass with
+  every press and shot on its frame; three passed on the script's one retry
+  after a late shot (first attempts in `failed/`; see the observations). The
+  save image, psx-beetle and the driver are unchanged
+  (`inputs-after.sha256`), and nothing is left listening on 4382. Round 2
+  changes only this file and the tests, so the batch covers its driver too.
+  Round 3's driver ran a new batch (`r3/chain.sh` after the mutations;
+  `r3/beetle_routes.sh` / `r3/beetle_routes.log`, 05:21:36 to 06:08:58):
+  all 44 runs pass with every press and shot on its frame, none needing the
+  retry, at one-minute load averages from 3.39 to 25.26 (`r3/host-load.log`,
+  48 samples); the inputs, the driver among them, are unchanged and nothing
+  is left listening on 4382.
+- `batch_compare.py` / `batch_compare.log`: against Phase 4 change 1's third
+  batch (`.cache/evidence/phase4-1/batch3/beetle-routes/`), 1,368
+  screenshots, 88 cards and 44 `result.json` files are byte-identical and
+  `beetle.log` is identical in all 44 runs: no difference. Round 3's batch
+  gives the same comparison, line for line (`r3/batch_compare.log`).
+- `checks-p6-1.sh` / `.log` (round 1's staged tree; its first run,
+  `checks-p6-1-first.log`, found this bullet's placeholder, a short line
+  left by a reflow, and the hang and the mutation differences above): only
+  the four files change; the `AGENTS.md` words differ from HEAD only by the
+  inserted "a ping fails"; the handoff's header, its overall paragraph up to
+  the added Phase 6 sentence, its Phase 0 to Phase 5 change 7 sections and
+  its review state up to change 8's round 3 entry equal HEAD; no
+  placeholder, doubled blank line, heading without a blank line before it,
+  added line over 80 columns, new reflow leftover or local path; the three
+  gates pass, the pins equal `framework_pins.txt` and the submodules are
+  clean (psxrecomp's ignored `overlay_codegen_hash.h` as before). The lines
+  the observations cite print as quoted: the base driver's subtraction and
+  unchecked ping, psx-beetle's ping handler and its dispatcher's two
+  errors, the scripts' signal handlers and `stop()`, `subprocess.py`'s lock
+  lines, `traps.c`'s comment and `trap_crash` call, `psx_fatal_halt`'s two
+  ends and the doc's mentions of the clear time. pyflakes is clean; the
+  four test files pass (16, 17, 5 and 61 tests) with nothing left behind;
+  the regression, the batch comparison and the audit's three `zone_data.py`
+  probes reproduce their logs; every mutation is caught, each at least
+  through the tests `mutations.log` records for it (`mutation_compare.py`;
+  with no ping checked, `test_output_directory_rules` also failed, see the
+  observations), and no mutated driver is left running; `lock_leak.py`,
+  run again, again leaves the lock held and hangs in `wait()`. The batch
+  log shows 47 runs: the 44 passes, every press on its frame, and the three
+  first attempts the script ran again; its inputs are unchanged and the
+  driver it hashed is the staged one. Nothing listens on 4370 to 4389, and
+  `git diff --cached --check` is clean.
+- `r2/checks-p6-1-r2.sh` / `.log` (round 2's staged tree): round 1's
+  checks, with the regression and mutation logs taken from `r2/`, plus the
+  delta from round 1's tree (rebuilt from `snapshot/index-entries.txt`):
+  only this file and the tests changed, and the driver and `AGENTS.md`
+  equal round 1's. All pass: the four test files (17, 17, 5 and 61 tests)
+  with nothing left behind; the regression and the mutations reproduce
+  `r2/`'s logs (the mutations by what must hold); the lines the
+  observations cite print as quoted, now also the frame `h_ping` always
+  sends, `run_route.finish()` with a missing frame, the signals the scripts
+  handle and the fake's frame clock; round 1's final checks run differs
+  from `mutations.log` only by the extra failing test; the three
+  `zone_data.py` probes reproduce their log, the iso probe now writing in
+  the checks' scratch; and the saved report equals the reviewer's message.
+- `r3/checks-p6-1-r3.sh` / `.log` (round 3's staged tree; its first run,
+  `r3/checks-p6-1-r3-first.log`, caught every mutation, but its unmutated
+  copy failed one test and its comparison required the extra failures
+  `r3/mutations.log` holds, which led to `r3/mutations-expected.log` and
+  the unmutated copy's reruns; it also found the saved round-2 report
+  without its final newline, now added as in `review-r1.md`): round 2's
+  checks, with the regression, mutation and batch evidence taken from
+  `r3/`, plus the delta from round 2's tree (rebuilt from
+  `r2/snapshot/index-entries.txt`): only this file, the driver and its
+  tests changed, and `AGENTS.md` equals rounds 1 and 2's. All pass. The
+  driver tests run up to three times until one run passes, every run
+  printed, since a run can fail with a late event; the other three test
+  files pass, and nothing is left behind. The regression run gives every
+  failure `r3/regression.log` records, with the same reason
+  (`r3/regression_compare.py`, which lists extra failures but allows them).
+  Every mutation is caught, each at least through the tests
+  `r3/mutations-expected.log` names for it, and the saved
+  `r3/mutations.log` meets the same reference. The lines the observations
+  cite print as quoted, the staged driver's moved line numbers among them.
+  Round 3's batch shows 44 passes, every press on its frame, unchanged
+  inputs and the staged driver, and its outputs equal the third batch's.
+  Both saved review reports equal the reviewer's messages, and
+  `git diff --cached --check` is clean.
 
 ## Hypotheses and unknowns
 
@@ -905,10 +1106,14 @@ hidden test package. Play by hand is still the user's.
   `psxrecomp/recompiler/src/strict_translator.cpp:1061`, word stores at
   `:1240`), but they call `psx_unaligned_access`
   (`psxrecomp/runtime/src/traps.c:1090`), which halts the run through
-  `trap_crash` (`:211-218`) rather than raise the guest's exception.
-  Whether stock play ever makes such a load is unknown. A fix would be a
-  framework change, arriving through a reviewed pin bump; it is recorded
-  here for later, not pursued.
+  `trap_crash` (`:211-218`) rather than raise the guest's exception, though
+  its own comment calls the fault survivable (`:1091`): `trap_crash` calls
+  `psx_fatal_halt`, which exits or, with a debug listener, serves
+  post-mortem queries forever (`psxrecomp/runtime/src/crash_trace.c:848-885`).
+  An upstream report should mention that contradiction too (change 8's
+  round 3 suggestion 1). Whether stock play ever makes such a load is
+  unknown. A fix would be a framework change, arriving through a reviewed
+  pin bump; it is recorded here for later, not pursued.
 
 ## Review and commit state
 
@@ -1162,29 +1367,84 @@ hidden test package. Play by hand is still the user's.
   the round-2 checks matched the saved log except at the saved-report
   step, where `r2/review_text.py` read the session's newest message, by
   then one of the reviewer's round-2 messages, and raised IndexError.
-- Phase 5 change 8, round 3: pending delta re-review.
+- Phase 5 change 8, round 3: PASS on tree `0f3cf66` (staged diff
+  `5ca2fc2c…`) with no findings, from the same reviewer, which re-ran the
+  round-3 checks (its log byte-identical), re-read every 333 in the doc,
+  read the sound-bank table from the EXE, and corrected its own round-2
+  report (S8 is the 7TH ZONE's directory, as the doc says). Commit
+  `141aee4`, pushed to the private `origin/master`. Report:
+  `phase5-8/r3/review-r3.md` (session message 1473). Its two suggestions
+  are taken up in Phase 6 change 1: the framework observation in the
+  hypotheses now notes that `psx_unaligned_access`'s comment calls the
+  fault survivable while the function halts the run; and the round-3
+  checks bullet's "both doc mentions of the clear time give its unit" was
+  loose (the doc names the unit, 1/30 s, in "Scenes and files" and "The
+  campaign", while step 5 gives the time as 333 and 0:11.10), which the
+  condensed change 8 section, replacing that bullet, no longer says.
+- Phase 6 change 1, round 1: NEEDS CHANGES on tree `6915986` (staged diff
+  `7ee8f7d7…`), from a fresh read-only reviewer that found the fix, its
+  tests and `AGENTS.md` correct: it re-ran the tests, the regression, the
+  mutations and the batch comparison (all as recorded), hashed the batch's
+  outputs itself, and made three Beetle runs of its own, identical to the
+  third batch once the output directory and port were normalised. Report:
+  `phase6-1/review-r1.md` (session message 865). Two Low findings, both in
+  this file: F1, the record of the checks' final run left out the extra
+  failing test its log shows and said the extra failures happened once; F2,
+  nothing recorded that the audit's second proposal, a missing frame in
+  `finish()`, was left out. Round 2 records both (observations).
+  Suggestions 1 (no test failed a lone ping, so a mutation that skips
+  `ping_frame` in `Beetle.frame()` passed), 2 (the per-ping wording), 3
+  (Ctrl-C opens the hang's window too) and 4 (the iso probe wrote outside
+  the checks' scratch) are adopted; 5 (`ping_frame` refusing a reply
+  without an integer frame) changes the driver, so round 2 left it, with
+  F2's proposal, to the route-scripts change, which runs every route in
+  both Beetle modes anyway.
+- Phase 6 change 1, round 2: NEEDS CHANGES on tree `32da4f3` (staged diff
+  `91c5cbc9…`), from the same reviewer, which found both round-1 findings
+  and suggestions 1 to 4 landed and re-ran the round-2 checks (its log as
+  recorded, but for timings). Report: `phase6-1/r2/review-r2.md` (session
+  message 1128). One Low finding: the F2 bullet said an ok ping reply
+  without a usable frame still ended in a traceback, as at the base, but a
+  missing frame sent with only a press failed cleanly at the base and
+  raised a KeyError in rounds 1 and 2 (the reviewer ran both drivers on all
+  six such replies). Round 3 makes `ping_frame` refuse those replies
+  instead (changes). Its suggestions: 1 (only `ping_frame` refusing a reply
+  without an integer frame turns all six into clean failures) is what round
+  3 does; 2 ("failed spuriously under load" stated as fact what the
+  observations call a hypothesis) and 3 (the reviewer's three Beetle runs
+  matched the third batch only once the output directory and port were
+  normalised) are applied.
+- Phase 6 change 1, round 3: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Then the code-quality work the user chose
-after an independent audit of the committed code
-(`.cache/evidence/code-quality/audit-r1.md`), in this order, each step its
-own reviewed change: the Beetle driver's traceback when the ping sent with
-a press or shot fails; `zone_data.py`'s cleanups (named record types,
-opcodes and format offsets, smaller functions), which must leave every
-dump, `list`, `check` and package byte-identical; its three fixes
-(register values traced across a join, a "calls nothing" note for a
-callback that returns before the formation it starts, a traceback on a
-malformed directory record); one module for what the two route scripts
-share, with smaller `main()` functions; test helpers; names for the C
-plugins' registers. For new zones (the doc's section 6, step 5), the
-candidates: a plugin that gives index 23 a name (required, see the
-hypotheses), a result record that overwrites nothing, a results screen and
-music; or a new zone in an existing zone's slot, a new file reached
-through a new directory record as in the spike's case A, which keeps that
-slot's name, results and music. Either way, the zone's own code means
-cloning an existing zone's code with new tables, which needs a MIPS
-toolchain and a map of the EXE functions that zones call. For zone data:
+After a PASS: commit and push. Then the rest of the code-quality work the
+user chose (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives
+the order and section 5 what must not change), each step its own reviewed
+change: `zone_data.py`'s cleanups (named record types, opcodes and format
+offsets, smaller functions), which must leave every dump, `list`, `check`
+and package byte-identical, so first record those outputs from HEAD's tool
+as a baseline; its three fixes (register values traced across a join, a
+"calls nothing" note for a callback that returns before the formation it
+starts, a traceback on a malformed directory record; the probes in
+`code-quality/probes/` reproduce each); one module for what the two route
+scripts share, with smaller `main()` functions (then every route in the
+three runtime modes and the two Beetle modes); test helpers (the driver
+tests' fake psx-beetle runs its frames on a free 300 Hz clock, so while the
+host is busy a test now and then fails with a late event, see the
+observations; the fake could wait for the driver except in the tests about
+lateness, and `test_output_directory_rules` should print the driver's
+output when a run fails); names for the C plugins' registers (the same
+object code). For new zones (the doc's section 6, step 5), the candidates:
+a plugin that gives index 23 a name (required, see the hypotheses), a
+result record that overwrites nothing, a results screen and music; or a
+new zone in an existing zone's slot, a new file reached through a new
+directory record as in the spike's case A, which keeps that slot's name,
+results and music. Either way, the zone's own code means cloning an
+existing zone's code with new tables, which needs a MIPS toolchain and a
+map of the EXE functions that zones call. New models
+or textures need the OMD model format decoded first (the doc's section 7);
+the Blender MCP server is set up for making them. For zone data:
 how the ten timeline zones without formations place their enemies; other
 enemies in a formation (code); rating thresholds; a remix checked against
 psx-beetle with a patched disc image. Branching follow-ups stay open:
@@ -1194,6 +1454,15 @@ their own code; a committed feature-on route (a runner option for a run
 directory with its own `mods/state.toml`); a whole campaign with instant
 clears, which would also show whether the spike's post-credits halt
 happens with every zone loaded.
+
+The checks also found a hang outside the audit, in both route scripts
+(observations), and where its fix goes in that order is the user's call.
+One way to fix it: the signal handlers, SIGINT's too, only record the
+signal, and the scripts' loops raise SystemExit when they see it, so no
+exception starts inside `Popen.poll()`; `test_sigterm_stops_beetle` should
+also kill a driver that outlives its wait, as the runner's test does. Like
+any change to those scripts, it needs their tests and every route in the
+three runtime modes and the two Beetle modes.
 
 The user can play Crossfire: start a session with `play/play.sh <session
 dir> <SCPH-1001 dump>` (in `.cache/evidence/phase4-2/`), press "Install
@@ -1221,3 +1490,7 @@ open upstream; any fix arrives through a reviewed pin bump. Independent
 changes: harvesting misses with `psxrecomp/tools/collect_game_misses.py`
 (none so far); finding why Beetle reaches screens later than psx-runtime
 (for example by comparing when each CD read completes).
+
+The host's clang is now 23.1.3 and its Python 3.14.8, where `AGENTS.md` says
+23.1.1 and 3.14.7. Refresh that line with the next rebuild, after checking
+whether emitters built with the newer clang change the static shard's audit.
