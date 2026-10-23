@@ -529,27 +529,28 @@ def loaded(code, start, index, reg):
 
 
 def difficulty_branches(code, graph, entry):
-    """{word index: taken while the word is zero} for each beqz or bnez in
-    graph, flow()'s from word entry, on a register that its basic block
-    loaded from the difficulty word. A basic block starts at entry and at
-    every word that a jump, branch or call leads to."""
-    starts = {entry} | {n for i, nxt in graph.items() if control(code[i]) for n in nxt}
+    """{word index: taken while the difficulty word is zero} for each beqz or
+    bnez in graph, flow()'s from word entry, on a register that its basic
+    block loaded from the difficulty word. A basic block starts at entry and
+    at every word that a jump, branch or call leads to."""
+    starts = {entry} | {target for i, successors in graph.items() if control(code[i])
+                        for target in successors}
     taken_while_zero = {}
     for i in graph:
         word = code[i]
         if opcode(word) in (BEQ, BNE) and rt(word) == ZERO and rs(word) != ZERO:
-            block = max((s for s in starts if s <= i), default=i)
-            if loaded(code, block, i, rs(word)) == DIFFICULTY:
+            block_start = max((s for s in starts if s <= i), default=i)
+            if loaded(code, block_start, i, rs(word)) == DIFFICULTY:
                 taken_while_zero[i] = opcode(word) == BEQ
     return taken_while_zero
 
 
-def reach(graph, entry, call, branches, word_is_zero):
-    """(reaches, avoids) for the paths through graph from word entry while
-    the difficulty word is zero or not: whether a path reaches word call, and
-    whether one ends without reaching it. A path stops at call, and each
-    branch in branches (difficulty_branches()) goes only the way the word
-    sends it."""
+def reach(graph, entry, call, branches, difficulty_is_zero):
+    """(reaches, avoids) for the paths through graph from word entry, with the
+    difficulty word zero if difficulty_is_zero, else non-zero: whether a path
+    reaches word call, and whether one ends without reaching it. A path stops
+    at call, and each branch in branches (difficulty_branches()) goes only
+    the way the difficulty word sends it."""
     reaches = avoids = False
     todo, seen = [entry], set()
     while todo:
@@ -562,7 +563,8 @@ def reach(graph, entry, call, branches, word_is_zero):
             continue
         successors = graph.get(i, [])
         if i in branches:
-            taken = branches[i] == word_is_zero
+            # flow() lists a branch's target, then the word after its delay slot.
+            taken = branches[i] == difficulty_is_zero
             successors = successors[:1] if taken else successors[1:]
         avoids = avoids or not successors
         todo += successors
@@ -579,8 +581,8 @@ def gate(code, entry, call):
     once non-zero."""
     graph = flow(code, entry)
     branches = difficulty_branches(code, graph, entry)
-    reaches_zero, avoids_zero = reach(graph, entry, call, branches, word_is_zero=True)
-    reaches_nonzero, avoids_nonzero = reach(graph, entry, call, branches, word_is_zero=False)
+    reaches_zero, avoids_zero = reach(graph, entry, call, branches, difficulty_is_zero=True)
+    reaches_nonzero, avoids_nonzero = reach(graph, entry, call, branches, difficulty_is_zero=False)
     if not (avoids_zero or avoids_nonzero):
         return None
     if reaches_zero and not avoids_zero and not reaches_nonzero:
@@ -826,14 +828,14 @@ def parse(text, source):
     return doc
 
 
-def build(blob, doc, source):
-    """The zone file with the dump's table and formations written in place."""
-    if len(blob) != doc["size"] or hashlib.sha256(blob).hexdigest() != doc["sha256"]:
-        raise ZoneError(f"{source}: {doc['file']} on this disc is not the file the dump"
-                        " was read from")
-    stock_layout = layout(blob)
-    stock = stock_layout.timeline
-    timeline = doc["timeline"]
+def write_timeline(out, stock, timeline, source):
+    """Check a dump's [timeline] against the stock Timeline and write it over
+    that table in out, the zone file as a bytearray. The table keeps its
+    address and slots; each wave uses one of the stock table's callbacks;
+    entry 0 must be a wave, because the runner's constructor calls it
+    without checking; the end entry follows the waves, unless end is false,
+    which fits only a stock table without one and with every slot used.
+    Slots left over become zero words."""
     if timeline["address"] != stock.address or timeline["slots"] != stock.slots:
         raise ZoneError(f"{source}: address and slots must stay 0x{stock.address:08X} and"
                         f" {stock.slots}")
@@ -856,29 +858,47 @@ def build(blob, doc, source):
         if len(entries) > stock.slots:
             raise ZoneError(f"{source}: {len(entries)} entries with the end entry; this table"
                             f" has {stock.slots} slots")
-    out = bytearray(blob)
     for n in range(stock.slots):
         ENTRY.pack_into(out, stock.address - BASE + ENTRY.size * n,
                         *(entries[n] if n < len(entries) else (0, 0)))
+
+
+def write_formations(out, stock, edits, source):
+    """Check a dump's formations against the stock Formations and write them
+    over those records in out. The dump must list each stock record once, by
+    address, and keep its numbers of steps and members, which the code that
+    passes it fixes; its position, angles, steps and member offsets are
+    written."""
+    by_address = {formation.address: formation for formation in stock}
+    if sorted(edit["address"] for edit in edits) != sorted(by_address):
+        raise ZoneError(f"{source}: formations must list each of this zone's records once: "
+                        + (", ".join(f"0x{a:08X}" for a in sorted(by_address))
+                           or "it has none"))
+    for edit in edits:
+        formation = by_address[edit["address"]]
+        if len(edit["steps"]) != formation.steps or len(edit["members"]) != formation.members:
+            raise ZoneError(f"{source}: formation 0x{formation.address:08X} must keep"
+                            f" {formation.steps} steps and {formation.members} members,"
+                            " which the code that passes it fixes")
+        PLACEMENT.pack_into(out, formation.address - BASE + POINTERS.size,
+                            *edit["position"], *edit["angles"])
+        for m, step in enumerate(edit["steps"]):
+            STEP_FIELDS.pack_into(out, formation.steps_at - BASE + STEP * m, *step["turn"],
+                                  step["speed"], step["ticks"], step["flags"])
+        for m, member in enumerate(edit["members"]):
+            OFFSET.pack_into(out, formation.members_at - BASE + MEMBER * m, *member)
+
+
+def build(blob, doc, source):
+    """The zone file with the dump's table and formations written in place."""
+    if len(blob) != doc["size"] or hashlib.sha256(blob).hexdigest() != doc["sha256"]:
+        raise ZoneError(f"{source}: {doc['file']} on this disc is not the file the dump"
+                        " was read from")
+    stock_layout = layout(blob)
+    out = bytearray(blob)
+    write_timeline(out, stock_layout.timeline, doc["timeline"], source)
     if "formations" in doc:
-        stock_formations = {formation.address: formation for formation in stock_layout.formations}
-        if sorted(edit["address"] for edit in doc["formations"]) != sorted(stock_formations):
-            raise ZoneError(f"{source}: formations must list each of this zone's records once: "
-                            + (", ".join(f"0x{a:08X}" for a in sorted(stock_formations))
-                               or "it has none"))
-        for edit in doc["formations"]:
-            formation = stock_formations[edit["address"]]
-            if len(edit["steps"]) != formation.steps or len(edit["members"]) != formation.members:
-                raise ZoneError(f"{source}: formation 0x{formation.address:08X} must keep"
-                                f" {formation.steps} steps and {formation.members} members,"
-                                " which the code that passes it fixes")
-            PLACEMENT.pack_into(out, formation.address - BASE + POINTERS.size,
-                                *edit["position"], *edit["angles"])
-            for m, step in enumerate(edit["steps"]):
-                STEP_FIELDS.pack_into(out, formation.steps_at - BASE + STEP * m, *step["turn"],
-                                      step["speed"], step["ticks"], step["flags"])
-            for m, member in enumerate(edit["members"]):
-                OFFSET.pack_into(out, formation.members_at - BASE + MEMBER * m, *member)
+        write_formations(out, stock_layout.formations, doc["formations"], source)
     return bytes(out)
 
 
@@ -891,12 +911,9 @@ def number(value):
         return False
 
 
-def parse_recipe(text, source):
-    """Read and check a remix recipe's values."""
-    try:
-        doc = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
-        raise ZoneError(f"{source}: {exc}")
+def check_recipe_header(doc, source):
+    """Check a recipe's keys and the package it names: its format, id,
+    version, name (not empty) and description, and that it lists a zone."""
     expect_keys(doc, {"format", "id", "version", "name", "description", "zones"}, source)
     if not (integer(doc["format"]) and doc["format"] == REMIX):
         raise ZoneError(f"{source}: format must be {REMIX}")
@@ -909,52 +926,84 @@ def parse_recipe(text, source):
     check_package(doc["id"], doc["version"], f"{source}: id", f"{source}: version")
     if not isinstance(doc["zones"], list) or not doc["zones"]:
         raise ZoneError(f"{source}: zones must list at least one zone")
-    seen = set()
+
+
+def zone_folder(edits, where):
+    """The folder that one of a recipe's zone tables names, in upper case,
+    once the table's keys and the name check."""
+    if not isinstance(edits, dict):
+        raise ZoneError(f"{where}: expected a table")
+    expect_keys(edits, {"zone"} | (edits.keys() & {"waves", "formations"}), where)
+    if not (isinstance(edits["zone"], str) and re.fullmatch(r"[A-Za-z0-9]+", edits["zone"])):
+        raise ZoneError(f'{where}: zone must name a zone\'s folder, such as "S1"')
+    return edits["zone"].upper()
+
+
+def check_wave_edits(waves, where):
+    """Check a recipe zone's new timeline: each wave is a stock wave's
+    number, with a delay in ticks, "clear" or "stock"."""
+    if not isinstance(waves, list):
+        raise ZoneError(f"{where}: waves must be a list")
+    for m, wave in enumerate(waves):
+        expect_keys(wave, {"wave", "delay"}, f"{where} wave {m}")
+        if not (integer(wave["wave"]) and wave["wave"] >= 0):
+            raise ZoneError(f"{where} wave {m}: wave must be a stock wave's number, 0 or more")
+        delay = wave["delay"]
+        if delay not in ("clear", "stock") and not in_range(delay, TICK_COUNT):
+            raise ZoneError(f'{where} wave {m}: delay must be a tick count of 0 or more,'
+                            ' "clear" or "stock"')
+
+
+def check_formation_edits(edits, where):
+    """Check a recipe zone's formation edits: each names a record by its
+    address, once, and holds only the edits reshape() applies."""
+    if not isinstance(edits, list):
+        raise ZoneError(f"{where}: formations must be a list")
+    addresses = set()
+    for m, edit in enumerate(edits):
+        at = f"{where} formation {m}"
+        if not isinstance(edit, dict) or "address" not in edit:
+            raise ZoneError(f"{at}: expected a table with an address")
+        expect_keys(edit, {"address"} | (edit.keys() & EDITS), at)
+        if not in_range(edit["address"], U32):
+            raise ZoneError(f"{at}: address must be an address")
+        if edit["address"] in addresses:
+            raise ZoneError(f"{where}: formation 0x{edit['address']:08X} is listed twice")
+        addresses.add(edit["address"])
+        check_edit_values(edit, f"{where} formation 0x{edit['address']:08X}")
+
+
+def check_edit_values(edit, at):
+    """Check the values of the spread, pace, yaw and move a formation edit has."""
+    if "spread" in edit and not (number(edit["spread"]) and edit["spread"] > 0):
+        raise ZoneError(f"{at}: spread must be a number above 0")
+    if "pace" in edit and not (number(edit["pace"]) and edit["pace"] > 0):
+        raise ZoneError(f"{at}: pace must be a number above 0")
+    if "yaw" in edit and not number(edit["yaw"]):
+        raise ZoneError(f"{at}: yaw must be a number of degrees")
+    if "move" in edit and not integers(edit["move"], 3, S32):
+        raise ZoneError(f"{at}: move must be three 32-bit integers")
+
+
+def parse_recipe(text, source):
+    """Read and check a remix recipe's values. The result is the recipe with
+    each zone's folder in upper case."""
+    try:
+        doc = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ZoneError(f"{source}: {exc}")
+    check_recipe_header(doc, source)
+    zones, seen = [], set()
     for n, edits in enumerate(doc["zones"]):
-        where = f"{source} zone {n}"
-        if not isinstance(edits, dict):
-            raise ZoneError(f"{where}: expected a table")
-        expect_keys(edits, {"zone"} | (edits.keys() & {"waves", "formations"}), where)
-        if not (isinstance(edits["zone"], str) and re.fullmatch(r"[A-Za-z0-9]+", edits["zone"])):
-            raise ZoneError(f'{where}: zone must name a zone\'s folder, such as "S1"')
-        edits["zone"] = edits["zone"].upper()
-        if edits["zone"] in seen:
-            raise ZoneError(f"{source}: zone {edits['zone']} is listed twice")
-        seen.add(edits["zone"])
-        where = f"{source} zone {edits['zone']}"
-        if not isinstance(edits.get("waves", []), list):
-            raise ZoneError(f"{where}: waves must be a list")
-        for m, wave in enumerate(edits.get("waves", [])):
-            expect_keys(wave, {"wave", "delay"}, f"{where} wave {m}")
-            if not (integer(wave["wave"]) and wave["wave"] >= 0):
-                raise ZoneError(f"{where} wave {m}: wave must be a stock wave's number, 0 or more")
-            delay = wave["delay"]
-            if delay not in ("clear", "stock") and not in_range(delay, TICK_COUNT):
-                raise ZoneError(f'{where} wave {m}: delay must be a tick count of 0 or more,'
-                                ' "clear" or "stock"')
-        if not isinstance(edits.get("formations", []), list):
-            raise ZoneError(f"{where}: formations must be a list")
-        addresses = set()
-        for m, edit in enumerate(edits.get("formations", [])):
-            at = f"{where} formation {m}"
-            if not isinstance(edit, dict) or "address" not in edit:
-                raise ZoneError(f"{at}: expected a table with an address")
-            expect_keys(edit, {"address"} | (edit.keys() & EDITS), at)
-            if not in_range(edit["address"], U32):
-                raise ZoneError(f"{at}: address must be an address")
-            if edit["address"] in addresses:
-                raise ZoneError(f"{where}: formation 0x{edit['address']:08X} is listed twice")
-            addresses.add(edit["address"])
-            at = f"{where} formation 0x{edit['address']:08X}"
-            if "spread" in edit and not (number(edit["spread"]) and edit["spread"] > 0):
-                raise ZoneError(f"{at}: spread must be a number above 0")
-            if "pace" in edit and not (number(edit["pace"]) and edit["pace"] > 0):
-                raise ZoneError(f"{at}: pace must be a number above 0")
-            if "yaw" in edit and not number(edit["yaw"]):
-                raise ZoneError(f"{at}: yaw must be a number of degrees")
-            if "move" in edit and not integers(edit["move"], 3, S32):
-                raise ZoneError(f"{at}: move must be three 32-bit integers")
-    return doc
+        folder = zone_folder(edits, f"{source} zone {n}")
+        if folder in seen:
+            raise ZoneError(f"{source}: zone {folder} is listed twice")
+        seen.add(folder)
+        where = f"{source} zone {folder}"
+        check_wave_edits(edits.get("waves", []), where)
+        check_formation_edits(edits.get("formations", []), where)
+        zones.append({**edits, "zone": folder})
+    return {**doc, "zones": zones}
 
 
 def reshape(formation, edit, where):
