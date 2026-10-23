@@ -10,30 +10,38 @@ request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure. Phase 6,
 also the user's choice, works through an independent audit of the committed
 code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and
-readability cleanups, each its own small reviewed change.
+readability cleanups, each its own small reviewed change. Phase 7, the
+user's request, is mouse and keyboard controls like those of modern space
+shooters: the mouse steers without a held button, W, A, S and D move, Q
+scans, the left button held is the lock-on lasers, the right button the
+machine-gun lasers, and Enter pauses. It starts with a framework fix, one
+commit on `8077e71` in a fork, since on Linux the runtime never read
+`keybinds.ini`.
 
-Current iteration, Phase 6 change 5, round 1: the rest of the audit's step 6
-(finding 7), `package()` in `scripts/zones/zone_data.py` taking its
-descriptive text from its callers. Invariant: `package()` no longer changes
-what it requires by its `description` argument (with none it took exactly
-one zone, and any other list would have ended in an uncaught `ValueError`;
-no caller passed one). It takes a list of `Overlay`s, each zone's part of a
-package, and as keywords the image's sha256, the manifest's opening comment
-lines, the package's id, version, name and description, and its feature's
-description, and writes the manifest and the zip. `cmd_package()` and
-`cmd_remix()` make their overlays with `zone_overlay()` and their text with
-`dump_package_texts()` and `remix_package_texts()`. Change 4's review
-suggestions name `write_formations()`'s parameter `formations`, reword
-`zone_folder()`'s docstring and put `check_edit_values()` before its caller.
-Nothing the tool does changes: the 142 outputs of the baseline, its packages
-among them, come out byte-identical, the 61 tests pass unchanged, and HEAD's
-tool and the new one give the same result on the same generated inputs,
-among them 1,400 runs of the package command and 1,600 of the remix command.
-This file records change 4's round 1 PASS and commit `2d1b9da`, condenses
-change 4 and takes up its review's suggestions on wording. Baseline:
-`2d1b9da`. Out of scope: modules for the disc reader and the MIPS analysis,
-the audit's three `zone_data.py` fixes, the route scripts, the tests, the C
-plugins, the framework and submodules.
+Current iteration, Phase 7 change 1, round 1: the runtime reads
+`keybinds.ini` from the executable's directory (psxrecomp #752).
+`psx_keybinds_init()` takes a last path component without a dot for a
+directory, so given argv[0] of an executable without an extension, as on
+Linux, it used `<executable>/keybinds.ini`: it never wrote its defaults and
+never loaded the file, so no layout there, the launcher's or one written by
+hand, took effect. Invariant: a windowed run of `Omega_Thrust` writes the
+default `keybinds.ini` beside itself when there is none and otherwise loads
+it, so a key bound there drives the pad; nothing else that the runtime, the
+generated code or psx-beetle does changes. The fix is one commit, `898d834`,
+on branch `omega-thrust/keybinds-beside-exe` from the pinned `8077e71` in
+the fork pwnedbygary/psxrecomp, which `.gitmodules` now names: it gives
+`psx_keybinds_init()` the directory that `exe_dir_from_argv()` gives
+`input.ini`, ending in a separator. The pin moves to it, `framework_pins.txt`
+follows, and `AGENTS.md` records the fork, the rule for such fixes, the files
+a windowed run writes and the new line numbers in `main.cpp`. Running
+`generate`, the first time with the host's clang 23.1.3, rebuilt the
+emitters and the static shard: the C came out the same and only the shard's
+audit changed, which this change commits with `AGENTS.md`'s toolchain line,
+as the last next action planned. This file records change 5's round 1 PASS
+and commit `de447ef`, condenses change 5 and takes up its review's
+suggestions on wording. Baseline: `de447ef`. Out of scope: mouse aim and the
+key layout (the next change), any other framework change, the game's code
+and the tools.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -748,126 +756,166 @@ differential reports 327 and 642 differences for them. Review: round 1 PASS
 on tree `b8ac937` (staged diff `d8707c71…`). The full record is in
 `git show 2d1b9da:.agent/HANDOFF.md`.
 
-## Phase 6 change 5 observations (`.cache/evidence/phase6-5/`)
+## Phase 6 change 5 (commit `de447ef`)
 
-- HEAD's `package(zones, image, image_sha256, pkg_id, version, name,
-  description=None)` wrote both commands' text and chose between them by
-  `description`: with none it wrote the package command's text and took
-  exactly one zone (`[zone] = zones`), so any other list would have ended
-  in an uncaught `ValueError`; no caller passed one (the audit's finding 7).
-  It returned the manifest and the overlays' files, which each caller then
-  zipped. Now `package()` writes only the manifest's fixed lines and the
-  overlays and returns the zip, and its callers pass the text:
-  `dump_package_texts()` says what a dump edits (its timeline, and its
-  formations if the zone has any) and `remix_package_texts()` lists a recipe's
-  zones and regions. An `Overlay` (a `ZoneEdit` and the span `build()` may
-  change) gives the texts the zone's label and region, and `package()` the
-  payload and the stock bytes it replaces, all of which `package()` worked out
-  inline before. Both feature descriptions end with `disc_note()`'s sentence.
-- With the new tool, `zone_baseline.sh` gives the 142 outputs of
-  `baseline-head/` (`baseline.log`). Its 22 packages are the stock S1 dump's,
-  one for each dump kept under `.cache/zones/` (stock and edited) and one
-  for each committed recipe, so the package command's text for zones with
-  and without formations, and the remix command's for four zones, come out
-  byte-identical.
-- No comparison ran either command before. This change's `differential.py`
-  keeps change 2's to 4's checks first, unchanged and drawing the same
-  random numbers (its lines for them equal change 4's log), then runs each
-  command with HEAD's tool and the new one and compares the outcome (the
-  result, or the exception's class and message), what it printed and the
-  sha256 of the package it wrote: the package command on 100 random edits
-  of each timeline zone's dump with a random `--id`, `--name` and
-  `--version`, some of which it refuses, and the remix command on 1,000 of
-  change 4's random recipes and 600 recipes of the disc's own waves and
-  formation records. On 600,161 inputs it finds no difference
-  (`differential.log`). Of the package runs, 311 write a package (73 for
-  zones with formations, 238 without) and 1,089 are refused; of the remix
-  runs, 591 write a package (293 of one zone, 98 of two, 98 of three, 102
-  of four) and 1,009 are refused.
-- `mutations.py` plants 28 bugs in the package code, one per run. The tests
-  fail for 14 (`mutations.log`), those that change the overlays, their
-  payloads or hashes, the zip's files, or what a command passes. They pass
-  for the other 14, each of which changes only the manifest's comments, the
-  description of a dump's package, the feature's description or the final
-  newline, text that no test reads. Planted in HEAD's `package()`, those 14
-  pass HEAD's tests too (`gaps_at_head.py`, `.log`), but each changes 1 to
-  22 of the baseline's 22 packages and makes this change's differential
-  report 73 to 902 differences, from the package runs, the remix runs or
-  both (`gaps_differential.py`, `.log`). Tests of the manifest's text
-  belong to the tests step (Next action).
-- Change 4's review suggestion 1 went into commit `2d1b9da`'s message; 2 to
-  4 are in the tool (`write_formations()`'s parameter named `formations`, so
-  that `edits` keeps to recipes; `zone_folder()`'s docstring;
-  `check_edit_values()` before its caller, as helpers come before their
-  callers elsewhere in the module); 5 is in this file.
+The rest of the audit's step 6 (finding 7). HEAD's `package()` wrote both
+commands' text and chose between them by its `description` argument: with
+none it took exactly one zone, so any other list would have ended in an
+uncaught `ValueError` (no caller passed one). Now `package(overlays, *,
+image_sha256, header, pkg_id, version, name, description, about)` writes the
+manifest around the text it is given and returns the zip;
+`dump_package_texts()` and `remix_package_texts()` write each command's
+text, and an `Overlay` (a `ZoneEdit` and the span `build()` may change, made
+by `zone_overlay()`) gives them the zone's label and region and gives
+`package()` the payload and the stock bytes it replaces. From change 4's
+review, `write_formations()`'s parameter is named `formations`,
+`zone_folder()`'s docstring reads more plainly, and `check_edit_values()`
+comes before its caller, as most helpers do. The 142 baseline outputs, 22
+packages among them, stayed equal to `baseline-head/`, the 61 tests passed
+unchanged, and change 4's differential found no difference. No differential
+ran either command before: `phase6-5/differential.py` keeps change 2's to
+4's checks, drawing the same random numbers, and runs each command with
+HEAD's tool and the new one, comparing the outcome, what it printed and the
+package it wrote, on 1,400 package runs (100 random edits of each timeline
+zone's dump) and 1,600 remix runs (1,000 random recipes and 600 of the
+disc's own waves and formation records); on 600,161 inputs it found no
+difference. Of 28 bugs planted in the package code, the tests caught 14.
+The other 14 change only text that no test reads (the manifest's comments,
+a dump package's description, the feature's description, the final
+newline), and planted in HEAD's `package()` they pass HEAD's tests too
+(`gaps_at_head.py`). Planted in the new tool, each changes 1 to 22 of the
+baseline's 22 packages and makes the differential report 73 to 902
+differences (`gaps_differential.py`). Review: round 1 PASS on tree
+`68b11f3` (staged diff `28c13876…`). The full record is in
+`git show de447ef:.agent/HANDOFF.md`.
 
-## Phase 6 change 5 changes
+## Phase 7 change 1 observations (`.cache/evidence/phase7-1/`)
 
-- `scripts/zones/zone_data.py`: `Overlay(zone, start, stop, formations)`, a
-  named tuple whose properties give the zone's folder, the package's file
-  for it (`member`), the `payload` and the stock bytes it replaces
-  (`replaced`), the zone's `label` and its `region`, made by
-  `zone_overlay(zone)`; `package(overlays, *, image_sha256, header, pkg_id,
-  version, name, description, about)`, which writes the manifest around the
-  text it is given and returns the zip; `disc_note(image)`,
-  `dump_package_texts(overlay, image)` and `remix_package_texts(overlays,
-  image)`, which write that text; and `cmd_package()` and `cmd_remix()`,
-  which call them and print what they printed before. From change 4's
-  review: `write_formations(out, stock, formations, source)`,
-  `zone_folder()`'s docstring, and `check_edit_values()` moved above
-  `check_formation_edits()`. Nothing else changes.
-- `.agent/HANDOFF.md`: the scope; change 4 condensed, with its review's
-  suggestions on wording taken up (change 2's range check tried every
-  combination of its edge values in one recipe; the one message nothing
-  reaches; the "(Derived)" label on what no caller could see); change 3's
-  round 1 entry names commit `1bc1394`; these sections; the review state;
-  the next action.
-- Untracked (ignored): `.cache/evidence/phase6-5/` (the baseline and
-  differential logs; `differential.py`, `mutations.py`, `gaps_at_head.py`
-  and `gaps_differential.py` with their logs; the checks, the snapshot and
-  the review) and `.cache/evidence/phase6-4/review-r1.md`.
+- At `8077e71`, `load_input_config()` (`psxrecomp/runtime/src/main.cpp:4875`,
+  windowed runs only; headless runs never call it) writes `input.ini` in the
+  directory that `exe_dir_from_argv()` gives (`:4879`) and passes argv[0] to
+  `psx_keybinds_init()` (`:4884`, `:4890`, `:4958`), as does the code that
+  runs when the rematch launcher returns (`:18397`). `derive_ini_path()`
+  (`psxrecomp/runtime/src/psx_keybinds.c:180-200`) takes a last path
+  component without a dot for a directory, so for `Omega_Thrust` it chose
+  `<executable>/keybinds.ini`, which cannot exist. Upstream's master,
+  `31df2e1`, has the same `derive_ini_path()` and `psx_keybinds_init()` and
+  still passes argv[0].
+- `.cache/evidence/upstream/keybinds_repro.py` (`.log`), windowed runs with
+  `--no-launcher` on a private Xvfb display: started as `Omega_Thrust`, the
+  runtime printed no `[Keybinds]` line and wrote no `keybinds.ini`, with or
+  without one beside it; started through a symlink named
+  `Omega_Thrust.x86_64`, it wrote the defaults and then loaded them.
+  Reported upstream as psxrecomp #752 with that reproduction
+  (`upstream/issue-4-posted.md`, `issue-4.url`).
+- `keybinds_check.py`, with `upstream/trial/keybinds-trial.ini` (W and Up
+  for Up, Left Ctrl for R1): with HEAD's build 4 of its 5 expectations fail,
+  and holding W gives the pad word `0xF7FF` (R1, W's default binding); with
+  the fix none fail: the runtime writes its defaults beside `Omega_Thrust`,
+  loads the file, and holding W gives `0xFFEF` (Up pressed, R1 released).
+  Through the symlinked name it loads the file both before and after.
+- Running `generate` with the new pin, the first time with the host's clang
+  23.1.3, removed `build-recompiler/` for the changed toolchain and rebuilt
+  the emitters and the static shard (`RESULT_STATIC=built`,
+  `generate.log`). Every tracked generated file came out byte-identical
+  except the audit, in which only `recompiler_sha256`, `recipe_input_sha256`
+  and `generation_inputs_sha256` changed; a second run reused the shard
+  (`generate2.log`).
+- psx-beetle built from the new pin (`beetle_rebuild.sh`, `.log`) has the
+  same sha256 as before, `63d0e568…`; its build compiles no `main.cpp`. No
+  framework test target compiles it either: the framework's build files list
+  `runtime/src/main.cpp` only among the game runtime's sources
+  (`psxrecomp/runtime/runtime.cmake:351`), so the framework's tests cannot
+  exercise the fix. Its two keybind tests, which the plan the user approved
+  named, build `psx_keybinds.c` and pass when built from the fork commit.
+- The helper adds nine lines before `load_input_config()`, so every line of
+  the fork's `main.cpp` from 4875 on sits nine lines later than at
+  `8077e71`. `AGENTS.md`'s citations of those lines are updated; this
+  file's earlier sections cite `8077e71`'s numbers and stay as records.
 
-## Phase 6 change 5 checks
+## Phase 7 change 1 changes
 
-- `python3 -B scripts/zones/test_zone_data.py`: 61 OK with the player's
-  disc, the test file unchanged; pyflakes is clean; no line in the tool is
-  over 99 columns.
-- `zone_baseline.sh` with the new tool (`baseline.log`): its 142 outputs and
-  their `SHA256SUMS` equal `baseline-head/`.
-- Change 4's `differential.py`: no difference, its log equal to change 4's.
-  This change's `differential.py` (`differential.log`): 600,161 inputs, no
-  difference.
-- `mutations.py` / `mutations.log`: the unmutated copy passes with nothing
-  skipped, and 14 of the 28 planted bugs fail the tests; `gaps_at_head.py` /
-  `.log` shows that the other 14 pass HEAD's tests too, and
-  `gaps_differential.py` / `.log` that each changes some of the baseline's
-  packages and makes `differential.py` report differences.
-- `checks-p6-5.sh` / `.log` (the staged tree): only `zone_data.py` and this
-  file change; the tool equals HEAD's outside the regions this change
-  touches (the `Overlay` class, `write_formations()`, `zone_folder()` to
-  `check_formation_edits()`, the package code from `archive()` to
-  `remix_package_texts()`, and `cmd_package()` and `cmd_remix()`), and
-  within them `write_formations()` differs only by its parameter's name,
-  `zone_folder()` only by its docstring, and `check_wave_edits()`,
-  `check_edit_values()`, `check_formation_edits()`, `toml_string()` and
-  `archive()` not at all; this file's header, overall paragraph, Phase 0 to
-  Phase 6 change 3 sections and review state up to change 3's round 1 entry
-  equal HEAD, and that entry's words differ only by the commit's name; no
-  placeholder, doubled blank line, heading without a blank line before it,
-  added line over 80 columns here or over 99 in the tool, new reflow
-  leftover or local path; the three gates pass, the pins equal
-  `framework_pins.txt` and the submodules are clean; change 4's round 1
-  report equals session message 916, and the change 4 figures this file
-  cites print as quoted; pyflakes; the four test files pass with nothing
-  left behind, the Beetle driver's within the three runs the script allows,
-  since the late event recorded under Phase 6 change 1 can fail a run while
-  the host is busy; `--help` of the tool and of each subcommand equals
-  HEAD's; the staged tool's 142 baseline outputs, and HEAD's, equal
-  `baseline-head/`; change 4's comparison and this change's, the audit's
-  three probes, the mutations and the two gap scripts reproduce their logs,
-  and this change's comparison's lines for change 2's to 4's checks equal
-  change 4's log; nothing listens on 4370 to 4389; and the staged diff has
-  no whitespace errors (`git diff --cached --check`). All pass.
+- `psxrecomp`: the gitlink moves from `8077e71` to `898d834`, the fork's
+  commit "Read keybinds.ini from the executable's directory", which changes
+  only `runtime/src/main.cpp` (13 lines added, 4 removed): a new
+  `init_keybinds_beside_exe(argv0)` passes `psx_keybinds_init()` the
+  directory from `exe_dir_from_argv()`, ending in a separator, and the four
+  calls that passed argv[0] call it instead. Its author and committer use the
+  GitHub account's no-reply address. The commit is on the branch
+  `omega-thrust/keybinds-beside-exe` of a scratch clone and in the
+  submodule's object store, not yet on the fork: a fresh clone fetches the
+  pinned commit from the fork, so after a PASS the branch is pushed before
+  this repository's commit. The nested pins do not change.
+- `.gitmodules`: `psxrecomp`'s URL is the fork's.
+- `framework_pins.txt`: `record_pins.sh`'s output for the new pin.
+- `generated/AOT_STATIC_AUDIT.json`: the three hashes above.
+- `AGENTS.md`: the pins table, and the rule for a framework fix in the fork,
+  which narrows "Never patch a submodule" to its checkout; the `generate`
+  paragraph on a new clang; what a windowed run with `--no-launcher` writes;
+  the four `main.cpp` citations past line 4875 moved by nine (each range's
+  text checked against `8077e71`'s); the host toolchain line (clang 23.1.3,
+  Python 3.14.8).
+- `.agent/HANDOFF.md`: the scope; change 5 condensed, with its review's
+  suggestions on wording taken up; these sections; the hypotheses; the
+  review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase7-1/` (the check and its logs,
+  the builds' logs and hashes, the `generate` logs, the Beetle rebuild, the
+  framework's keybind tests, the route batch, the fork commit's message, the
+  checks, the snapshot and the review), `.cache/evidence/upstream/` (the
+  reproduction, the issue's text and URL, the trial files) and
+  `.cache/evidence/phase7-trial/` (copies of the scratch mouse trial's
+  files, since a reboot empties `/tmp`).
+
+## Phase 7 change 1 checks
+
+- `keybinds_check.py` on a private Xvfb display: 4 of 5 expectations fail
+  with HEAD's `build-dev` (`keybinds_check-before.log`), none with the new
+  one (`keybinds_check-after.log`).
+- `cmake --build build-dev` and `build-release` (`build-dev.log`,
+  `build-release.log`): each compiled only `main.cpp`, with no warning; the
+  binaries' sha256 before and after are in `binaries-before.sha256` and
+  `binaries-after.sha256`.
+- `generate` (`generate.log`), again (`generate2.log`), and
+  `check_generated` (`check_generated.log`, exit 0): the generated tree as
+  above.
+- `beetle_rebuild.sh` (`beetle_rebuild.log`, `beetle-ninja.log`):
+  psx-beetle's sha256 unchanged, so the Beetle comparison cannot change and
+  no route ran on it again.
+- `fw_keybind_tests.sh` (`.log`): the framework's `keyboard_pad_chord_test`
+  and `mouse_binding_suppression_test`, built from the fork commit in
+  scratch, pass; no file they build differs from `8077e71`.
+- `routes.sh` (`routes.log`, 15:24 to 17:04): every committed route in the
+  three runtime modes with the documented commands on the new `build-dev`
+  (`ed2a01c7…`), the save image as `--card1` where a route declares it. All
+  66 runs passed with exit 0, start frames 11 to 146, 2,052 shots and none
+  failed, shots at most 17 frames late, and no unknown-dispatch or segment
+  miss (`routes_summary.log`); every replay reached its results screen in
+  every mode, 57 of 57 (`clear_time_check.log`); the card check found no
+  problem (`card_check.log`); the save image and the binary were unchanged
+  by the batch, `build-dev/mods/state.toml` enabled nothing, and nothing
+  listened on 4370 afterwards. Overlay instructions and rows equal Phase 5
+  change 3's batch in all 66 runs, and no run counted an `omega.*` write.
+  Headless runs never call `load_input_config()`, so the batch shows that
+  nothing else changed, not the fix.
+- `checks-p7-1.sh` / `.log` (the staged tree, after the batch): only the six
+  paths change; the gitlink names `898d834`, whose one parent is `8077e71`
+  and whose diff from it is the one in `main.cpp`; the nested pins are
+  unchanged, `.gitmodules` names the fork, and `record_pins.sh` prints
+  `framework_pins.txt`; the submodules are clean but for the ignored
+  `overlay_codegen_hash.h`; `AGENTS.md`'s four moved `main.cpp` ranges match
+  `8077e71`'s text nine lines earlier, and only the pins table's rows pass
+  80 columns, as they did before; this file's earlier sections and
+  review entries equal HEAD's, and it has no placeholder, local path or long
+  added line; the gates pass; in `generated/` only the audit changed, in its
+  three hashes, and the recompiler's sha256 is the audit's; the binaries are
+  the ones the batch ran; the keybinds check and the framework's keybind
+  tests pass again; psx-beetle's hash is unchanged; the batch's probe summary
+  reproduces and its overlay counters equal Phase 5 change 3's; the four test
+  files pass (5, 17, 61 and 18 tests), the Beetle driver's within the three
+  runs the script allows, with nothing left behind; change 5's report equals
+  session message 801; psxrecomp #719, #720, #721 and #752 are open; nothing
+  listens on 4370 to 4399; and `git diff --cached --check` is clean. All
+  pass.
 
 ## Hypotheses and unknowns
 
@@ -931,6 +979,14 @@ on tree `b8ac937` (staged diff `d8707c71…`). The full record is in
 - recomp-ui `864f778`: the launcher dashboard works, and PLAY started the
   game in play session 1 (change 2). It saves its state beside the executable
   and into the `--game` file, so it runs only from the play copy.
+- `keybinds.ini` (Phase 7 change 1): with the fork's fix, windowed runs
+  write and load it beside the executable. That was shown on a private Xvfb
+  display with keys sent by xdotool, not yet on the desktop with a real
+  keyboard. A file saved by the launcher's Controls page is untested; its
+  source says it writes the format the runtime writes
+  (`recomp-ui/src/consoles/psx/psx_binds.c:53-54`). Upstream's own fix for
+  #752 may differ from the fork's, so the update that drops the fork's
+  commit must re-run `keybinds_check.py`.
 - With bilinear filtering, psxrecomp's OpenGL and Vulkan shaders wrap
   neighbour texels across 256-texel page edges (#719), and the filter also
   smooths the 2D UI (#720); the user plays with Nearest for now. The route
@@ -1428,16 +1484,43 @@ on tree `b8ac937` (staged diff `d8707c71…`). The full record is in
   names the one message of `build()`'s writers that nothing reaches, and
   labels the claim that no caller could see the old rewrite Derived, and
   change 3's round 1 entry names commit `1bc1394`.
-- Phase 6 change 5, round 1: pending.
+- Phase 6 change 5, round 1: PASS on tree `68b11f3` (staged diff
+  `28c13876…`), from a fresh read-only reviewer, with no findings: it re-ran
+  the checks (27 minutes), compared the syntax trees, ran 20,000 in-process
+  cases and 1,200 command runs on synthetic disc images with no difference,
+  and reached `write_formations()`'s "it has none" through both tools (the
+  same message). Outside the snapshot it found an ignored `__pycache__` under
+  `scripts/routes/` that my mouse trial's scripts had written; it is
+  deleted, and those scripts now set `sys.dont_write_bytecode`. Report:
+  `phase6-5/review-r1.md` (session message 801). Commit `de447ef`, pushed to
+  `origin/master`. Its six suggestions: 1 to 3, on this file's wording (the
+  planted bugs' figures attributed to the new tool, in their own sentence;
+  "No differential ran either command before"; "as most helpers do"), are in
+  the condensed change 5; 4 to 6, in the tool (`Overlay.formations` named
+  `has_formations`; `write_formations()`'s loop variables and
+  `dump_package_texts()`'s local `edits` named for what they hold; a
+  docstring for `Overlay.folder`; plainer words in `remix_package_texts()`'s
+  docstring), wait for the next `zone_data.py` change.
+- Phase 7 change 1, round 1: pending.
 
 ## Next action
 
-After a PASS: commit and push. Then the rest of the code-quality work the
-user chose (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives
-the order and section 5 what must not change), each step its own reviewed
-change, and each `zone_data.py` step proven against the baseline in
-`code-quality/zone-baseline/` and with `phase6-5/differential.py`: perhaps
-modules for the disc reader and the MIPS analysis; the three fixes (register
+After a PASS: push `898d834` to the fork as the new branch
+`omega-thrust/keybinds-beside-exe` (no force), check that a fresh clone of
+the fork fetches it, then commit and push. Phase 7 change 2 is mouse aim
+and the key layout, from the scratch trial (copies of its files, among them
+`try_mouse_aim.sh`, in `.cache/evidence/phase7-trial/`) once the user has
+played it: the plugin `omega.mouse-aim` in `src/mods/` and its package,
+the layout the user asked for, and how that layout reaches players (the
+runtime's default bindings are framework code; a `keybinds.ini` beside the
+executable now takes effect), checked with every route in the three modes.
+Then the rest of the code-quality work the user chose
+(`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
+and section 5 what must not change), each step its own reviewed change, and
+each `zone_data.py` step proven against the baseline in
+`code-quality/zone-baseline/` and with `phase6-5/differential.py`: change
+5's review suggestions 4 to 6 (names and docstrings); perhaps modules for
+the disc reader and the MIPS analysis; the three fixes (register
 values traced across a join, a "calls nothing" note for a callback that returns
 before the formation it starts, a traceback on a malformed directory record; the
 probes in `code-quality/probes/` reproduce each); the route-script hang (below),
@@ -1516,12 +1599,10 @@ Nearest, is set in the launcher. Still unreached: CAMPAIGN PLAY zones 5 to 8
 and LAST, the ending and credits (the spike reached the ending and credits
 only by rewriting the campaign script, and its post-credits halt is
 unexplained), TRAINING lessons, ZONE PLAY's zones other than the four change
-7 started, SAVE REPLAY and LOAD REPLAY. psxrecomp #719, #720 and #721 are
-open upstream; any fix arrives through a reviewed pin bump. Independent
-changes: harvesting misses with `psxrecomp/tools/collect_game_misses.py`
-(none so far); finding why Beetle reaches screens later than psx-runtime
-(for example by comparing when each CD read completes).
-
-The host's clang is now 23.1.3 and its Python 3.14.8, where `AGENTS.md` says
-23.1.1 and 3.14.7. Refresh that line with the next rebuild, after checking
-whether emitters built with the newer clang change the static shard's audit.
+7 started, SAVE REPLAY and LOAD REPLAY. psxrecomp #719, #720, #721 and #752
+are open upstream; any fix arrives through a reviewed pin bump, and the
+update that brings upstream's own fix for #752 drops the fork's commit
+(`AGENTS.md`, "Pins"). Independent changes: harvesting misses with
+`psxrecomp/tools/collect_game_misses.py` (none so far); finding why Beetle
+reaches screens later than psx-runtime (for example by comparing when each
+CD read completes).

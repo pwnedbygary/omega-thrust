@@ -9,19 +9,27 @@ is acceptable, guessing is not; §16: Beetle oracle).
 
 ## Pins
 
-Bump a pin only as its own reviewed change. Never patch a submodule. Do not run
+Bump a pin only as its own reviewed change. Never edit files in a submodule
+checkout; a framework fix goes through the fork (below). Do not run
 `git submodule update --remote`: `.gitmodules` sets `branch = master` for both
 submodules, so it would move the pins.
 
 | Path | Commit | Source |
 |---|---|---|
-| `psxrecomp` | `8077e71098ce0347d7d41d267630bc856816cf77` | psxrecomp nightly 20261007 |
-| `psxrecomp/lib/recomp-net` | `e2491d2a78e37fb18fca087ebc34ad8261caae9c` | nested pin of `8077e71` |
-| `psxrecomp/lib/retcomm-rbengine` | `2a03e73693acee0fb78076ea058642c931bef12e` | nested pin of `8077e71` |
+| `psxrecomp` | `898d834cd90413659c863b432e6ef932ad5d0e81` | psxrecomp nightly 20261007 (`8077e71`) plus one fix, in the fork pwnedbygary/psxrecomp |
+| `psxrecomp/lib/recomp-net` | `e2491d2a78e37fb18fca087ebc34ad8261caae9c` | nested pin, unchanged since `8077e71` |
+| `psxrecomp/lib/retcomm-rbengine` | `2a03e73693acee0fb78076ea058642c931bef12e` | nested pin, unchanged since `8077e71` |
 | `recomp-ui` | `864f77802ba3191a9b955ddc23de7e624b6d83a2` | paired with `8077e71` in the gitlinks of mstan/TombaRecomp@43915ca |
 
 `bash psxrecomp/tools/ci/record_pins.sh --root .` must print the same SHAs as
 `framework_pins.txt`.
+
+A framework fix we cannot wait for goes into the fork that `.gitmodules`
+names, as one commit on a branch from the commit we pin, and the pin moves to
+it as its own reviewed change. Each such fix is reported upstream, and the
+next update to an upstream commit that contains it drops it. Now: `898d834`
+on branch `omega-thrust/keybinds-beside-exe`, which makes the runtime read
+`keybinds.ini` from the executable's directory (psxrecomp#752).
 
 ## Disc
 
@@ -114,8 +122,11 @@ recompiler by the sha256 of its binary, so a recompiler binary that differs,
 or another gcc path (the audit records `/usr/bin/gcc`), triggers a rebuild;
 rebuilding the emitters from the same sources with the same toolchain gives
 the same binary, so a fresh checkout's `generate` and `--force-emitters` keep
-the shard. Every rebuild rewrites the audit: its `recipe_input_sha256` hashes
-an inventory of files in a new temporary work directory, so it changes every
+the shard. A new clang on the host does change it: `generate` sees the
+toolchain change, rebuilds the emitters from scratch and then the shard (after
+clang 23.1.3 arrived, the C came out the same and only the audit changed).
+Every rebuild rewrites the audit: its `recipe_input_sha256` hashes an
+inventory of files in a new temporary work directory, so it changes every
 time, even when a forced rebuild with unchanged inputs writes the same C.
 `CMakeLists.txt` links the shard through `GAME_OVERLAY_STATIC_C` (see the
 comment there on where it may go), and configure fails if that and
@@ -168,21 +179,24 @@ JSON request per TCP connection, and its I/O thread answers `ping` itself
 without frame data, so poll `frame`.
 
 Without `--headless` the launcher opens and writes `keybinds.ini`,
-`config.ini`, `input.ini` and `launcher-window.ini` beside the executable.
-When it closes, by PLAY or by Quit, it saves `settings.toml` there and writes
-`[controller] multitap_analog` into the `game.toml` that `--game` names
-(`psxrecomp/runtime/src/main.cpp:16148-16412`); PLAY also writes `bios.cfg`
-and `disc.cfg` (`main.cpp:16430-16585`). Every later run from that directory,
-headless included, reads `settings.toml` (renderer, internal resolution,
-supersampling, texture filtering, controller and multitap settings, and the
-BIOS, disc and memory card paths; `main.cpp:15053-15069`) and `bios.cfg` (an
-explicit BIOS choice; `main.cpp:3004-3017`). So run the launcher only from a
-copy of the build outside `build-dev/`, such as `.cache/play/build/`, with
-`--game` naming that copy's `game.toml`. `build-dev/` must hold none of those
-files, and the tracked `game.toml` must stay unchanged.
+`config.ini`, `input.ini` and `launcher-window.ini` beside the executable. A
+windowed run with `--no-launcher` writes `input.ini` and `keybinds.ini` there
+when they are missing (`load_input_config()`); headless runs write neither.
+When it closes, by PLAY or by Quit, the launcher saves `settings.toml` there
+and writes `[controller] multitap_analog` into the `game.toml` that `--game`
+names (`psxrecomp/runtime/src/main.cpp:16157-16421`); PLAY also writes
+`bios.cfg` and `disc.cfg` (`main.cpp:16439-16594`). Every later run from that
+directory, headless included, reads `settings.toml` (renderer, internal
+resolution, supersampling, texture filtering, controller and multitap
+settings, and the BIOS, disc and memory card paths; `main.cpp:15062-15078`)
+and `bios.cfg` (an explicit BIOS choice; `main.cpp:3004-3017`). So run the
+launcher only from a copy of the build outside `build-dev/`, such as
+`.cache/play/build/`, with `--game` naming that copy's `game.toml`.
+`build-dev/` must hold none of those files, and the tracked `game.toml` must
+stay unchanged.
 
 Run one runtime per build directory at a time. Every launch commits the mod
-selection (`psxrecomp/runtime/src/main.cpp:16626-16629`; `save_selection`
+selection (`psxrecomp/runtime/src/main.cpp:16635-16638`; `save_selection`
 defaults to true, `psxrecomp/runtime/include/mod_runtime.h:22`, and is checked
 at `psxrecomp/runtime/src/mod_runtime.cpp:1647`) to `<build>/mods/state.toml`
 through the fixed temporary name `state.toml.tmp`
@@ -509,6 +523,6 @@ Thrust Recompiled" and must be corrected.
 
 - Handoff: `.agent/HANDOFF.md`, updated before every review.
 - Evidence logs: `.cache/evidence/<step>/` (ignored); summarize results in the handoff.
-- Host toolchain: GCC 16.2.1 (runtime), clang 23.1.1 (emitters, chosen by
-  `psxrecomp_cli.py`), CMake 4.4.4, Ninja 1.13.2, Python 3.14.7 (the framework
+- Host toolchain: GCC 16.2.1 (runtime), clang 23.1.3 (emitters, chosen by
+  `psxrecomp_cli.py`), CMake 4.4.4, Ninja 1.13.2, Python 3.14.8 (the framework
   requires 3.11+), SDL3 3.4.18.
