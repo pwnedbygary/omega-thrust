@@ -18,30 +18,23 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 7 change 3, round 2: strafing for Mouse Aim, which
-the user asked for after playing change 2: "I really would like the ability
-to strafe left right up and down with the WASD keys, currently the movement
-feels strange because they also move the cursor. i want JUST the ship to
-move, and the aiming to be done with the mouse". Invariant: with the feature
-off, as it is by default, the game behaves as before: the runtime never
-calls the plugin, the generated code's new call before 0x80033044 returns at
-once, and every committed route passes in the three modes with the overlay
-counters and most-run PCs of change 2's batch. With it on, in flight, the
-mouse alone steers, and the keyboard's stick keys (W, A, S, D and the
-arrows) move the mech up, left, down and right relative to the view without
-turning it, at the speed the new option Strafe speed sets (default half the
-cruising speed); the motion dies away when they come up. Round 2 fixes
-review round 1's finding that the strafe ran mirrored on both axes: each
-strafe now moves the mech to the side that the game's own steering turns it
-to, which a check from one save state shows without assuming which way the
-game's axes point. Everything else Mouse Aim does is as in change 2, and the
-feature-on routes pass as they did there. `AGENTS.md` describes the strafe
-and how to check its directions; this file records change 2's round 2 PASS
-and commit `cc7b83b`, condenses change 2 and takes up round 2's suggestions
-1 to 3, 7 and 8 (4 to 6 are in the plugin's comments). Baseline: `cc7b83b`.
-Out of scope: the framework, gamepads (with the feature on, a gamepad's
-sticks neither steer nor strafe), the launcher, the rest of the
-code-quality work, the routes and the tools.
+Current iteration, Phase 6 change 6, round 3: the names and docstrings in
+`scripts/zones/zone_data.py` that change 5's review asked for (its
+suggestions 4 to 6), the next step of the code-quality work. Invariant:
+nothing the tool does changes, so every message, the command line and every
+output stay the same; its code differs from HEAD's only by renamed names, in
+`Overlay`, `write_formations()` and `dump_package_texts()`. `Overlay`'s flag
+`formations` becomes `has_formations`; in `write_formations()` a dump's
+formation is `formation` and the stock record `record`, as `remix_zone()`
+and `reshape()` name them; the phrase in `dump_package_texts()` is
+`edited`; `Overlay.folder` gets a docstring, and `remix_package_texts()`'s
+is reworded. This file records Phase 7 change 3's round 2 PASS and commit
+`ad4fb7e`, condenses change 3 and takes up its round 2's suggestions 1 and 2
+(3 is in an evidence script). Round 2 corrects two statements in this file
+that review round 1 found wrong, and round 3 one that review round 2 found
+wrong. Baseline: `ad4fb7e`. Out of scope: the rest of the code-quality work
+(modules, the three fixes, the route scripts, the tests, the C names), Mouse
+Aim, the framework and the routes.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -863,369 +856,194 @@ calls the plugin (`psxrecomp/runtime/src/mod_packages.cpp:3869-3876`,
 (one Medium, one Low), round 2 PASS on tree `2fed384` (staged diff
 `657fb328…`). Full record: `git show cc7b83b:.agent/HANDOFF.md`.
 
-## Phase 7 change 3 observations (`.cache/evidence/phase7-3/`)
+## Phase 7 change 3 (commit `ad4fb7e`)
 
-- After change 2's commit the user played its build on the desktop with a
-  real mouse (`phase7-2/play-02/`, 23:54 to 00:21): the 1ST and 2ND ZONE of
-  CAMPAIGN PLAY with Mouse Aim on, to frame 87,798 with no unknown dispatch
-  or segment miss (`watch.log`). The user wrote "So I tested it and it runs
-  great honestly, im super happy with the feel of Omega Boost with the
-  mouse", then asked for the strafe (Scope).
-- The game has no strafe of its own: boost with a direction rolls the mech,
-  and only at boost level E does boost move it sideways instead (the A. Dean
-  FAQ, `phase7-2/r2/faq-5017.txt:802`). In flight the left stick turns the
-  mech by banking it, and the bank keeps it turning after the stick is
-  released; the right stick, and the d-pad of an analog pad, changed nothing
-  (`probe_player.py`, `probe_player.jsonl`, `analyze_probe.py`,
-  `orientation.py` / `.log`, `roll_shots.py`, `roll_run.sh` / `.log`,
-  `roll/`).
-- The player's object (its pointer at 0x8009C064) holds the position at
-  +0x34, +0x38 and +0x3C, the velocity at +0x28 to +0x30, the step's force
-  sums at +0x1C to +0x24, and pitch, yaw and roll at +0x8C, +0x90 and +0x94,
-  binary angles of 2^32 to a turn; the heading from pitch and yaw points
-  along the velocity in steady flight (`orientation.log`), and the 4.12
-  matrix at +0x6C holds the mech's own axes as its columns
-  (`matrix_check.py` / `.log`). Its movement, 0x80032D50 with the object in
-  $s0 (`dis/player_move.txt`), adds the thrust, 0x238E3 along the heading
-  each step (0x471C6 while the word at 0x800A7EEC is non-zero), and the
-  step's other forces into those sums, adds them to the velocity, takes off
-  drag (0x199/4096 of the velocity on one path, 0xCC/4096 on the other, as
-  the word at +0x13C chooses), adds the velocity, shifted down 12 bits, to
-  the position, and applies the stage's limits. That gives a cruising speed
-  of about 320 units a step (Derived), and the probe measured about 160 a
-  frame. When 0x80033044 (`lw $v0, 0x24($s0)`) is about to run, the x and y
-  sums are stored and the z sum is about to be loaded, before the two drag
-  paths split (0x80033054), so a force added there moves the mech as its
-  thrust does. Seven call sites in the EXE call 0x80032D50, so a hook there
-  must check that $s0 is the player. A position written directly also stays
-  (the probe's x + 0x4000), but a force leaves the game's drag and the
-  stage's limits in charge.
-- The camera does not roll with the mech: the mech's roll stayed between +38
-  and +57 degrees after a bank to the right and at -53 after one to the
-  left, while the shots show the mech tilted one way, then the other, in a
-  level view (`roll_sheet.png`, `roll_pair.png`). So the strafe takes its
-  directions from pitch and yaw alone. The game's y axis points up:
-  climbing raises y, turning right lowers the yaw and a positive pitch
-  points the nose down (review round 1; `r2/mirror_check.log`). Screen right
-  is then the way the heading turns as the yaw falls, (-cos y, 0, sin y),
-  and screen down the way it turns as the pitch rises,
-  (-sin p sin y, -cos p, -sin p cos y). Round 1 took the y axis to point
-  down and used both axes negated.
-- The pad input. 0x80030558 reads the game's pad buffer at 0x8010A048: for
-  an analog pad the left stick from bytes 6 and 7, times 32, zeroed when
-  both are within 32 of the centre (the deadzone the strafe uses). The zone
-  loop copies the pad record at 0x8009C590 into that buffer each step while
-  the game is not paused (0x8002BAB4), bytes 1 to 7 included. Yet in
-  `pad_buffer.py`'s probe (`run_pad_buffer.sh` / `.log`,
-  `pad_buffer-flight.jsonl`), where the record held the right stick, signed
-  and centred in steps of 16, in bytes 4 and 5, those bytes of the buffer
-  stayed zero in all 1,040 flight samples, 636 of them with the stick
-  pushed; what clears them is not traced. In the 1ST ZONE's DEMONSTRATION
-  replay (`pad_buffer-demo.jsonl`) the buffer held the replay's input while
-  the record stayed neutral (the two never agreed in 270 samples), so a
-  replay feeds the buffer, not the record.
-- The design. The controller source puts the mouse on the left stick and the
-  keyboard's left-stick keys, read with `psx_keybinds_sticks()`, on the
-  right stick. An instruction hook at 0x80033044 (an entry in `game.toml`'s
-  `mod_instruction_sites`) acts only for the player's object, in play (state
-  3), with the source attached and the record's pad analog, and when the
-  record's right stick is outside the deadzone. It adds to the force sums
-  the stick's push, at most one full push in any direction, along screen
-  right and down, times Strafe speed's percent of 0x238E3; where the stage
-  moves the player along z (the word at +0x4C of the stage parameters that
-  0x8009C030 points to), it drops the z part, as the game does for the
-  thrust (0x80032DBC to 0x80032DD8). Since the hook acts only in flight and
-  reads the live record, a replay of a strafed flight cannot play the
-  strafe back (Derived; no such replay was saved).
-- Regenerating for the hook site (`generate.log`, `generate2.log`): the
-  first `generate` added one line to `generated/SCUS_944.49_full_05.c`,
-  `psx_mod_instruction(cpu, 0x80033044u, 0x8E020024u);` before 0x80033044,
-  and rebuilt the static shard, since `game.toml`'s hash changed; the
-  shard's 26 C files came out the same, and in `AOT_STATIC_AUDIT.json` only
-  `recipe_input_sha256`, `game_toml_sha256`, `cache_tag` and
-  `generation_inputs_sha256` changed. The second printed "0 updated" and
-  reused the shard.
-- A headless probe of the hook (`strafe_probe.py`, `run_strafe_probe.sh`,
-  `strafe-on/`, `strafe-off/`): a copy of `build-dev` with Mouse Aim on or
-  off, HLE boot, `title_to_zone1` played through the debug server, then,
-  after zone 1's fly-by, the right stick set with `set_input` axes for 1.5 s
-  per phase and released for 1 s (about 280 frames). Round 1's
-  `strafe_analyze.py` measured the movement along round 1's axes, so it
-  reported each push as moving the mech the way the push pointed: 76.4 units
-  a frame right, 76.1 left, 77.0 up and 76.5 down. Along the corrected axes
-  (`r2/strafe_analyze.py`, `r2/strafe-on-round1-reanalysed.log`) the same
-  samples show each push moving the mech the opposite way: a full push right
-  moved it 76.4 units a frame left, and a push up 77.0 down. Both agree on
-  the rest: the mech flew on ahead at about 160 a frame with no change in
-  yaw or pitch; a push inside the deadzone moved nothing; with R1 (STOP)
-  held the mech slowed to 7 a frame ahead and still strafed at 76.3; over
-  each release after a push in one direction, the sideways or vertical
-  motion averaged 5.1 to 6.0 units a frame, and after the diagonal push 4.0
-  and 3.8. With Mouse Aim off the pad stayed digital and nothing strafed.
-  Round 2's build, probed the same way (`r2/strafe-on/`, `r2/strafe-off/`,
-  analysed along the corrected axes): each push moved the mech the way it
-  pointed, 76.5 units a frame right, 76.8 left, 76.6 up and 76.6 down, and
-  the diagonal push 54.1 right and 54.1 up, with no change in yaw or pitch;
-  a push inside the deadzone moved nothing; with R1 held the mech slowed to
-  6.8 a frame ahead and still strafed 76.5 right; each release left 4.9 to
-  5.5 units a frame of sideways or vertical motion, and 3.4 and 3.5 after
-  the diagonal push; with Mouse Aim off nothing strafed. Measured along the
-  hook's own axes, these figures show the speed and that the heading holds,
-  not the direction, which the check from one save state (below) shows. The
-  camera follows the mech: in the probe's shots it stays at the centre of
-  the view while it strafes (`strafe-on_sheet.png`), so on the screen a
-  strafe shows as the scenery moving the other way. An earlier run, whose
-  probe left the stick pushed through the releases and did not record it,
-  is kept in `strafe-on-first/`; the first attempt stopped on a wrong path
-  in the script (`run_strafe_probe-on-first.log`).
-- Round 1's windowed checks (`mouse_check.py`, change 2's with expectations
-  for the strafe; `run_mouse_checks.sh`, `mouse_checks.log`,
-  `mouse/<setting>/`; Xvfb display :95, debug port 4396, 02:09 to 02:18)
-  also sample the player's position and angles, cruise 15 s with no input
-  after zone 1's fly-by, then hold W, then D, then D with the mouse moving
-  left. Every expectation held, 9 with the feature off and 29 in each Mouse
-  Aim setting, but the strafe's figures were measured along round 1's axes:
-  W moved the mech 53.2 units a frame and D 55.2, down and to the left on
-  the screen. Measured against the game's steering in the same run
-  (`r2/mirror_check.py` / `.log`), D moved the mech opposite to the way mouse
-  right turned it (cosine -0.986), and W opposite to the way mouse up
-  climbed (-0.985); round 2's strafe expectations fail on round 1's samples
-  in both Mouse Aim settings (`r2/strafe_checks_offline.py`,
-  `r2/strafe-checks-round1.log`). The mouse, the buttons, the pause and TYPE
-  behaved as in change 2. The first run (`mouse_checks-first.log`,
-  `mouse-first/`) failed "holding D strafes the mech right" in each Mouse Aim
-  setting: its phases began right after the fly-by, and after W had moved
-  the mech about 5,700 units along round 1's up (down on the screen),
-  holding D moved it -138.9, -64.9 and -16.2, then 20.1, 51.5 and 60.1 units
-  a frame along round 1's right. Hypothesis: zone 1's asteroid base, near
-  which the fly-by ends, pushed the mech (Phase 3 found the base around the
-  fly-by and open space from about 3,000 frames into the zone); not traced.
-  With the 15 s cruise added, the run passed.
-- Review round 1 found the strafe mirrored on both axes: D and the right
-  arrow moved the mech to the left of the screen, A and the left arrow to the
-  right, W and the up arrow down, S and the down arrow up
-  (`review-r1.md`). Its evidence ties the screen to the game's own steering,
-  which needs no axis convention: from one save state a second after zone
-  1's fly-by, the left stick pushed right turned the view right (the base slid
-  left on the screen, the crosshair right) while the yaw fell from 180 to
-  102.7 degrees and x rose, and the left stick pushed up climbed (the pitch
-  fell to -35 degrees, y rose); a right-stick push right moved x the other
-  way, and the scenery 4, then 19 px right. Change 2's crosshair
-  measurement agrees: mouse right moved the crosshair 11 px right and mouse
-  up 19 px up (`phase7-2/r2/crosshair.log`). Round 1's checks missed it
-  because they measured every strafe along the hook's own axes, where a
-  sign error in the axes cancels out.
-- Round 2's check from one save state (`r2/screen_check.py`,
-  `r2/run_screen_check.sh`; a copy of `build-dev` with Mouse Aim on, HLE
-  boot, port 4378): a second after zone 1's fly-by it saves a state, then,
-  loading that state each time, holds one stick for 48 frames: the left
-  stick right, left, up or down (the game's own turns and climb) and the
-  right stick the same ways (the strafe). Each strafe must move the mech to
-  the side its turn takes it (a cosine of at least 0.8 between their
-  sideways movements), at least 25 units a frame, with pitch and yaw
-  unchanged; each turn must move the mech at least 10 units a frame
-  sideways, and level flight must not turn it. On round 1's build
-  (`screen-before.log`) the check failed exactly the four direction checks,
-  each cosine -0.999. On round 2's (`screen-after.log`) all 17 checks
-  passed, each cosine +0.999, the strafes moving the mech 52.7 to 55.3 units
-  a frame over the 48 frames with pitch and yaw unchanged.
-- Round 2's windowed checks (`r2/mouse_check.py`, `r2/run_mouse_checks.sh`;
-  Xvfb display :95, debug port 4396, round 2's build). The first run
-  (`r2/mouse_checks-first.log`, `r2/mouse-first/`, 07:13 to 07:22) failed
-  one expectation, "D does not change how the mech turns", in the invert
-  view: yaw -0.056 and pitch +0.067 degrees a frame against a limit of
-  0.05. In that view at frame 9460, and in the on view at 9468, after W's
-  release and with both sticks centred, the mech's pitch and yaw jumped by
-  4 to 7 degrees within eight frames, and the game then turned it back over
-  about 75 frames; in the invert view D started sooner after the jolt, so
-  more of the turn back fell inside D's phase (`r2/jolt_check.py` /
-  `.log`). Round 1's runs, whose W moved the mech the other way, show no
-  change of heading from idle to D's release. Hypothesis: something in the
-  zone hit the mech; not traced. The check now waits, before W and before
-  D, until the mech's pitch and yaw have held still for 30 frames (5 s at
-  most). In the re-run (`r2/mouse_checks.log`, `r2/mouse/<setting>/`, 07:36
-  to 07:45) every expectation held, 9 with the feature off and 31 in each
-  Mouse Aim setting, the two new ones included. The heading was already
-  steady at each wait, so each ended after 35 to 37 frames; W came about 35
-  frames later than in the first run, and no jolt came: pitch and yaw stayed
-  the same from idle to D's release in both Mouse Aim settings, so the
-  re-run did not exercise the wait. With Mouse Aim on, W moved the mech 53.0
-  units a frame up and D 54.0 right, with yaw and pitch unchanged, and D
-  with the mouse moving left 63.3 right while the mech turned left; with
-  Invert vertical the same within 1.5 units a frame, mouse up diving. With
-  the feature off, W pressed the d-pad and turned the mech, so the wait
-  before D ran its 5 s, and nothing strafed.
+Strafing for Mouse Aim, which the user asked for after playing change 2 on
+the desktop (`phase7-2/play-02/`: the 1ST and 2ND ZONE of CAMPAIGN PLAY with
+Mouse Aim on, no unknown dispatch or segment miss). The game has no strafe
+of its own (the A. Dean FAQ, `phase7-2/r2/faq-5017.txt:802`): boost with a
+direction rolls the mech, and only at boost level E does boost move it sideways
+instead. With the feature on, the controller source puts only the mouse on
+the left stick, which the game steers by, and the keyboard's left-stick keys
+(W, A, S, D and the arrows) on the right stick, which it ignores in flight.
+An instruction hook at 0x80033044 (`lw $v0, 0x24($s0)`, listed in `game.toml`),
+in the player's movement 0x80032D50 where the step's x and y force sums are
+stored and the z sum is about to be loaded, before the two drag paths split,
+adds a force along the screen's right and down axes: the right stick's push
+times Strafe speed's percent (default 50) of the thrust, 0x238E3 a step. It
+acts only for the player's object (0x8009C064 equal to $s0), in play, with
+the source attached and the pad record (0x8009C590) showing an analog pad
+with its right stick outside the deadzone, and drops the z part where the
+stage moves the player along z, as the game does for the thrust. The game's
+y axis points up: climbing raises y, turning right lowers the yaw and a positive
+pitch points the nose down; the camera follows the heading but not the mech's
+roll, so for pitch p and yaw y screen right is (-cos y, 0, sin y) and screen
+down (-sin p sin y, -cos p, -sin p cos y). Round 1 took the y axis to point
+down, so its strafe ran mirrored on both axes, which its checks, measuring
+along the hook's own axes, could not see; review round 1 found it. Round 2's
+check from one save state (`phase7-3/r2/screen_check.py`) compares each strafe
+with the game's own turn or climb, needing no axis convention: on round 1's
+build it failed the four direction checks (cosine -0.999), on round 2's all 17
+checks passed (+0.999), each strafe moving the mech 52.7 to 55.3 units a frame
+without turning it; a headless probe measured 76.5 to 76.8 a frame each way
+while cruising at about 160. Replays feed the game's pad buffer, not the record
+the hook reads, so a replay of a strafed flight is not expected to play the
+strafe back (Derived, not tested). Windowed checks on Xvfb with xdotool passed
+every expectation in round 2's re-run, 9 with the feature off and 31 in each
+Mouse Aim setting, after a 15 s cruise past zone 1's asteroid base and, before W
+and before D, a wait for a steady heading. Two first runs met a push the keys
+did not cause: in round 1's, holding D first moved the mech against its own
+strafe, probably pushed by the asteroid base, near which the fly-by ends; in
+round 2's, a jolt of 4 to 7 degrees after W's release, with both sticks centred,
+counted against D in the invert view (`phase7-3/r2/jolt_check.log`). Neither is
+traced. In the re-run neither Mouse Aim setting met a jolt, and every wait ended
+after 35 to 37 frames except the one before D with the feature off: there W had
+pressed the d-pad and turned the mech, so that wait ran its full 5 s
+(`phase7-3/r2/mouse_checks.log:8`). W's first sample came 35 frames later than
+in the first run in the on view and 47 in the invert view; the waits before W
+took 35 and 36 frames, and in the invert view the idle phase before the wait
+also ended 11 frames later (`phase6-6/r2/wait_frames.log`). Regenerating for the
+hook site added one call to `generated/SCUS_944.49_full_05.c` and changed four
+values of `AOT_STATIC_AUDIT.json`; the static shard's C stayed the same. With
+the feature off all 66 route runs passed on round 1's build, with change 2's
+overlay counters and most-run PCs, and three routes again on round 2's, in HLE
+mode; the feature-on routes kept change 2's cards and probes. Review: round 1
+NEEDS CHANGES (one High, the mirror), round 2 PASS on tree `c0d721e` (staged
+diff `c236c895…`). Full record: `git show ad4fb7e:.agent/HANDOFF.md`.
 
-## Phase 7 change 3 changes
+## Phase 6 change 6 observations (`.cache/evidence/phase6-6/`)
 
-- `src/mods/omega_mouse_aim.c`: the source now puts only the mouse on the
-  left stick and the keyboard's left-stick keys on the right stick; the
-  instruction hook `strafe_at_force_sum()` at 0x80033044, registered under
-  the plugin's one id, turns the right stick into a force along the screen's
-  right and down axes (`right_stick()`, `push_fraction()`, `signed_byte()`,
-  `radians()`, `stage_scrolls()`); `read_options()` reads Strafe speed; it
-  counts `omega.mouse-aim.strafed-steps`. New comments explain the movement,
-  the pad record and the constants, and the header, the scripted state's
-  comment and the launch press's comment take up change 2's round 2
-  suggestions 4 to 6. Round 2 negates both strafe axes, which the hook now
-  names (`screen_right`, `screen_down`), and its comment says which way the
-  game's axes point and why the screen's right and down are the ways the
-  heading turns as the yaw falls and as the pitch rises.
-- `mods/preloaded/packages/omega.enhancement.mouse-aim/1.0.0/manifest.toml`:
-  the descriptions name the strafe, that a gamepad's sticks neither steer
-  nor strafe, and that a saved replay of a strafed flight may not play back
-  the same (round 1 stated it as fact; review round 1's suggestion 2); the
-  new option Strafe speed (10 to 100 percent of the cruising speed in steps
-  of 10, default 50); Invert vertical's text says it is the mouse's up.
-- `game.toml`: 0x80033044 joins `mod_instruction_sites`, with the comment.
-- `generated/SCUS_944.49_full_05.c` (the call before 0x80033044) and
-  `generated/AOT_STATIC_AUDIT.json` (four values), from `generate`.
-- `controls/keybinds.ini`: the legend says W, A, S, D and the arrows strafe
-  with Mouse Aim and steer without it, and that the quick turn takes its
-  direction from the stick, which the mouse moves with Mouse Aim; the
-  bindings are unchanged.
-- `AGENTS.md`: Mods describes the strafe, its hook and option, and that a
-  headless run can drive the hook; the hook-site sentence counts three
-  sites. Since round 2 it labels the replay sentence derived and untested,
-  and says to check the strafe's directions against the game's own steering
-  from one save state, since a check along the hook's own axes would share
-  any sign error in them.
-- `.agent/HANDOFF.md`: the scope; change 2 condensed, with its round 2
-  suggestions 1 to 3 and 8; these sections; the hypotheses; the review
-  state, with suggestion 7 in change 2's round 1 entry; the next action.
-  Round 2 corrects every statement of the strafe's direction that rested on
-  round 1's axes.
-- Untracked (ignored): `.cache/evidence/phase7-3/`, with round 2's scripts,
-  logs and runs in `r2/` and review round 1's report in `review-r1.md`; the
-  play copy's `keybinds.ini` is now this change's `controls/keybinds.ini`,
-  which differs from change 2's only in its legend
-  (`playcopy-keybinds.sha256`).
+- Change 5's review (`phase6-5/review-r1.md`, section 6) left three
+  suggestions for `scripts/zones/zone_data.py`, each about names or
+  docstrings: `Overlay.formations` was a flag beside the stock layout's list
+  of formations, which has the same name; in `write_formations()` `edit`
+  named a dump's formation and `formation` the stock record, while
+  `remix_zone()` and `reshape()` call a dump's formation `formation`;
+  `dump_package_texts()` kept a phrase in a local named `edits`; and
+  `Overlay.folder` was the only property without a docstring, while
+  `remix_package_texts()`'s said "whose own description is the package's".
+- The changed tool differs from HEAD's only by those names and docstrings.
+  `ast_compare.py` (`proofs.log`) parses both, takes out every docstring,
+  undoes the renames inside `Overlay`, `write_formations()` and
+  `dump_package_texts()` only, and finds the two syntax trees equal. Before
+  the renames are undone, only those three of the 82 top-level definitions
+  differ in code, and only three docstrings differ: `Overlay`'s, which
+  names `has_formations`, `Overlay.folder`'s, which is new, and
+  `remix_package_texts()`'s. The comparison fails when the code changes
+  beyond that (`ast_planted.sh` / `.log`: a check that reads another field,
+  the flag read the other way round and a rename in another function each
+  make it exit 1) and passes a change to a docstring alone.
+- That comparison undoes the renames, so it cannot see one left incomplete:
+  with `overlay.formations` put back in a scratch copy of the staged tool
+  (`r2/completeness.sh` / `.log`, review round 1's suggestion 5), it and
+  pyflakes still pass, while 9 of the 61 tests, all of them through the
+  package command, fail on the missing attribute. So what shows the rename
+  complete is those tests and the searches, which find no reader of an old
+  name, no `_replace`, `_asdict`, `_fields`, `getattr` or keyword construction
+  of an `Overlay`, and no use of the class in other tracked code.
+- Nothing the tool does changed (`proofs.sh` / `.log`): the 61 tests pass
+  and leave nothing behind; the 142 baseline outputs equal
+  `code-quality/zone-baseline/baseline-head/` byte for byte; change 5's
+  differential against HEAD's tool finds no difference in 600,161 inputs,
+  and its log (`differential.log`) is byte-identical to change 5's, since
+  both runs use the same seed on tools that behave alike.
+- Two of the bugs that change 5's `mutations.py` plants quote names this
+  change renames: `overlay.formations` (its line 84) and `edits` (line 86, the
+  phrase in `dump_package_texts()`). On the renamed tool it would report both
+  snippets as occurring 0 times and count each as a failure (its lines 145-149),
+  and `gaps_differential.py`, which plants both among its 14 (`GAPS`, lines
+  23-29), would report both as missing (lines 64-66); of the 28 mutations,
+  only these two snippets no longer occur once (`r2/snippets.py` / `.log`).
+  `differential.py` uses none of the renamed names, as its run here shows. A
+  later change that plants bugs in the package code needs its own snippets.
+- Phase 7 change 3's review round 2, suggestion 3: the loop in
+  `phase7-3/r2/screen_check.py` stops sampling 48 frames after the load,
+  before a shot at 48 frames could be taken, so each run took one shot, 24
+  frames in, for each of the five experiments in `SHOT_EXPERIMENTS`; the 10
+  saved shots, from two runs, are all such. Its `SHOT_FRAMES` and docstring
+  now say so, which changes nothing it did.
 
-## Phase 7 change 3 checks
+## Phase 6 change 6 changes
 
-- Builds (the documented commands; `build-dev.log`, `build-release.log`,
-  `build-*-2.log`, `binaries-*.sha256`): the first builds compiled 28 C
-  files each with no warning (the plugin, `SCUS_944.49_full_05.c` and the
-  26 overlay shard files, which `generate` rewrote with the same content)
-  and staged the new manifest; the second compiled only the plugin, after a
-  comment change, and both binaries stayed as they were (`build-dev`
-  `a09cdf94816f…`, `build-release` `a00092683055…`). Both builds' staged
-  manifests equal the source, and `build-dev/mods/state.toml` enables
-  nothing.
-- Plugin audit (`plugin-audit.log`, from a scratch directory): 10 manifests,
-  10 declared ids and 8 registered, PASS in both builds; with the framework
-  catalog alone it fails, as it should, naming `omega.mouse-aim` and
-  `omega.unlock-all`. The audit lists `omega.mouse-aim`, although it now
-  hooks an instruction, because it also registers activation and VBlank
-  callbacks.
-- Strict compiles (`phase7-2/strict_compile.py`, `strict_compile.log`): the
-  plugin compiles with no warning under GCC 16.2.1 and clang 23.1.3.
-- Feature on, headless (change 2's `feature_on_routes.sh` with `OUT` set to
-  this folder; `feature_on_routes.log`, `feature-on/`, outputs copied to
-  `feature-on/routes/`; port 4377, 03:08 to 03:17): `demo_zone1`, `memcard`
-  and `title_to_zone1`, each in the three modes from a copy of `build-dev`
-  with Mouse Aim on, passed with the shots and no miss. Against change 2's
-  feature-on runs (`phase7-2/r2/feature-on/`) each run's overlay
-  instructions, rows and most-run PCs are the same, as are both of
-  `memcard`'s saved cards in every mode, and `title_to_zone1` again counted
-  one attach and no other `omega.*` counter: no run strafed, since the
-  routes move no stick. Against change 2's feature-off batch, moved to
-  `routes-before/` (`feature_on_compare.py` / `.log`,
-  `demo-zone1-results-off-on_sheet.png`), the 1ST ZONE's replay reached its
-  results screen at t06900 to t07500 in every mode, and the saved card
-  differs from the feature-off card only in TYPE and its checksum.
-- Feature off (`routes.sh` / `routes.log`: every committed route in the
-  three modes with the documented commands on `build-dev` `a09cdf94816f…`,
-  03:07 to 04:45; change 2's batch outputs moved to `routes-before/`): 66
-  of 66 runs passed with exit code 0, start frames 37 to 141, 2,052 shots,
-  none failed and none more than 18 frames late, and no miss
-  (`routes_summary.log`). Every probe's overlay instructions, rows and up
-  to five most-run PCs equal change 2's batch (`phase7-2/probe`), and no
-  run counted an `omega.*` counter (`probe_summary.log`); every replay
-  reached its results screen in every mode (`clear_time_check.log`, 57 of
-  57); the card check found no problem (`card_check.log`); the save and
-  `build-dev` hashed the same before and after (`inputs-*.sha256`), and
-  `build-dev/mods/state.toml` enabled nothing. With the feature off the
-  runtime never calls the plugin
-  (`psxrecomp/runtime/src/mod_packages.cpp:3869-3876`,
-  `mod_runtime.cpp:2176-2179`, `:2189-2192`), and the new call before
-  0x80033044 returns at once, since no plugin hooks an instruction
-  (`mod_runtime.cpp:2489-2491`).
-- `checks-p7-3.sh` / `.log` (the staged tree, after the batch, the
-  feature-on runs and the windowed checks; it writes only in a scratch
-  directory, but for the documented `generate`, which must find nothing to
-  change): only the eight paths change, and no pin, submodule or
-  `CMakeLists.txt`; `record_pins.sh` prints `framework_pins.txt`, and the
-  submodules are clean, `psxrecomp` ignoring only `overlay_codegen_hash.h`;
-  `AGENTS.md`'s word diff, local paths and line widths; this file's header,
-  overall paragraph, Phase 0 to Phase 7 change 1 and review entries up to
-  change 2's round 1 equal HEAD's, change 2's round 1 entry differs only by
-  suggestion 7's citation, and it has no placeholder, doubled blank line,
-  long added line or local path; the cited framework lines; the gates;
-  `generated/` changes only by the call and the audit's four values, with
-  the static shard's C and `aot/` unchanged, and the documented `generate`
-  finds nothing to change; the hook site's word in the EXE, the plugin,
-  `game.toml` and the generated call; the builds (binaries, objects,
-  warnings, the plugin's functions, the staged manifests,
-  `build-dev/mods/state.toml`, the binary each run used); the plugin audit
-  from a scratch directory; the strict compiles and line widths; the
-  manifest and the layout's bindings; the windowed checks' figures; the
-  probes' summaries, recomputed from their samples; the feature-on runs,
-  their comparison reproduced and their cards and probes equal to change
-  2's; the batch, its probe summary reproduced and its overlay counters and
-  most-run PCs equal to change 2's batch, with no `omega.*` counter; the
-  four test files, the Beetle driver's within three runs; change 2's round
-  2 report against session message 1976; the upstream issues; no listener;
-  and no whitespace error (`git diff --cached --check`). All pass.
-- Round 2, builds (the documented commands, run by `r2/round2_runs.sh`;
-  `r2/build-dev.log`, `r2/build-release.log`, `r2/binaries-*.sha256`): each
-  compiled only the plugin, with no warning; `build-dev` is now
-  `18c3329a200d…` and `build-release` `e9152fc81c1a…` (round 1's
-  `a09cdf94816f…` and `a00092683055…`). Both builds' staged manifests equal
-  the source, and `build-dev/mods/state.toml` enables nothing.
-- Round 2, plugin audit and strict compiles (`r2/plugin-audit.log`,
-  `r2/strict_compile.log`): the audit passes in both builds with 10
-  manifests, 10 declared ids and 8 registered, and fails with the framework
-  catalog alone, naming `omega.mouse-aim` and `omega.unlock-all`; it wrote
-  nothing in its scratch directory. The plugin compiles with no warning
-  under GCC 16.2.1 and clang 23.1.3.
-- Round 2, feature on, headless (change 2's `feature_on_routes.sh` with
-  `OUT` set to `r2/`; `r2/feature_on_routes.log`, `r2/feature-on/`; port
-  4377, 07:22 to 07:30): `demo_zone1`, `memcard` and `title_to_zone1`
-  passed in the three modes from a copy of round 2's `build-dev` with Mouse
-  Aim on, with the shots and no miss. Every run's overlay instructions, rows
-  and most-run PCs equal round 1's, as do both of `memcard`'s saved cards in
-  every mode, and `title_to_zone1` again counted one attach and no other
-  `omega.*` counter. Against change 2's feature-off batch
-  (`r2/feature_on_compare.log`, `r2/demo-zone1-results-off-on_sheet.png`)
-  the 1ST ZONE's replay reached its results screen at t06900 to t07500 in
-  every mode, and the saved card differs from the feature-off card only in
-  TYPE and its checksum.
-- Round 2, feature off (`r2/feature_off_sample.sh` / `.log`, port 4370,
-  07:30 to 07:33): the 66-run batch ran on round 1's build, and since then
-  only the plugin's object has changed, which the runtime never calls with
-  the feature off. `title_to_zone1`, `memcard` and `demo_zone1` ran with the
-  documented command in HLE mode on round 2's `build-dev` and passed, with
-  the batch's overlay instructions, rows and most-run PCs, no `omega.*`
-  counter, and `memcard`'s cards equal to the batch's.
-- `r2/checks-p7-3-r2.sh` / `.log` (the staged tree after round 2's runs;
-  it writes only in a scratch directory, but for the documented `generate`,
-  which must find nothing to change): what round 1's `checks-p7-3.sh`
-  checks, and also round 1's tree rebuilt from its frozen index entries and
-  the delta from it (this file, `AGENTS.md`, the manifest and the plugin),
-  with `controls/keybinds.ini`, `game.toml` and `generated/` as round 1
-  staged them; the binary each run of round 2 used; round 1's mirror
-  recomputed from saved data (`r2/mirror_check.log`,
-  `r2/strafe-on-round1-reanalysed.log`, `r2/strafe-checks-round1.log`);
-  the check from one save state on both builds; the probes' analyses
-  recomputed from their samples; the windowed checks, with the strafe
-  expectations recomputed from round 2's samples, the waits, the first run
-  and `r2/jolt_check.log` reproduced; the feature-on runs, their comparison
-  reproduced and their probes and cards equal to round 1's; the feature-off
-  sample; the four test files, the Beetle driver's within three runs; review
-  round 1's report against session message 1142 and change 2's round 2
-  report against 1976; the upstream issues; no listener; and no whitespace
-  error. All pass.
+- `scripts/zones/zone_data.py`: `Overlay`'s field `formations` is now
+  `has_formations`, in its docstring too, and `dump_package_texts()` reads
+  it; in `write_formations()` a dump's formation is `formation` and the
+  stock record `record`; `dump_package_texts()`'s phrase is `edited`;
+  `Overlay.folder` has a docstring, and `remix_package_texts()`'s says that
+  the recipe's own description becomes the package's.
+- `.agent/HANDOFF.md`: the scope; Phase 7 change 3 condensed, with its
+  review round 2's suggestion 1; these sections; the hypotheses' Mouse Aim
+  item, with suggestion 2; the review state; the next action.
+- Round 2, for review round 1's two findings: Phase 7 change 3's condensed
+  section again says that at boost level E boost moves the mech sideways, as
+  the full record did, and the observation on change 5's evidence names both
+  snippets that no longer match the tool. From its suggestions: in that
+  section, the wait that ran its full 5 s with the feature off, W's delay
+  explained and the HLE mode of the three routes (3); the five experiments
+  that take a shot (2); a bullet on what shows the rename complete (5); and
+  where round 1's checks put the differential's temporary files (4).
+- Round 3, for review round 2's finding: the review state's entry on round 1 now
+  names what that reviewer re-ran, which did not include the checks script. From
+  round 2's suggestions, both in Phase 7 change 3's condensed section: the
+  `phase7-3/r2/` base for three paths that lacked one, and the full record's
+  reason why the wait before D ran its 5 s with the feature off.
+- Untracked (ignored): `.cache/evidence/phase6-6/`, with review round 1's
+  report (`review-r1.md`), round 2's evidence (`r2/`), review round 2's report
+  (`r2/review-r2.md`) and round 3's evidence (`r3/`); in
+  `.cache/evidence/phase7-3/r2/`, `screen_check.py` (Phase 7 change 3's
+  suggestion 3, and in round 2 a docstring sentence reworded) and Phase 7
+  change 3's round 2 report, `review-r2.md`.
+
+## Phase 6 change 6 checks
+
+- `proofs.sh` / `.log`, as in the observations: the tests, the baseline,
+  the differential and the syntax trees; `ast_planted.sh` / `.log`, the
+  comparison's planted cases.
+- pyflakes finds nothing in the tool, and no line of it is longer than 99
+  columns.
+- `checks-p6-6.sh` / `.log` (the staged tree; it writes in a scratch
+  directory, except that change 5's differential, run without `TMPDIR`,
+  made and removed its work directory in the system's temporary directory,
+  as review round 1 found): only the two files change; the tool's syntax
+  tree equals HEAD's but for the renames and docstrings, and
+  `ast_planted.sh` reproduces its log; the help texts equal HEAD's; this
+  file's header, overall paragraph, Phase 0 to Phase 7 change 2 and review
+  entries up to Phase 7 change 3's round 2 equal HEAD's, and it has no
+  placeholder, doubled blank line, long added line, new reflow leftover or
+  local path; the gates, the pins and clean submodules, `psxrecomp` ignoring
+  only `overlay_codegen_hash.h`; Phase 7 change 3's round 2 report against
+  session message 1550, HEAD and `origin/master` at `ad4fb7e`, and the
+  figures its condensed section cites (W's first frames, the expectations,
+  the save-state check's results and shots, the probe's speeds); pyflakes;
+  the four test files, the Beetle driver's within three runs; the baseline
+  of the staged tool and of HEAD's; change 5's differential, its log equal
+  to this change's and to change 5's; the audit's probes; no listener; and
+  no whitespace error. All pass. The first run (`checks-p6-6-first.log`),
+  on the tree before this bullet replaced its placeholder, passed the same
+  way.
+- Round 2, `r2/checks-p6-6-r2.sh` / `.log` (the staged tree; it writes only
+  in a scratch directory, and its `TMPDIR` is there too, which round 1's
+  checks and `proofs.sh` did not arrange for change 5's differential):
+  round 1's checks again; the delta from round 1's tree (rebuilt from
+  `snapshot/index-entries.txt`) touches only this file, so the tool is
+  round 1's, and its changed words are printed; `r2/snippets.py`,
+  `r2/wait_frames.py` and `r2/completeness.sh` reproduce their logs; the
+  boost level E sentence matches the full record and the FAQ; and this
+  change's round 1 report matches session message 745. All pass.
+- Round 3, `r3/checks-p6-6-r3.sh` / `.log` (the staged tree; it writes only
+  in a scratch directory): the delta from round 2's tree (rebuilt from
+  `r2/snapshot/index-entries.txt`) touches only this file, so the tool is
+  still the blob that rounds 1 and 2 checked, and its changed words are
+  printed; this file's header, overall paragraph, Phase 0 to Phase 7 change 2
+  and review entries up to Phase 7 change 3's round 2 equal HEAD's, and it has
+  no placeholder, doubled blank line, long added line, new reflow leftover or
+  local path; the lines the corrections rest on are printed (round 1's report
+  on what it re-ran, the full record on the wait before D and line 8 of
+  `phase7-3/r2/mouse_checks.log`), and the three paths that change 3's condensed
+  section now gives under `phase7-3/r2/` exist; round 2's report matches session
+  message 1014; the gates, the pins and clean submodules; and no whitespace
+  error. All pass. It runs no tests, baseline or differential, since only
+  this file changed: round 2's checks ran them on the same tool.
 
 ## Hypotheses and unknowns
 
@@ -1306,8 +1124,10 @@ calls the plugin (`psxrecomp/runtime/src/mod_packages.cpp:3869-3876`,
   strafe on the desktop and in other zones; how it meets the stage's limits,
   which the movement applies after the forces, the stages that move the
   player along z, where it drops its z part as the game does for the
-  thrust, and the game's other pushes (the first windowed run's failure is
-  not traced); ZONE PLAY and TRAINING, which the plugin counts as flight;
+  thrust, and the game's other pushes (two first windowed runs each met one
+  they did not cause: round 1's while D was held near zone 1's asteroid
+  base, round 2's as a jolt of 4 to 7 degrees after W's release; neither is
+  traced); ZONE PLAY and TRAINING, which the plugin counts as flight;
   losing the window's focus, which should free the cursor; the runtime's own
   save-state and rewind menus, during which the cursor may stay captured,
   since the plugin frees it only for the game's pause, outside flight or
@@ -1907,12 +1727,53 @@ calls the plugin (`psxrecomp/runtime/src/mod_packages.cpp:3869-3876`,
   and two expectations in `r2/mouse_check.py`, both comparing the strafe with
   the steering; suggestion 2 softens the manifest's replay sentence, and
   `AGENTS.md`'s with it.
-- Phase 7 change 3, round 2: pending delta re-review.
+- Phase 7 change 3, round 2: PASS on tree `c0d721e` (staged diff
+  `c236c895…`), no findings, from the same reviewer: it re-ran
+  `r2/checks-p7-3-r2.sh` into scratch, reproduced the frozen snapshot, and
+  ran its own probe from one save state on round 2's build, where each
+  strafe moved the mech the way its key points and the game's own turn and
+  climb, measured the same way, confirmed the measurement. Report:
+  `r2/review-r2.md` (session message 1550). Commit `ad4fb7e`, pushed. Its
+  three suggestions: 1, W's delay after the first windowed run, 35 frames in
+  the on view and 47 in the invert view, is in change 3's condensed section;
+  2, naming both pushes that the first windowed runs met, is in the
+  hypotheses' Mouse Aim item; 3, the save-state check's one shot, is in that
+  script (Phase 6 change 6's observations).
+- Phase 6 change 6, round 1: NEEDS CHANGES on tree `5424877` (staged diff
+  `6a090484…`), two Low findings, both in this file. The fresh reviewer
+  found the tool's change to be exactly the stated renames and docstrings
+  (its own reversal of the renames, token by token, gave HEAD's file byte
+  for byte) and re-ran the four test files, the baseline, the differential, the
+  help texts, the probes, the syntax-tree comparison and its planted cases, the
+  gates and the pins, but not the checks script itself. Low 1: the observation
+  on change 5's evidence named one snippet that no longer matches the tool
+  (`mutations.py:84`); there are two, the other at line 86 quoting `edits`, and
+  `gaps_differential.py` plants both. Low 2: the condensed Phase 7 change 3
+  section dropped the boost level E exception that the full record and its FAQ
+  give. Report: `review-r1.md` (session message 745). Round 2 corrects both. Of
+  its six suggestions, 1 (the commit draft's count of renamed locals and its
+  deferred line) is in the draft; 2 (the five experiments that take a shot, and
+  a short line in `screen_check.py`'s docstring), 3 (the waits, W's delay and
+  the HLE routes) and 5 (what shows the rename complete) are in these sections
+  and that script; 4 (the temporary directory of change 5's differential) is in
+  round 2's checks and in the bullet on round 1's checks; 6 (one meaning for
+  `formation` and `record` across the module) is left for a later naming pass.
+- Phase 6 change 6, round 2: NEEDS CHANGES on tree `8e3dcf2` (staged diff
+  `16534a38…`), one Low finding, in this file: the round 1 entry said that the
+  reviewer re-ran the checks script, which its report names only in a
+  suggestion. The same reviewer confirmed that both round 1 findings are
+  resolved and that suggestions 2 to 5 landed, recomputing the snippet counts,
+  W's delays and the waits independently, and that the tool is round 1's byte
+  for byte. Report: `r2/review-r2.md` (session message 1014). Round 3 corrects
+  the entry, which now names what round 1 re-ran. Both of round 2's suggestions
+  are applied in Phase 7 change 3's condensed section: the `phase7-3/r2/` base
+  of three paths, and why the wait before D ran its 5 s with the feature off.
+- Phase 6 change 6, round 3: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. The user can then try the strafe in the play
-copy: a session started with `play/play.sh <session dir> <SCPH-1001 dump>`
+After a PASS: commit and push. The user can try the strafe (`ad4fb7e`) in the
+play copy: a session started with `play/play.sh <session dir> <SCPH-1001 dump>`
 (in `.cache/evidence/phase4-2/`) refreshes the play copy from `build-dev/`,
 so its Mods page shows Mouse Aim's new option Strafe speed; the play copy's
 `mods/state.toml` already enables Mouse Aim, and its `keybinds.ini` is now
@@ -1925,9 +1786,8 @@ layout or the plugin. Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
-`code-quality/zone-baseline/` and with `phase6-5/differential.py`: change
-5's review suggestions 4 to 6 (names and docstrings); perhaps modules for
-the disc reader and the MIPS analysis; the three fixes (register
+`code-quality/zone-baseline/` and with `phase6-5/differential.py`: perhaps
+modules for the disc reader and the MIPS analysis; the three fixes (register
 values traced across a join, a "calls nothing" note for a callback that returns
 before the formation it starts, a traceback on a malformed directory record; the
 probes in `code-quality/probes/` reproduce each); the route-script hang (below),

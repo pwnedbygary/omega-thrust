@@ -191,16 +191,17 @@ class Layout(collections.namedtuple("Layout", "timeline formations parts")):
 ZoneEdit = collections.namedtuple("ZoneEdit", "path lba stock built")
 
 
-class Overlay(collections.namedtuple("Overlay", "zone start stop formations")):
+class Overlay(collections.namedtuple("Overlay", "zone start stop has_formations")):
     """One zone's part of a package. zone is a ZoneEdit, and start and stop
     are the file offsets of the first byte build may change and of the byte
     after the last; the overlay puts the built bytes between them on the disc
-    in place of the stock ones. formations tells whether the zone has
+    in place of the stock ones. has_formations tells whether the zone has
     formation records."""
     __slots__ = ()
 
     @property
     def folder(self):
+        """The zone file's folder on the disc, such as "S1"."""
         return self.zone.path.split("/")[0]
 
     @property
@@ -908,24 +909,24 @@ def write_formations(out, stock, formations, source):
     address, and keep its numbers of steps and members, which the code that
     passes it fixes; its position, angles, steps and member offsets are
     written."""
-    by_address = {formation.address: formation for formation in stock}
-    if sorted(edit["address"] for edit in formations) != sorted(by_address):
+    by_address = {record.address: record for record in stock}
+    if sorted(formation["address"] for formation in formations) != sorted(by_address):
         raise ZoneError(f"{source}: formations must list each of this zone's records once: "
                         + (", ".join(f"0x{a:08X}" for a in sorted(by_address))
                            or "it has none"))
-    for edit in formations:
-        formation = by_address[edit["address"]]
-        if len(edit["steps"]) != formation.steps or len(edit["members"]) != formation.members:
-            raise ZoneError(f"{source}: formation 0x{formation.address:08X} must keep"
-                            f" {formation.steps} steps and {formation.members} members,"
+    for formation in formations:
+        record = by_address[formation["address"]]
+        if len(formation["steps"]) != record.steps or len(formation["members"]) != record.members:
+            raise ZoneError(f"{source}: formation 0x{record.address:08X} must keep"
+                            f" {record.steps} steps and {record.members} members,"
                             " which the code that passes it fixes")
-        PLACEMENT.pack_into(out, formation.address - BASE + POINTERS.size,
-                            *edit["position"], *edit["angles"])
-        for m, step in enumerate(edit["steps"]):
-            STEP_FIELDS.pack_into(out, formation.steps_at - BASE + STEP * m, *step["turn"],
+        PLACEMENT.pack_into(out, record.address - BASE + POINTERS.size,
+                            *formation["position"], *formation["angles"])
+        for m, step in enumerate(formation["steps"]):
+            STEP_FIELDS.pack_into(out, record.steps_at - BASE + STEP * m, *step["turn"],
                                   step["speed"], step["ticks"], step["flags"])
-        for m, member in enumerate(edit["members"]):
-            OFFSET.pack_into(out, formation.members_at - BASE + MEMBER * m, *member)
+        for m, member in enumerate(formation["members"]):
+            OFFSET.pack_into(out, record.members_at - BASE + MEMBER * m, *member)
 
 
 def build(blob, doc, source):
@@ -1221,19 +1222,20 @@ def dump_package_texts(overlay, image):
     the package command makes from one zone's dump: they say what the dump
     edits."""
     path, label = overlay.zone.path, overlay.label
-    edits = "an edited wave timeline" + (" and formations" if overlay.formations else "")
+    edited = "an edited wave timeline" + (" and formations" if overlay.has_formations else "")
     header = [f"# Built by scripts/zones/zone_data.py from {path} on the player's disc.",
               f"# {overlay.member} holds data from that disc: keep this package out of the",
               "# repository."]
-    description = f"{edits[0].upper()}{edits[1:]} for {label}."
-    about = (f"Off by default. While on, {label} plays {edits} ({overlay.region})."
+    description = f"{edited[0].upper()}{edited[1:]} for {label}."
+    about = (f"Off by default. While on, {label} plays {edited} ({overlay.region})."
              f" {disc_note(image)}")
     return header, description, about
 
 
 def remix_package_texts(overlays, image):
     """The header and feature description of the package that the remix
-    command makes from a recipe, whose own description is the package's."""
+    command makes from a recipe; the recipe's own description becomes the
+    package's."""
     members = [overlay.member for overlay in overlays]
     header = comment(
         "Built by scripts/zones/zone_data.py from a remix recipe and"
