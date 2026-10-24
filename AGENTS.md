@@ -377,8 +377,8 @@ is the check. An instruction hook also needs its address in `game.toml`
 calls `psx_mod_instruction` before that instruction, which returns at once
 while no active plugin hooks an instruction. Changing the list changes the
 hash of `game.toml` that the static overlay audit records, so `generate`
-rebuilds the shard and rewrites `AOT_STATIC_AUDIT.json`; with the two sites
-listed now, both in the EXE, the rebuilt shard's C was the same.
+rebuilds the shard and rewrites `AOT_STATIC_AUDIT.json`; with the sites
+listed now, all three in the EXE, the rebuilt shard's C stayed the same.
 
 `omega.cheat.unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
 off by default) runs the plugin `omega.unlock-all`
@@ -415,30 +415,46 @@ reach each branch.
 `omega.enhancement.mouse-aim` ("Mouse Aim", group Quality of Life, off by
 default) runs `omega.mouse-aim` (`src/mods/omega_mouse_aim.c`). While it is
 on and the player is flying (CAMPAIGN PLAY, ZONE PLAY or TRAINING), the mouse
-moves player 1's left stick, adding to the keyboard's stick keys; releasing
+steers, moving player 1's left stick, and the keyboard's left-stick keys (W,
+A, S, D and the arrows in `controls/keybinds.ini`) strafe: they move the mech
+up, left, down and right relative to the view without turning it, at the
+option Strafe speed (in percent of the cruising speed, default 50). Releasing
 the left button presses ATTACK once, which launches the homing lasers at the
 targets locked on since the last press, and holding the right button presses
 it again and again, firing the laser rifle. The framework's mouse policy
 captures the mouse only while the left button is held and moves only the
 right stick, so the plugin puts the game window in SDL's relative mouse mode
-itself and drives player 1 through a controller source. A source's sticks
-replace player 1's own, so a gamepad's sticks do not steer in flight while
-the feature is on, though its buttons do. The cursor is free while the game
-is paused, out of flight or not in the focused window. The plugin presents
-player 1 as an analog pad, so in flight the game steers by the stick, not the
-d-pad, and keeps the game's TYPE setting (CONTROL SETUPS) at B, so that up
-flies the mech up, or at A with its option Invert vertical. The game saves
-TYPE with its environment data and reads it back from the card at the title
-screen, so a save made while the feature is on keeps that TYPE with the
-feature off too, until CONTROL SETUPS changes it. The plugin counts its work
-as `omega.mouse-aim.*`. Beyond `mod_plugins.h` it relies on `psx_sdl.h` and
-`psx_keybinds_sticks()`, so a pin bump must check it again. The runtime
-discards a controller source's input in headless runs and under a debug-server
-input override (`psxrecomp/runtime/include/mod_plugins.h:825-827`), so the
-routes cannot check the plugin: check a change to it in a windowed run (so
-far, the 1ST ZONE of CAMPAIGN PLAY). `controls/keybinds.ini` is the keyboard
-layout made for it: copy it beside the executable as `keybinds.ini`, where
-windowed runs read it, or set the same keys on the launcher's Controls page.
+itself and drives player 1 through a controller source: the mouse on the
+left stick, and the stick keys on the right stick, which the game ignores in
+flight. An instruction hook in the player's movement (0x80033044, listed in
+`game.toml`) reads the right stick from the pad record and adds a force
+along the screen's right and down axes; the game's own drag ends the
+sideways motion when the keys come up. The hook acts only in flight and on
+the live pad, so a saved replay is not expected to play the strafe back
+(derived, not tested). A source's sticks replace player 1's own, so a gamepad's
+sticks neither steer nor strafe in flight while the feature is on, though its
+buttons do. The cursor is free while the game is paused, out of flight or not
+in the focused window. The plugin presents player 1 as an analog pad, so in
+flight the game steers by the stick, not the d-pad, and keeps the game's TYPE
+setting (CONTROL SETUPS) at B, so that up flies the mech up, or at A with its
+option Invert vertical. The game saves TYPE with its environment data and reads
+it back from the card at the title screen, so a save made while the feature is
+on keeps that TYPE with the feature off too, until CONTROL SETUPS changes it.
+The plugin counts its work as `omega.mouse-aim.*`. Beyond `mod_plugins.h` it
+relies on `psx_sdl.h` and `psx_keybinds_sticks()`, so a pin bump must check
+it again. The runtime discards a controller source's input in headless runs
+and under a debug-server input override
+(`psxrecomp/runtime/include/mod_plugins.h:825-827`), so the routes cannot
+check the plugin: check a change to it in a windowed run (so far, the 1ST
+ZONE of CAMPAIGN PLAY). The strafe hook reads the pad record, which the debug
+server's `set_input` axes also reach, so a headless run can drive it. Check
+the strafe's directions against the game's own steering, from one save state:
+strafing right must move the mech to the side that turning right takes it,
+and strafing up to the side that climbing takes it, since a check along the
+hook's own axes would share any sign error in them. `controls/keybinds.ini`
+is the keyboard layout made for it: copy it beside the executable as
+`keybinds.ini`, where windowed runs read it, or set the same keys on the
+launcher's Controls page.
 
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every

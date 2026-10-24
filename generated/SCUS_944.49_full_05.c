@@ -2198,6 +2198,7 @@ block_8003301C:
 #ifdef PSX_COSIM
     cosim_instr(0x80033040u);
 #endif
+psx_mod_instruction(cpu, 0x80033044u, 0x8E020024u);
     { uint32_t _pgxa = cpu->gpr[16] + 36; cpu->gpr[2] = psx_cyc_load_word(cpu, cpu->gpr[16] + 36, 2, 0x10000u);
     PGXP_LOAD(0x8E020024u, _pgxa, cpu->gpr[2]); }  /* 0x80033044: 0x8E020024 */
 #ifdef PSX_COSIM

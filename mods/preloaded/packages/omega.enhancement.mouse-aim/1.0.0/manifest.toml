@@ -3,7 +3,7 @@ id = "omega.enhancement.mouse-aim"
 version = "1.0.0"
 name = "Mouse Aim"
 author = "Omega Thrust"
-description = "Fly the mech with the mouse: move it to steer, hold and release the left button for the lock-on lasers, hold the right button for the laser rifle."
+description = "Fly the mech with the mouse and keys: move the mouse to steer, hold W, A, S or D to strafe, hold and release the left button for the lock-on lasers, hold the right button for the laser rifle."
 resolver = "declarative"
 save_compatibility = "shared"
 
@@ -15,7 +15,7 @@ game_id = "SCUS-94449"
 [[feature]]
 id = "mouse-aim"
 name = "Mouse Aim"
-description = "Off by default. While on, the mouse flies the mech in flight: move it to steer, together with the keys; hold the left button while the game locks on and release it to launch the homing lasers; hold the right button to keep firing the laser rifle. A gamepad's sticks do not steer in flight while this is on, though its buttons still work. Pausing or switching to another window frees the cursor. Up flies the mech up: the game's TYPE setting is kept at B, or at A with the option below, for the keys and the mouse alike. A save made while this is on keeps that TYPE, and the game reads it back from the card when it starts, so it stays after you turn this off until you change it in CONTROL SETUPS. Player 1 is presented as an analog pad, so in flight the game reads the stick, not the d-pad."
+description = "Off by default. While on, the mouse aims the mech in flight and the keys move it: move the mouse to steer; hold W, A, S or D, or an arrow key, to strafe up, left, down or right without turning; hold the left button while the game locks on and release it to launch the homing lasers; hold the right button to keep firing the laser rifle. A gamepad's sticks neither steer nor strafe in flight while this is on, though its buttons still work. Pausing or switching to another window frees the cursor. Mouse up flies the mech up: the game's TYPE setting is kept at B, or at A with the option below. A save made while this is on keeps that TYPE, and the game reads it back from the card when it starts, so it stays after you turn this off until you change it in CONTROL SETUPS. Player 1 is presented as an analog pad, so in flight the game reads the stick, not the d-pad. Strafing is probably not recorded in the game's replays, so a saved replay of a flight in which you strafed may not play back the same."
 group = "Quality of Life"
 default_enabled = false
 
@@ -32,9 +32,20 @@ default = 16
 
 [[option]]
 feature = "mouse-aim"
+id = "strafe-speed"
+label = "Strafe speed"
+description = "How fast the keys move the mech sideways, up and down, in percent of its cruising speed."
+type = "integer"
+min = 10
+max = 100
+step = 10
+default = 50
+
+[[option]]
+feature = "mouse-aim"
 id = "invert-vertical"
 label = "Invert vertical"
-description = "Up flies the mech down, as in the game's default TYPE A, for the keys and the mouse alike."
+description = "Mouse up flies the mech down, as in the game's default TYPE A."
 type = "boolean"
 default = "false"
 
