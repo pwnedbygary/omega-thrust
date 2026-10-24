@@ -1,0 +1,43 @@
+format_version = 7
+id = "omega.enhancement.mouse-aim"
+version = "1.0.0"
+name = "Mouse Aim"
+author = "Omega Thrust"
+description = "Fly the mech with the mouse: move it to steer, hold and release the left button for the lock-on lasers, hold the right button for the laser rifle."
+resolver = "declarative"
+save_compatibility = "shared"
+
+# The plugin reads and writes this EXE's game state, and the build is compiled
+# for this EXE alone.
+[[target]]
+game_id = "SCUS-94449"
+
+[[feature]]
+id = "mouse-aim"
+name = "Mouse Aim"
+description = "Off by default. While on, the mouse flies the mech in flight: move it to steer, together with the keys; hold the left button while the game locks on and release it to launch the homing lasers; hold the right button to keep firing the laser rifle. A gamepad's sticks do not steer in flight while this is on, though its buttons still work. Pausing or switching to another window frees the cursor. Up flies the mech up: the game's TYPE setting is kept at B, or at A with the option below, for the keys and the mouse alike. A save made while this is on keeps that TYPE, and the game reads it back from the card when it starts, so it stays after you turn this off until you change it in CONTROL SETUPS. Player 1 is presented as an analog pad, so in flight the game reads the stick, not the d-pad."
+group = "Quality of Life"
+default_enabled = false
+
+[[option]]
+feature = "mouse-aim"
+id = "sensitivity"
+label = "Sensitivity"
+description = "How far the stick moves for each pixel the mouse moves in one frame, in quarters of a stick unit."
+type = "integer"
+min = 1
+max = 32
+step = 1
+default = 16
+
+[[option]]
+feature = "mouse-aim"
+id = "invert-vertical"
+label = "Invert vertical"
+description = "Up flies the mech down, as in the game's default TYPE A, for the keys and the mouse alike."
+type = "boolean"
+default = "false"
+
+[[plugin]]
+feature = "mouse-aim"
+id = "omega.mouse-aim"

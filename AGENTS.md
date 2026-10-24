@@ -26,10 +26,15 @@ submodules, so it would move the pins.
 
 A framework fix we cannot wait for goes into the fork that `.gitmodules`
 names, as one commit on a branch from the commit we pin, and the pin moves to
-it as its own reviewed change. Each such fix is reported upstream, and the
-next update to an upstream commit that contains it drops it. Now: `898d834`
-on branch `omega-thrust/keybinds-beside-exe`, which makes the runtime read
-`keybinds.ini` from the executable's directory (psxrecomp#752).
+it as its own reviewed change. Each such fix is reported upstream. An update
+to an upstream commit that fixes the same issue drops the fork's commit; an
+update to one that does not yet fix it applies the commit again, on a new
+branch from that upstream commit. Never delete or force-push a fork branch:
+every commit here that pins it needs it to stay fetchable. Now: `898d834` on
+branch `omega-thrust/keybinds-beside-exe`, which makes the runtime read
+`keybinds.ini` from the executable's directory (psxrecomp#752). A clone made
+before the pin moved to the fork must run `git submodule sync --recursive`
+once; until then it fetches `psxrecomp` from upstream, which lacks `898d834`.
 
 ## Disc
 
@@ -122,7 +127,7 @@ recompiler by the sha256 of its binary, so a recompiler binary that differs,
 or another gcc path (the audit records `/usr/bin/gcc`), triggers a rebuild;
 rebuilding the emitters from the same sources with the same toolchain gives
 the same binary, so a fresh checkout's `generate` and `--force-emitters` keep
-the shard. A new clang on the host does change it: `generate` sees the
+the shard. A new clang on the host does trigger a rebuild: `generate` sees the
 toolchain change, rebuilds the emitters from scratch and then the shard (after
 clang 23.1.3 arrived, the C came out the same and only the audit changed).
 Every rebuild rewrites the audit: its `recipe_input_sha256` hashes an
@@ -406,6 +411,34 @@ does not clear them; the 8TH ZONE, U4 and U8 have one but also call the clear
 routine from their own code, and how that meets a forced clear is untested.
 Its results and records are not genuine; it exists so scripted runs can
 reach each branch.
+
+`omega.enhancement.mouse-aim` ("Mouse Aim", group Quality of Life, off by
+default) runs `omega.mouse-aim` (`src/mods/omega_mouse_aim.c`). While it is
+on and the player is flying (CAMPAIGN PLAY, ZONE PLAY or TRAINING), the mouse
+moves player 1's left stick, adding to the keyboard's stick keys; releasing
+the left button presses ATTACK once, which launches the homing lasers at the
+targets locked on since the last press, and holding the right button presses
+it again and again, firing the laser rifle. The framework's mouse policy
+captures the mouse only while the left button is held and moves only the
+right stick, so the plugin puts the game window in SDL's relative mouse mode
+itself and drives player 1 through a controller source. A source's sticks
+replace player 1's own, so a gamepad's sticks do not steer in flight while
+the feature is on, though its buttons do. The cursor is free while the game
+is paused, out of flight or not in the focused window. The plugin presents
+player 1 as an analog pad, so in flight the game steers by the stick, not the
+d-pad, and keeps the game's TYPE setting (CONTROL SETUPS) at B, so that up
+flies the mech up, or at A with its option Invert vertical. The game saves
+TYPE with its environment data and reads it back from the card at the title
+screen, so a save made while the feature is on keeps that TYPE with the
+feature off too, until CONTROL SETUPS changes it. The plugin counts its work
+as `omega.mouse-aim.*`. Beyond `mod_plugins.h` it relies on `psx_sdl.h` and
+`psx_keybinds_sticks()`, so a pin bump must check it again. The runtime
+discards a controller source's input in headless runs and under a debug-server
+input override (`psxrecomp/runtime/include/mod_plugins.h:825-827`), so the
+routes cannot check the plugin: check a change to it in a windowed run (so
+far, the 1ST ZONE of CAMPAIGN PLAY). `controls/keybinds.ini` is the keyboard
+layout made for it: copy it beside the executable as `keybinds.ini`, where
+windowed runs read it, or set the same keys on the launcher's Controls page.
 
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every

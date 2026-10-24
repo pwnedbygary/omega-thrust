@@ -56,6 +56,7 @@ psxrecomp_add_game_runtime(psx-runtime
     EXTRAS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_unlock_all.c"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_branching.c"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_zone_clear.c"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_mouse_aim.c"
     # Committed game C (psxrecomp_cli.py generate; git add generated). Release
     # CI configures with -DPSXRECOMP_REQUIRE_GAME_C=ON so a checkout without
     # it fails instead of building a setup host.

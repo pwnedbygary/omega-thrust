@@ -12,36 +12,32 @@ also the user's choice, works through an independent audit of the committed
 code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and
 readability cleanups, each its own small reviewed change. Phase 7, the
 user's request, is mouse and keyboard controls like those of modern space
-shooters: the mouse steers without a held button, W, A, S and D move, Q
-scans, the left button held is the lock-on lasers, the right button the
-machine-gun lasers, and Enter pauses. It starts with a framework fix, one
-commit on `8077e71` in a fork, since on Linux the runtime never read
-`keybinds.ini`.
+shooters: the mouse steers without a held button, W, A, S and D move, Q held
+keeps the mech facing the enemy (the game's SCAN), the left button held is
+the lock-on lasers, the right button the machine-gun lasers, and Enter
+pauses. It started with a framework fix, one commit on `8077e71` in a fork,
+since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 7 change 1, round 1: the runtime reads
-`keybinds.ini` from the executable's directory (psxrecomp #752).
-`psx_keybinds_init()` takes a last path component without a dot for a
-directory, so given argv[0] of an executable without an extension, as on
-Linux, it used `<executable>/keybinds.ini`: it never wrote its defaults and
-never loaded the file, so no layout there, the launcher's or one written by
-hand, took effect. Invariant: a windowed run of `Omega_Thrust` writes the
-default `keybinds.ini` beside itself when there is none and otherwise loads
-it, so a key bound there drives the pad; nothing else that the runtime, the
-generated code or psx-beetle does changes. The fix is one commit, `898d834`,
-on branch `omega-thrust/keybinds-beside-exe` from the pinned `8077e71` in
-the fork pwnedbygary/psxrecomp, which `.gitmodules` now names: it gives
-`psx_keybinds_init()` the directory that `exe_dir_from_argv()` gives
-`input.ini`, ending in a separator. The pin moves to it, `framework_pins.txt`
-follows, and `AGENTS.md` records the fork, the rule for such fixes, the files
-a windowed run writes and the new line numbers in `main.cpp`. Running
-`generate`, the first time with the host's clang 23.1.3, rebuilt the
-emitters and the static shard: the C came out the same and only the shard's
-audit changed, which this change commits with `AGENTS.md`'s toolchain line,
-as the last next action planned. This file records change 5's round 1 PASS
-and commit `de447ef`, condenses change 5 and takes up its review's
-suggestions on wording. Baseline: `de447ef`. Out of scope: mouse aim and the
-key layout (the next change), any other framework change, the game's code
-and the tools.
+Current iteration, Phase 7 change 2, round 2: Mouse Aim, an opt-in mod made
+from the scratch trial the user played, and the keyboard layout made for it.
+Invariant: with the feature off, as it is by default, nothing the runtime,
+the generated code or psx-beetle does changes: the runtime never calls the
+plugin, and every committed route passes in the three modes with the overlay
+counters of change 1's batch. With it on, in flight, the mouse moves player
+1's left stick without a held button, added to the keyboard's stick keys (a
+gamepad's sticks do not steer then, its buttons do); releasing the left
+button presses ATTACK once and holding the right button presses it again and
+again; pausing, leaving flight or losing focus frees the cursor; player 1 is
+presented as an analog pad; and the TYPE setting is kept at B, or at A with
+Invert vertical, which a save records. The layout, `controls/keybinds.ini`,
+binds the keys the user asked for and the rest by modern space shooters'
+conventions, and equals the trial's. `AGENTS.md` describes the mod and the
+layout and takes up change 1's review suggestions 1 to 3 and 7's second
+point; this file records change 1's round 1 PASS and commit `56f9da6`,
+condenses change 1 and takes up suggestions 4 to 6 and 7's first point.
+Round 2 resolves review round 1's two findings. Baseline: `56f9da6`. Out of
+scope: the framework (no new fork commit), the launcher's Controls page,
+gamepads, the rest of the code-quality work, the routes and the tools.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -789,133 +785,384 @@ differences (`gaps_differential.py`). Review: round 1 PASS on tree
 `68b11f3` (staged diff `28c13876…`). The full record is in
 `git show de447ef:.agent/HANDOFF.md`.
 
-## Phase 7 change 1 observations (`.cache/evidence/phase7-1/`)
+## Phase 7 change 1 (commit `56f9da6`)
 
-- At `8077e71`, `load_input_config()` (`psxrecomp/runtime/src/main.cpp:4875`,
-  windowed runs only; headless runs never call it) writes `input.ini` in the
-  directory that `exe_dir_from_argv()` gives (`:4879`) and passes argv[0] to
-  `psx_keybinds_init()` (`:4884`, `:4890`, `:4958`), as does the code that
-  runs when the rematch launcher returns (`:18397`). `derive_ini_path()`
-  (`psxrecomp/runtime/src/psx_keybinds.c:180-200`) takes a last path
-  component without a dot for a directory, so for `Omega_Thrust` it chose
-  `<executable>/keybinds.ini`, which cannot exist. Upstream's master,
-  `31df2e1`, has the same `derive_ini_path()` and `psx_keybinds_init()` and
-  still passes argv[0].
-- `.cache/evidence/upstream/keybinds_repro.py` (`.log`), windowed runs with
-  `--no-launcher` on a private Xvfb display: started as `Omega_Thrust`, the
-  runtime printed no `[Keybinds]` line and wrote no `keybinds.ini`, with or
-  without one beside it; started through a symlink named
-  `Omega_Thrust.x86_64`, it wrote the defaults and then loaded them.
-  Reported upstream as psxrecomp #752 with that reproduction
-  (`upstream/issue-4-posted.md`, `issue-4.url`).
-- `keybinds_check.py`, with `upstream/trial/keybinds-trial.ini` (W and Up
-  for Up, Left Ctrl for R1): with HEAD's build 4 of its 5 expectations fail,
-  and holding W gives the pad word `0xF7FF` (R1, W's default binding); with
-  the fix none fail: the runtime writes its defaults beside `Omega_Thrust`,
-  loads the file, and holding W gives `0xFFEF` (Up pressed, R1 released).
-  Through the symlinked name it loads the file both before and after.
-- Running `generate` with the new pin, the first time with the host's clang
-  23.1.3, removed `build-recompiler/` for the changed toolchain and rebuilt
-  the emitters and the static shard (`RESULT_STATIC=built`,
-  `generate.log`). Every tracked generated file came out byte-identical
-  except the audit, in which only `recompiler_sha256`, `recipe_input_sha256`
-  and `generation_inputs_sha256` changed; a second run reused the shard
-  (`generate2.log`).
-- psx-beetle built from the new pin (`beetle_rebuild.sh`, `.log`) has the
-  same sha256 as before, `63d0e568…`; its build compiles no `main.cpp`. No
-  framework test target compiles it either: the framework's build files list
-  `runtime/src/main.cpp` only among the game runtime's sources
-  (`psxrecomp/runtime/runtime.cmake:351`), so the framework's tests cannot
-  exercise the fix. Its two keybind tests, which the plan the user approved
-  named, build `psx_keybinds.c` and pass when built from the fork commit.
-- The helper adds nine lines before `load_input_config()`, so every line of
-  the fork's `main.cpp` from 4875 on sits nine lines later than at
-  `8077e71`. `AGENTS.md`'s citations of those lines are updated; this
-  file's earlier sections cite `8077e71`'s numbers and stay as records.
+At `8077e71` the runtime never read `keybinds.ini` on Linux:
+`load_input_config()` (windowed runs only) passed argv[0] to
+`psx_keybinds_init()`, and `derive_ini_path()`
+(`psxrecomp/runtime/src/psx_keybinds.c:180-212`) takes a last path
+component without a dot for a directory, so for `Omega_Thrust` it chose
+`<executable>/keybinds.ini`. Reported upstream as psxrecomp #752, with a
+reproduction (`.cache/evidence/upstream/`). The fix, one commit `898d834` on
+branch `omega-thrust/keybinds-beside-exe` from `8077e71` in the fork
+pwnedbygary/psxrecomp, passes `psx_keybinds_init()` the directory that
+`exe_dir_from_argv()` gives `input.ini`, in all four calls (13 lines added
+and 4 removed in `runtime/src/main.cpp`); the branch was pushed to the fork
+before this repository's commit, and `.gitmodules` names the fork. Every
+line of the fork's `main.cpp` from 4875 on sits nine lines later than at
+`8077e71`; this file's earlier sections cite `8077e71`'s numbers.
+`keybinds_check.py` (`.cache/evidence/phase7-1/`; a private Xvfb display,
+keys from xdotool) failed 4 of its 5 expectations with the old build and
+none with the new: the runtime wrote its defaults beside `Omega_Thrust`,
+loaded the file, and holding W, bound to Up there, gave Up instead of W's
+default R1. Judged from the code and the reviewer's host harness, not run:
+under an AppImage the file now sits beside the AppImage, where `input.ini`
+already was, and on Windows, where argv[0] ends in `.exe`, it is the same
+file as before. The framework's two keybind tests pass when built from the
+fork commit; psx-beetle compiles no `main.cpp` and came out byte-identical;
+`generate`, the first time with clang 23.1.3, rebuilt the emitters and the
+static shard, and only the audit's three hashes changed; all 66 route runs
+passed, with the overlay counters of Phase 5 change 3's batch. Review round
+1 passed with no findings. Full record: `git show 56f9da6:.agent/HANDOFF.md`.
 
-## Phase 7 change 1 changes
+## Phase 7 change 2 observations (`.cache/evidence/phase7-2/`)
 
-- `psxrecomp`: the gitlink moves from `8077e71` to `898d834`, the fork's
-  commit "Read keybinds.ini from the executable's directory", which changes
-  only `runtime/src/main.cpp` (13 lines added, 4 removed): a new
-  `init_keybinds_beside_exe(argv0)` passes `psx_keybinds_init()` the
-  directory from `exe_dir_from_argv()`, ending in a separator, and the four
-  calls that passed argv[0] call it instead. Its author and committer use the
-  GitHub account's no-reply address. The commit is on the branch
-  `omega-thrust/keybinds-beside-exe` of a scratch clone and in the
-  submodule's object store, not yet on the fork: a fresh clone fetches the
-  pinned commit from the fork, so after a PASS the branch is pushed before
-  this repository's commit. The nested pins do not change.
-- `.gitmodules`: `psxrecomp`'s URL is the fork's.
-- `framework_pins.txt`: `record_pins.sh`'s output for the new pin.
-- `generated/AOT_STATIC_AUDIT.json`: the three hashes above.
-- `AGENTS.md`: the pins table, and the rule for a framework fix in the fork,
-  which narrows "Never patch a submodule" to its checkout; the `generate`
-  paragraph on a new clang; what a windowed run with `--no-launcher` writes;
-  the four `main.cpp` citations past line 4875 moved by nine (each range's
-  text checked against `8077e71`'s); the host toolchain line (clang 23.1.3,
-  Python 3.14.8).
-- `.agent/HANDOFF.md`: the scope; change 5 condensed, with its review's
-  suggestions on wording taken up; these sections; the hypotheses; the
-  review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase7-1/` (the check and its logs,
-  the builds' logs and hashes, the `generate` logs, the Beetle rebuild, the
-  framework's keybind tests, the route batch, the fork commit's message, the
-  checks, the snapshot and the review), `.cache/evidence/upstream/` (the
-  reproduction, the issue's text and URL, the trial files) and
-  `.cache/evidence/phase7-trial/` (copies of the scratch mouse trial's
-  files, since a reboot empties `/tmp`).
+- The framework's local mouse policy captures the mouse only while the left
+  button is held and releases it when the button comes up
+  (`psxrecomp/runtime/src/local_mouse_policy.cpp:81-99`), and it may move
+  only the right stick (`psxrecomp/runtime/include/mod_plugins.h:818-819`).
+  Omega Boost steers with the left stick (every DEMONSTRATION replay,
+  `.cache/evidence/spike-replay/stick_use.log`), and the user wants the left
+  button as a weapon. So the plugin puts the game window in SDL's relative
+  mouse mode itself and drives player 1 through a controller source
+  (`psx_mod_set_controller_source`, `mod_plugins.h:846-850`): the runtime
+  combines its buttons with the physical pad's and takes its sticks in place
+  of the physical ones (`mod_plugins.h:814-817`). So the source starts each
+  frame's sticks centred, adds the keyboard's stick keys with
+  `psx_keybinds_sticks()`, which the runtime adds only to the physical sample
+  (`psxrecomp/runtime/src/main.cpp:5830-5834`), and moves the left stick by
+  the mouse. A gamepad's sticks then do not reach the game while the source
+  is attached; its buttons do, since keybinds stay live beside a gamepad
+  (`main.cpp:5417-5435`) and the runtime ANDs the source's buttons with the
+  physical pad's (`psxrecomp/runtime/src/pad_external_input.c:25-26`).
+  `psx_sdl.h` and `psx_keybinds_sticks()` are framework internals beyond
+  `mod_plugins.h`, named in the plugin's header comment.
+- Review round 1's finding: round 1's plugin kept player 1's physical sticks
+  by recording the samples its presentation policy saw between two calls of
+  the source and taking the first of two as the physical one. That holds
+  only while the runtime samples the pad once a frame. By default it samples
+  it twice, early and again after the pacer wait (low-latency input:
+  `main.cpp:1377`, `:7715-7723`, `:8037-8049`), while the source runs once a
+  frame and both samples reuse its output
+  (`psxrecomp/runtime/src/mod_controller_source.c:7-9`, `:54-58`). Each
+  sample shows the policy the physical capture (`main.cpp:5791`) and the
+  source's output (`:6399`), so it saw four samples a frame and the plugin
+  always fell back to centred sticks: a gamepad's sticks never reached the
+  game in flight, and the keyboard steered only because the plugin added its
+  stick keys again (the reviewer's gdb runs, with a control run at
+  `PSX_LOW_LATENCY_INPUT=0`, and its host harness; `review-r1.md`). A
+  policy's input has no field that tells a physical sample from the source's
+  (`psxrecomp/runtime/include/mod_plugins.h:776-789`), so round 2 drops the
+  recording and says that a gamepad's sticks do not steer while Mouse Aim
+  flies. Under the default sampling this is what round 1 already did
+  (Derived from the code above). Round 2 also presents player 1 as analog
+  with `psx_mod_set_controller_mode_override` instead of a policy that always
+  answered analog: a session start clears the overrides, activates the
+  plugins and applies an override to the player's mode
+  (`main.cpp:16651-16676`); without a policy the resolved mode is that mode
+  (`:5490-5491`), for the source's sample too, multitap rule included
+  (`:6394-6406`), and config capability follows it (`:6416-6418`). The
+  override takes the runtime's pad modes, in which analog is 1, as in the mod
+  API (`psxrecomp/recompiler/src/config_loader.h:36`, `main.cpp:1824-1837`).
+- With the source attached, the keys and the mouse reach the game from each
+  frame's early sample: the re-sample after the pacer wait reuses the
+  source's output, so their stick input is up to one pacer wait older than a
+  physical pad's re-sampled stick would be (Derived from
+  `mod_controller_source.c:7-9`; not measured).
+- The game's state the plugin reads. The main loop runs the state at
+  0x8009C5B0 through a jump table at 0x80012488 (`r2/states.sh` / `.log`,
+  read from the EXE): case 8 calls the campaign loop 0x8002F814, case 9 ZONE
+  PLAY's loop 0x8002FC30 (Phase 5's disassembly), and case 11 a loop at
+  0x8002FE54 that loads scene 22, the TRAINING files `\TU\TU.BIN`, through
+  the scene loader 0x8002AA88 and stores 22 as the scene index (0x8002FE78
+  to 0x8002FE90, 0x8002FECC to 0x8002FED0). The scratch trial's watch saw 8
+  in CAMPAIGN PLAY and never 9 or 11 (`.cache/evidence/phase7-trial/`
+  `desk-watch.jsonl`); 9 and 11 are Derived from that code, and no run has
+  flown in either. From the trial: the player's state (3 in play, 2 in a
+  scripted sequence such as zone 1's fly-by, which 0x800341C0 sets, as review
+  round 1 found), the pause byte at 0x800A7A10 (1 while paused), and ATTACK's
+  buttons at 0x800A7C40, a mask of the pad word's high byte (0xC0, Cross and
+  Square, by default). The game takes one input every two frames (the
+  replays hold one input per two frames), so the plugin holds each ATTACK
+  press and release for at least two frames and steers by the average of two
+  frames' mouse movement.
+- The game's TYPE setting (CONTROL SETUPS, "FLIP VERTICAL"), the word at
+  0x800A7E50, decides which way up steers. In the trial's flight routes
+  (`vertical_check.py` / `.log`, `vertical-trial_sheet.png`,
+  `vertical-trial2_sheet.png`, read by eye): under TYPE A, the game's
+  default, holding the d-pad's up put the crosshair below the mech, steering
+  down, as the CONTROL SETUPS diagram labels it; with TYPE B written at the
+  main menu, up put it above, steering up; with TYPE B written in mid-zone,
+  nothing changed, since a zone copies the setting when it starts (0x800A7C38
+  is that copy). The player's y position fell during every hold, so it does
+  not show the direction. The plugin keeps the word at B from the game's
+  start, or at A with Invert vertical. This change's windowed checks show
+  the crosshair moving accordingly (`crosshair.py` / `.log`, which finds the
+  yellow ring in each 320x224 shot and measures it from where it rests in the
+  feature-off view; `mouse-shots_sheet.png`): with Mouse Aim on it rose 17
+  pixels at the end of the mouse-up phase and 79 with W held; with Invert
+  vertical it sank 18 and 73; with the feature off the mouse left it where it
+  was, and W, the d-pad's up on the digital pad, sank it 85, as TYPE A does.
+  Moving the mouse right moved it 12 or 13 pixels right with the feature on.
+- Windowed checks (`make_view.sh`, `start_view.sh`, `mouse_check.py`,
+  `run_mouse_checks.sh`, `mouse_checks.log`, `mouse/<setting>/`; Xvfb display
+  :95, debug port 4396, 20:22 to 20:31): for each setting (Mouse Aim off, on,
+  and on with Invert vertical) a copy of `build-dev` with its own
+  `mods/state.toml` and the layout as its `keybinds.ini` ran windowed with
+  `--no-launcher` and played `title_to_zone1` through the debug server into
+  zone 1; xdotool then moved the mouse during the fly-by and drove the mouse
+  and keys one phase at a time after it. Each copy loaded its own
+  `keybinds.ini`, and every expectation held (8 with the feature off, 23 in
+  each other setting). With the feature on, the left stick reached 188 for
+  the mouse moving right (during the fly-by too), 68 for it moving up, 0 with
+  W held and 255 with D, and came back to 128 when the mouse stopped; a
+  sample just after a movement can show half of it, since the source
+  averages two frames. The mouse moving left took D's 255 down to 195. The
+  left button's release counted one launch and pressed ATTACK (Cross, the
+  first of ATTACK's buttons); holding the right button counted 21 or 22
+  rifle presses, 23 by the end of its release. Return paused the game and
+  freed the cursor, unpausing captured it again, and the mouse then steered
+  as before; no capture, attach or policy failure was counted. With the
+  feature off no counter existed, the pad stayed digital, the mouse moved
+  nothing and W pressed the d-pad's up. The first run
+  (`mouse_checks-first.log`, the first build) failed four expectations in
+  each Mouse Aim setting. Its phases began before the fly-by, which that
+  build treated as out of flight: in the on view it freed the cursor and
+  detached its source from the fly-by's start (first seen at frame 8056) to
+  its end (8296), so the mouse moving left in `d+mouse-left` (8161 to 8223)
+  did not reach the stick. The left button went down at 8255, while the
+  cursor was still free, and came up after the capture at the fly-by's end,
+  and no launch was counted, although the plugin reads the button's state
+  when it captures the mouse. Probably the pointer, moved left while it was
+  free, had left the game window, so the press never reached it
+  (hypothesis, not tested; the first build's source was not kept). The other
+  failures (the right button's ATTACK presses arriving late, some after its
+  release; a stick at 255 in the invert view's first sample) were not traced
+  either. Before the second run the plugin came to count a scripted sequence
+  as flight, and the check to wait for the fly-by and move the mouse in it.
+  The second run (`mouse_checks-second.log`, `mouse-second/`) passed every
+  expectation, as did this one, which added the screenshots.
+- A left button held across a capture (`hold_check.py`, `hold_run.sh`,
+  `hold_run.log`, `hold/`; Mouse Aim on, Xvfb display :94, debug port 4395,
+  20:44 to 20:46): pressed at about frame 7825, before zone 1's fly-by
+  (first seen at 8057, over by 8305), and released at about 8395, it
+  launched once on its release, pressing ATTACK; nothing fired while it was
+  held, and the mouse stayed captured through the fly-by (no release or
+  capture counted). Pressed again at about 8495, held while Return paused
+  the game, which freed the cursor, and unpaused it, which captured it
+  again, and released at about 8664, it launched once more. So a press that
+  reaches the game window is kept through a scripted sequence and across a
+  capture.
+- With player 1 presented as analog, the game steers by the stick in flight,
+  not by the d-pad (`dpad_check.py`, `dpad_run.sh`, `.log`; a test copy of
+  the layout with I bound to the d-pad's up alone and the Up arrow to the
+  stick's up alone; Mouse Aim on, TYPE B): holding I for 1.5 s left the
+  crosshair on the mech, holding the Up arrow put it far above, and the pad
+  states show that each key reached only its own input (`dpad/`,
+  `dpad-held-x2.png`). One direction, in zone 1; the layout binds W to both.
+- Feature on, headless (`feature_on_routes.sh`, `.log`, outputs copied to
+  `feature-on/routes/`): `demo_zone1`, `memcard` and `title_to_zone1`, each
+  in the three modes from a copy of `build-dev` with the feature on, passed
+  with the shots, no miss and the overlay counters of change 1's batch
+  (`feature_on_compare.py` / `.log`, against that batch, which this change's
+  batch moved to `routes-before/`). With no window the plugin still keeps
+  TYPE at B, and in flight it attached its source once without changing the
+  run: the runtime discards a source's input in headless runs and under a
+  debug-server input override (`mod_plugins.h:825-827`). The 1ST ZONE's
+  DEMONSTRATION replay reached its results screen at the same shots in every
+  mode, with the same text (CLEAR TIME 1:45.06, 98% (50/51), RANK S;
+  `demo-zone1-results-off-on_sheet.png`), so the replay does not follow the
+  TYPE word (Derived; no other replay ran). The card that `memcard` saved
+  differs from the feature-off card in two bytes: TYPE at +0x230 of the save
+  block (1, B, for 0, A) and the checksum's low byte (0xEC for 0xEB).
+- Loading that save with the feature off (`type_runs.sh`, `.log`,
+  `gen_type_route.py`, `type_watch.py`; a copy of `build-dev` with the
+  feature off and the save as `--card1`, in the three modes): the TYPE word
+  went from 0 to 1 at frames 4329 to 4385, after the Start that skips the
+  intro and before the title shot, where the title screen checks the card
+  (Phase 3 change 1), so before the route's LOAD SLOT1; CONTROL SETUPS then
+  showed TYPE B, its diagram labelling the d-pad's up UP. With the
+  feature-off save the word stayed 0 and the screen showed TYPE A
+  (`type-load/`, `control-setups-on-off.png`). So a save made with the
+  feature on keeps its TYPE after the feature is turned off; `AGENTS.md` and
+  the Mods page say so.
+- Feature off (`routes.sh`, `.log`, `routes_summary.log`, `probe/`,
+  `probe_summary.log`): every committed route in the three modes, by the
+  documented commands, from `build-dev` with the plugin linked and no feature
+  enabled, from 18:40 to 20:22. All 66 runs passed with exit 0, start frames
+  27 to 146 and 2,052 shots, none failed and none more than 18 frames late,
+  and no miss. In every run the overlay instructions, their rows and the
+  most-run PCs the probe lists (up to five) equal change 1's batch
+  (`phase7-1/probe`), and no run counted an `omega.*` counter. Every replay
+  reached its results screen in every mode (`clear_time_check.log`, 57 of
+  57), the card check found no problem (`card_check.log`), the save image and
+  `build-dev` were the same before and after (`inputs-*.sha256`), and
+  `build-dev/mods/state.toml` enables nothing. With the feature off the
+  runtime never calls the plugin: it puts a plugin in its plan only for an
+  enabled feature (`psxrecomp/runtime/src/mod_packages.cpp:3869-3876`), and
+  calls activation and VBlank plugins only from that plan
+  (`mod_runtime.cpp:2176-2179`, `:2189-2192`).
 
-## Phase 7 change 1 checks
+## Phase 7 change 2 changes
 
-- `keybinds_check.py` on a private Xvfb display: 4 of 5 expectations fail
-  with HEAD's `build-dev` (`keybinds_check-before.log`), none with the new
-  one (`keybinds_check-after.log`).
-- `cmake --build build-dev` and `build-release` (`build-dev.log`,
-  `build-release.log`): each compiled only `main.cpp`, with no warning; the
-  binaries' sha256 before and after are in `binaries-before.sha256` and
-  `binaries-after.sha256`.
-- `generate` (`generate.log`), again (`generate2.log`), and
-  `check_generated` (`check_generated.log`, exit 0): the generated tree as
-  above.
-- `beetle_rebuild.sh` (`beetle_rebuild.log`, `beetle-ninja.log`):
-  psx-beetle's sha256 unchanged, so the Beetle comparison cannot change and
-  no route ran on it again.
-- `fw_keybind_tests.sh` (`.log`): the framework's `keyboard_pad_chord_test`
-  and `mouse_binding_suppression_test`, built from the fork commit in
-  scratch, pass; no file they build differs from `8077e71`.
-- `routes.sh` (`routes.log`, 15:24 to 17:04): every committed route in the
-  three runtime modes with the documented commands on the new `build-dev`
-  (`ed2a01c7…`), the save image as `--card1` where a route declares it. All
-  66 runs passed with exit 0, start frames 11 to 146, 2,052 shots and none
-  failed, shots at most 17 frames late, and no unknown-dispatch or segment
-  miss (`routes_summary.log`); every replay reached its results screen in
-  every mode, 57 of 57 (`clear_time_check.log`); the card check found no
-  problem (`card_check.log`); the save image and the binary were unchanged
-  by the batch, `build-dev/mods/state.toml` enabled nothing, and nothing
-  listened on 4370 afterwards. Overlay instructions and rows equal Phase 5
-  change 3's batch in all 66 runs, and no run counted an `omega.*` write.
-  Headless runs never call `load_input_config()`, so the batch shows that
-  nothing else changed, not the fix.
-- `checks-p7-1.sh` / `.log` (the staged tree, after the batch): only the six
-  paths change; the gitlink names `898d834`, whose one parent is `8077e71`
-  and whose diff from it is the one in `main.cpp`; the nested pins are
-  unchanged, `.gitmodules` names the fork, and `record_pins.sh` prints
-  `framework_pins.txt`; the submodules are clean but for the ignored
-  `overlay_codegen_hash.h`; `AGENTS.md`'s four moved `main.cpp` ranges match
-  `8077e71`'s text nine lines earlier, and only the pins table's rows pass
-  80 columns, as they did before; this file's earlier sections and
-  review entries equal HEAD's, and it has no placeholder, local path or long
-  added line; the gates pass; in `generated/` only the audit changed, in its
-  three hashes, and the recompiler's sha256 is the audit's; the binaries are
-  the ones the batch ran; the keybinds check and the framework's keybind
-  tests pass again; psx-beetle's hash is unchanged; the batch's probe summary
-  reproduces and its overlay counters equal Phase 5 change 3's; the four test
-  files pass (5, 17, 61 and 18 tests), the Beetle driver's within the three
-  runs the script allows, with nothing left behind; change 5's report equals
-  session message 801; psxrecomp #719, #720, #721 and #752 are open; nothing
-  listens on 4370 to 4399; and `git diff --cached --check` is clean. All
-  pass.
+- `src/mods/omega_mouse_aim.c` (new): the plugin `omega.mouse-aim`, made
+  from the scratch trial. An activation callback reads the options and sets
+  a controller-mode override that presents player 1 as an analog pad. A
+  VBlank callback, once the game has started, keeps the TYPE word; while the
+  player is flying (CAMPAIGN PLAY, ZONE PLAY or TRAINING, the player in play
+  or in a scripted sequence) it attaches the controller source and captures
+  the mouse while the game window has keyboard focus and the game is not
+  paused, and otherwise frees the mouse and detaches the source. The source
+  starts from centred sticks, adds the keyboard's stick keys, moves the left
+  stick by the mouse's movement times the sensitivity, and presses ATTACK for
+  four frames when the left button comes up and in a two-frames-on, two-off
+  cycle while the right button is held. It counts attaches, captures,
+  releases, steered frames, launches, rifle presses and any failure to
+  capture, attach or set the mode (`omega.mouse-aim.*`). It keeps the source
+  attached through a pause, as the trial did: detaching it delivers one
+  neutral frame, which split a held Start into two presses and unpaused the
+  game at once. Against the trial it counts a scripted sequence as flight, so
+  the cursor stays captured through zone 1's fly-by and a button held across
+  one is still seen, and it counts a failure to set the mode; since round 2
+  it has no presentation policy and keeps no physical sticks (review round
+  1's finding) and, with an empty key setup, falls back to the game's default
+  one rather than Square. The trial's long header comment is split among the
+  functions it describes, and the addresses and constants are named.
+- `mods/preloaded/packages/omega.enhancement.mouse-aim/1.0.0/manifest.toml`
+  (new): "Mouse Aim", group Quality of Life, off by default, target
+  SCUS-94449, with the options Sensitivity (1 to 32 quarters of a stick unit
+  per pixel a frame, default 16) and Invert vertical (default false). Its
+  texts are the trial's, which the user saw on the Mods page, with two
+  changes: a sentence that a save made while it is on keeps that TYPE, and,
+  since round 2, one that a gamepad's sticks do not steer in flight while it
+  is on, where the trial's text had them steer with the mouse.
+- `controls/keybinds.ini` (new): the layout the user asked for, with a
+  legend: the mouse steers, the left button held and released launches the
+  homing lasers, the right button held fires the laser rifle (both through
+  Mouse Aim); W, A, S and D are the left stick and the d-pad, as are the
+  arrows; Left Shift and Space boost; Left Ctrl stops (R1); Q, held, keeps
+  the mech facing the enemy (SCAN, L1); E is viper boost (L2); C and the
+  middle button the back view (R2); F the quick turn (L3); V the view change
+  (Select); Return pauses (Start); X and Z press ATTACK once (Cross,
+  Square). Its bindings equal the trial's.
+- `CMakeLists.txt`: the plugin in `EXTRAS_SOURCES`.
+- `AGENTS.md`: Mods describes Mouse Aim (since round 2, that a gamepad's
+  sticks do not steer while it is on, and the plugin's reliance on
+  `pad_ext_resolve()`'s order is gone), how a save keeps its TYPE, and the
+  layout; Pins takes up change 1's review suggestions 1 to 3 (never delete
+  or force-push a fork branch; what an update to an upstream commit that
+  does not fix the issue yet does; `git submodule sync --recursive` for older
+  clones; "fixes the same issue"); the `generate` paragraph says "does
+  trigger a rebuild" (suggestion 7's second point).
+- `.agent/HANDOFF.md`: the scope; change 1 condensed, with suggestions 4 and
+  6 taken up; these sections; the hypotheses, with suggestion 7's first
+  point; the review state; the next action. Round 2 corrects the gamepad
+  claims, cites the code for states 9 and 11, and records review round 1.
+- Untracked (ignored): `.cache/evidence/phase7-2/` (the builds' logs and
+  hashes, the plugin audit, the strict compiles, the windowed checks, the
+  d-pad check, the hold check, the feature-on runs, the load runs, the route
+  batch, the checks, the snapshot, the review request and review round 1's
+  report `review-r1.md`), with round 2's runs and checks in `r2/`; the play
+  copy's `keybinds.ini` is now `controls/keybinds.ini`, its earlier file kept
+  as `keybinds.ini.launcher-defaults` (`playcopy-keybinds.sha256`).
+
+## Phase 7 change 2 checks
+
+- Builds (the documented commands; `build-dev.log`, `build-release.log`,
+  `build-*-2.log`, `build-*-3.log`, `binaries-*.sha256`): the first builds
+  re-ran CMake, since the new package directory changed a glob, and each
+  compiled 29 C files with no warning: the plugin; the 26 overlay shard
+  files, which change 1's `generate` rewrote with the same content after
+  change 1's builds (15:23:34, against 15:23:01); `psx_bios_registry.c`,
+  which configure writes again; and `crash_trace.c`, whose `PSX_BUILD_REV`
+  (now `nightly-1-g898d834c`) changes only when CMake runs. The second builds
+  compiled only the plugin, after its last edit; the third compiled nothing,
+  staged the mod catalog again after the manifest's last edit, and left both
+  binaries as they were (`build-dev` `8bc5f6dd5316…`, `build-release`
+  `152607c88922…`). Both builds' staged manifests equal the source, and `nm`
+  shows the plugin's functions in both binaries.
+- Plugin audit (`plugin-audit.log`, the first builds): 10 manifests, 10
+  declared ids and 8 registered (it does not see the two instruction
+  plugins, as `AGENTS.md` says), PASS in both builds.
+- Strict compiles (`strict_compile.py`, `.log`): with the build's own command
+  plus `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wsign-conversion
+  -Wstrict-prototypes -Wmissing-prototypes -Werror`, the plugin compiles
+  without a warning under GCC 16.2.1 and clang 23.1.3.
+- `checks-p7-2.sh` / `.log` (the staged tree, the tree computed in a scratch
+  copy of the objects): only the six paths change, and not the pins,
+  `generated/`, `game.toml`, `aot/` or `scripts/`; `record_pins.sh` equals
+  `framework_pins.txt`, the submodules are clean and `psxrecomp` ignores
+  only `overlay_codegen_hash.h`; `AGENTS.md` changes as this change says,
+  with no local path or added line over 80 columns, and the framework names
+  its Mods paragraph uses exist; the handoff's header, its Phase 0 to Phase
+  6 change 5 sections and its review entries up to change 1's round 1 equal
+  HEAD, with no placeholder, doubled blank line, long added line, local path
+  or new short line left by a reflow, and the framework lines the change 2
+  sections cite are printed; the three gates pass; the builds are as above
+  (binaries as recorded, objects and warnings per log, the plugin's
+  functions in both binaries, both staged manifests equal to the source,
+  `build-dev/mods/state.toml` enabling nothing); the plugin audit runs from a
+  scratch directory in both builds and with the framework catalog alone; the
+  strict compiles pass; the manifest reads with `tomllib`, and the layout's
+  bindings equal the trial's and the play copy's; the windowed checks'
+  summary, with `crosshair.py` reproducing its log, and the earlier runs',
+  with the first run's phases and counters as they change in the on view;
+  the d-pad check's and the hold check's summaries; the feature-on runs,
+  with `feature_on_compare.py` reproducing its log and sheet, and the load
+  runs; the route batch (66 started, 66 passed, inputs unchanged, the build
+  it ran, `probe_summary.py` reproducing its log, overlay counters and
+  most-run PCs equal to change 1's batch, no `omega.*` counter); the four
+  test files pass, the Beetle driver's within the three runs the script
+  allows; change 1's review report equals its session message, and commit
+  `56f9da6` and the fork branch are there; the upstream issues are still
+  open; nothing listens on ports 4370 to 4399; and the staged diff has no
+  whitespace error. All pass.
+- Round 2 (`r2/`; the bullets above are round 1's): the documented builds
+  compiled only the plugin, with no warning, and staged the new manifest
+  text (`r2/build-dev.log`, `r2/build-release.log`); the binaries are now
+  `build-dev` `7988cfe5c8be…` and `build-release` `6a2d2cd6741f…`
+  (`r2/binaries-*.sha256`), both staged manifests equal the source, and `nm`
+  finds no `present_as_analog`. The plugin audit passes in both builds and
+  fails, as it should, with the framework catalog alone
+  (`r2/plugin-audit.log`); the strict compiles pass (`r2/strict_compile.log`).
+  The windowed checks ran again on round 2's build with the same scripts,
+  which now take `OUT` for where their copies go and also count the new
+  `mode-failures` counter (`r2/mouse_checks.log`, `r2/mouse/`,
+  `r2/crosshair.log`, `r2/hold_run.log`, `r2/hold/`, `r2/dpad_run.log`,
+  `r2/dpad/`; 21:25 to 21:33): every expectation held in the three settings
+  (8, 23 and 23) and in the hold check (10), with round 1's figures (with
+  the feature on the stick reached 188 for the mouse moving right, 68 for it
+  moving up, 0 with W held and 255 with D; one launch; 21, then 23, rifle
+  presses; player 1 analog throughout); the crosshair moved 11 and 19 pixels
+  for the mouse moving right and up (13 and 17 in round 1), the rest as in
+  round 1; and with the d-pad's up alone the crosshair stayed on the mech
+  while the stick's up put it far above (read by eye in `r2/dpad/`). The
+  feature-on headless runs ran again (`r2/feature_on_routes.log`,
+  `r2/feature-on/`, `r2/feature_on_compare.log`,
+  `r2/demo-zone1-results-off-on_sheet.png`): all nine passed, the
+  `demo_zone1` results read the same with the feature on and off, the saved
+  card differs from the feature-off card only in TYPE and its checksum and
+  equals round 1's in every mode, so round 1's load runs still apply, and
+  `title_to_zone1` counted one attach. The 66-run feature-off batch was not
+  repeated: round 2 changed only the plugin's object, and with the feature
+  off the runtime never calls the plugin (above). Three of its routes, run
+  again on round 2's `build-dev` in HLE mode with the documented command and
+  outputs in scratch (`r2/feature_off_sample.sh` / `.log`, `r2/off/`),
+  passed with the batch's overlay counters and most-run PCs (1,309
+  instructions in 7 rows, 2,628 in 2, 12 in 1), no `omega.*` counter, and
+  the `memcard` route's saved cards equal to the batch's. `r2/states.sh` /
+  `.log` record the state dispatch.
+- Round 2, `r2/checks-p7-2-r2.sh` / `.log` (the staged tree; both trees
+  computed in a scratch copy of the objects, round 1's rebuilt from
+  `snapshot/index-entries.txt`): the delta from round 1's tree touches only
+  the handoff, `AGENTS.md`, the manifest and the plugin; round 1's checks as
+  above, with round 2's builds, audit, strict compiles, windowed checks,
+  feature-on runs and feature-off sample in place of round 1's (their
+  summaries printed, and `crosshair.py`, `feature_on_compare.py` and
+  `states.sh` reproducing their logs); the plugin no longer names the
+  presentation policy or the sample recording; no text in the staged handoff
+  keeps the old gamepad wording; both review reports equal their session
+  messages. All pass.
 
 ## Hypotheses and unknowns
 
@@ -983,10 +1230,24 @@ differences (`gaps_differential.py`). Review: round 1 PASS on tree
   write and load it beside the executable. That was shown on a private Xvfb
   display with keys sent by xdotool, not yet on the desktop with a real
   keyboard. A file saved by the launcher's Controls page is untested; its
-  source says it writes the format the runtime writes
-  (`recomp-ui/src/consoles/psx/psx_binds.c:53-54`). Upstream's own fix for
-  #752 may differ from the fork's, so the update that drops the fork's
-  commit must re-run `keybinds_check.py`.
+  source says the launcher and the runtime read and write the same file
+  (`recomp-ui/src/consoles/psx/psx_binds.c:32-34`, `:67-69`; `:53-54` covers
+  the second binding's syntax). Upstream's own fix for #752 may differ from
+  the fork's, so the update that drops the fork's commit must re-run
+  `keybinds_check.py`.
+- Mouse Aim (Phase 7 change 2) was checked on a private Xvfb display with
+  input from xdotool, in the 1ST ZONE of CAMPAIGN PLAY, booted HLE with
+  OpenBIOS. Not yet: the committed build on the user's desktop with a real
+  mouse (the scratch trial ran there, and the user found the mouse "quite
+  good"); ZONE PLAY and TRAINING, which the plugin counts as flight; losing
+  the window's focus, which should free the cursor; the runtime's own
+  save-state and rewind menus, during which the cursor may stay captured,
+  since the plugin frees it only for the game's pause, outside flight or
+  without focus; CONTROL B; a key setup that moves ATTACK off Cross and
+  Square (the plugin presses the setup's first button, read from
+  0x800A7C40); and the d-pad in directions other than up. While the feature
+  is on it also overrides a TYPE chosen in CONTROL SETUPS, and a gamepad's
+  sticks do not steer in flight (round 2), so a gamepad player turns it off.
 - With bilinear filtering, psxrecomp's OpenGL and Vulkan shaders wrap
   neighbour texels across 256-texel page edges (#719), and the filter also
   smooths the 2D UI (#720); the user plays with Nearest for now. The route
@@ -1501,20 +1762,66 @@ differences (`gaps_differential.py`). Review: round 1 PASS on tree
   `dump_package_texts()`'s local `edits` named for what they hold; a
   docstring for `Overlay.folder`; plainer words in `remix_package_texts()`'s
   docstring), wait for the next `zone_data.py` change.
-- Phase 7 change 1, round 1: pending.
+- Phase 7 change 1, round 1: PASS on tree `9f5e1a3` (staged diff
+  `95cad361…`), from a fresh read-only reviewer, with no findings: it re-ran
+  `keybinds_check.py` (no expectation failing), the framework's keybind
+  tests, `record_pins.sh`, the gates and `test_routes.py`, recomputed the
+  route batch from its 66 `result.json` files, and compiled the old and the
+  new path code into a host harness (a name without a dot, a dot only in a
+  directory's name, a dotted name, a symlink, `APPIMAGE` set, a bare name, a
+  Windows path). Report: `phase7-1/review-r1.md` (session message 980). The
+  fork's branch was pushed first, then commit `56f9da6` to `origin/master`.
+  Outside the snapshot it found in `build-release/` the `input.ini` and
+  `keybinds.ini` that the launcher wrote on October 19 (Phase 2); a windowed
+  `build-release` run now loads that `keybinds.ini`, which equals the
+  launcher's defaults, so they stay. Its seven suggestions: 1 to 3 (never
+  delete or force-push a fork branch; what an update to an upstream commit
+  that does not fix the issue yet does; `git submodule sync --recursive` for
+  older clones; "fixes the same issue") and 7's second point ("does trigger
+  a rebuild") are in `AGENTS.md`; 4 (`psx_keybinds.c:180-212`) and 6 (the
+  branch pushed before the commit, and what the fix means under an AppImage
+  and on Windows) in the condensed change 1; 5 in the scope, as "Q held keeps
+  the mech facing the enemy", after the FAQ by A. Dean
+  (https://gamefaqs.gamespot.com/ps/198233-omega-boost/faqs/5017, saved in
+  `phase7-2/r2/faq-5017.txt`), which says it turns toward the last enemy shot
+  at, not the nearest; and 7's first point in the hypotheses.
+- Phase 7 change 2, round 1: NEEDS CHANGES on tree `789c9bf` (staged diff
+  `918a30bd…`), from a fresh read-only reviewer, with one Medium and one Low
+  finding. Report: `phase7-2/review-r1.md` (session message 1376). Medium:
+  under the runtime's default low-latency input the plugin threw away player
+  1's physical sticks every frame, so a gamepad could not steer while Mouse
+  Aim flew, though the scope, `AGENTS.md`, the manifest, the plugin's
+  comments and this file said its stick added to the mouse (shown under gdb,
+  with a control run and a host harness; the checks could not see it, since
+  they ignore gamepads and the plugin added the keyboard's stick keys again).
+  Round 2 drops the plugin's sample recording and presentation policy,
+  presents player 1 as analog with the mode override, and says throughout
+  that a gamepad's sticks do not steer while the feature is on (observations
+  above). Low: the observations credited flight states 9 and 11 to the
+  scratch trial, whose watch saw only 8; round 2 cites the EXE's state
+  dispatch for them (`r2/states.sh`). Its seven suggestions: 1 (0x800341C0
+  sets the scripted state), 2 ("all its callbacks"), 3 (the launch press
+  lasts four frames so that it is seen even if the game takes longer than
+  two frames between reads) and 4 (an empty key setup falls back to the
+  game's default one) are in the plugin; 6 (the FAQ's URL, and focus loss
+  among the untested items) and 7 (the latency of the keys and the mouse) in
+  this file; 5 is left out: resetting the plugin's state at activation
+  matters only when a session starts again in the same process, and only a
+  netplay match returns there (`psxrecomp/runtime/src/main.cpp:18786-18787`),
+  while Omega Thrust has one player (`game.toml`, `players = 1`).
+- Phase 7 change 2, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: push `898d834` to the fork as the new branch
-`omega-thrust/keybinds-beside-exe` (no force), check that a fresh clone of
-the fork fetches it, then commit and push. Phase 7 change 2 is mouse aim
-and the key layout, from the scratch trial (copies of its files, among them
-`try_mouse_aim.sh`, in `.cache/evidence/phase7-trial/`) once the user has
-played it: the plugin `omega.mouse-aim` in `src/mods/` and its package,
-the layout the user asked for, and how that layout reaches players (the
-runtime's default bindings are framework code; a `keybinds.ini` beside the
-executable now takes effect), checked with every route in the three modes.
-Then the rest of the code-quality work the user chose
+After a PASS: commit and push. The user can then try Mouse Aim in the play
+copy: a session started with `play/play.sh <session dir> <SCPH-1001 dump>`
+(in `.cache/evidence/phase4-2/`) refreshes the play copy from `build-dev/`,
+so its Mods page lists "Mouse Aim" (group Quality of Life); tick it and press
+PLAY. The play copy's `keybinds.ini` is already `controls/keybinds.ini`. With
+Mouse Aim on, a gamepad's sticks do not steer in flight, while the keyboard's
+buttons work beside a gamepad (`main.cpp:5417-5435`). The user's notes may
+retune the sensitivity (an option on the Mods page), the layout or the
+plugin. Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
