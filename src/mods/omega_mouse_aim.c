@@ -55,11 +55,21 @@
  * moves the mech as its thrust does. Thrust normally adds CRUISE_FORCE along
  * the heading each step, for a cruising speed of about 320 units a step.
  * Where the stage itself moves the player along z, the game drops the z part
- * of the thrust, and the strafe does the same. */
+ * of the thrust, and the strafe does the same.
+ *
+ * The camera (0x800630B4) hangs behind the mech on a spring, pushed against
+ * the step's thrust and the forces in the player's words +0xBC, +0xC0 and
+ * +0xC4, which the game clears at the start of each step (0x80030580): it
+ * falls behind as the mech speeds up and catches up when the push ends. The
+ * game's other movement (0x800334D8) adds the stick's force across the screen
+ * to those words as well as to the sums (0x80031CCC), and the strafe does the
+ * same, so the mech slides across the screen as it strafes. */
 #define FORCE_SUM 0x80033044u
 #define FORCE_SUM_WORD 0x8E020024u      /* lw $v0, 0x24($s0) */
 #define REG_S0 16
 #define PLAYER_FORCE 0x1Cu              /* offset of its force words: x, y, z */
+#define PLAYER_CAMERA_FORCE 0xBCu       /* offset of the force words the
+                                           camera is pushed against */
 #define PLAYER_PITCH 0x8Cu              /* binary angles: 2^32 to a turn */
 #define PLAYER_YAW 0x90u
 #define CRUISE_FORCE 0x238E3
@@ -243,6 +253,10 @@ static int stage_scrolls(void) {
     return stage != 0 && psx_mod_read_word(stage + STAGE_SCROLLS) != 0;
 }
 
+static void add_to_word(uint32_t address, uint32_t value) {
+    psx_mod_write_word(address, psx_mod_read_word(address) + value);
+}
+
 /* The instruction hook at FORCE_SUM: while the source drives player 1 and
  * the player is in play, add a force along the screen's right and down axes
  * from the right stick. The game's y axis points up: climbing raises y,
@@ -270,9 +284,9 @@ static void strafe_at_force_sum(struct CPUState* cpu, uint32_t address) {
         force[axis] = right * screen_right[axis] + down * screen_down[axis];
     if (stage_scrolls()) force[2] = 0.0;
     for (uint32_t axis = 0; axis < 3; axis++) {
-        const uint32_t word = player + PLAYER_FORCE + 4u * axis;
-        const long added = lround(force[axis] * aim.strafe_force);
-        psx_mod_write_word(word, psx_mod_read_word(word) + (uint32_t)added);
+        const uint32_t added = (uint32_t)lround(force[axis] * aim.strafe_force);
+        add_to_word(player + PLAYER_FORCE + 4u * axis, added);
+        add_to_word(player + PLAYER_CAMERA_FORCE + 4u * axis, added);
     }
     psx_mod_counter_add("omega.mouse-aim.strafed-steps", 1);
 }

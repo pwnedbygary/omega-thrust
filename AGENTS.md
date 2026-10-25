@@ -429,7 +429,12 @@ left stick, and the stick keys on the right stick, which the game ignores in
 flight. An instruction hook in the player's movement (0x80033044, listed in
 `game.toml`) reads the right stick from the pad record and adds a force
 along the screen's right and down axes; the game's own drag ends the
-sideways motion when the keys come up. The hook acts only in flight and on
+sideways motion when the keys come up. The hook adds the same force to the
+player's words +0xBC to +0xC4, which the game clears every step, as the game's
+other movement (0x800334D8) does with the stick's force. The camera
+(0x800630B4) hangs behind the mech on a spring pushed against those words, so
+it falls behind a strafe, the mech slides across the screen, and the
+camera catches up when the keys come up. The hook acts only in flight and on
 the live pad, so a saved replay is not expected to play the strafe back
 (derived, not tested). A source's sticks replace player 1's own, so a gamepad's
 sticks neither steer nor strafe in flight while the feature is on, though its
