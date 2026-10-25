@@ -18,23 +18,31 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 6 change 6, round 3: the names and docstrings in
-`scripts/zones/zone_data.py` that change 5's review asked for (its
-suggestions 4 to 6), the next step of the code-quality work. Invariant:
-nothing the tool does changes, so every message, the command line and every
-output stay the same; its code differs from HEAD's only by renamed names, in
-`Overlay`, `write_formations()` and `dump_package_texts()`. `Overlay`'s flag
-`formations` becomes `has_formations`; in `write_formations()` a dump's
-formation is `formation` and the stock record `record`, as `remix_zone()`
-and `reshape()` name them; the phrase in `dump_package_texts()` is
-`edited`; `Overlay.folder` gets a docstring, and `remix_package_texts()`'s
-is reworded. This file records Phase 7 change 3's round 2 PASS and commit
-`ad4fb7e`, condenses change 3 and takes up its round 2's suggestions 1 and 2
-(3 is in an evidence script). Round 2 corrects two statements in this file
-that review round 1 found wrong, and round 3 one that review round 2 found
-wrong. Baseline: `ad4fb7e`. Out of scope: the rest of the code-quality work
-(modules, the three fixes, the route scripts, the tests, the C names), Mouse
-Aim, the framework and the routes.
+Current iteration, Phase 6 change 7, round 3: the audit's finding 2a, the
+first of its three fixes to `scripts/zones/zone_data.py`, the next step of
+the code-quality work. `trace()` read a register's value back through
+straight-line code and stopped at jumps and branches, but not at the words
+that control can reach other than from the word before, so a value it read
+for the timeline table or a formation record could hold on one path into the
+call and not on another. Invariant: `argument()` gives up (None) when the
+words it reads cross a join point, which is the target of a jump, branch or
+call in the file or the word a call returns to, and otherwise gives the
+value it gave before; nothing else changes. On the player's disc every
+output stays the same; the new tests fail on HEAD's tool and pass on this
+one, and bugs planted in the new code make them fail. This file records
+change 6's round 3 PASS and commit `4694a77`, condenses change 6 and takes
+up its round 3's suggestion. Baseline: `4694a77`. Out of scope: the audit's
+other two fixes (the notes' calls and `flow()`'s docstring; malformed disc
+records), `loaded()`'s trace for `gate()`, which keeps to a basic block of
+the callback's own paths, the modules, the route scripts, the tests'
+helpers, the C names, Mouse Aim, the framework and the routes. Round 2
+answers round 1's review (`phase6-7/review-r1.md`): it corrects the next
+action's list of test gaps, and takes up three of the review's suggestions:
+a join-point test for each kind of conditional branch, `join_points()`'s
+docstring, and change 6's verdicts in its condensed section. Round 3
+answers round 2's review (`phase6-7/r2/review-r2.md`), whose finding was an
+observation that claimed more planted gaps than were planted; the tool and
+the tests stay as round 2 left them.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -911,139 +919,193 @@ mode; the feature-on routes kept change 2's cards and probes. Review: round 1
 NEEDS CHANGES (one High, the mirror), round 2 PASS on tree `c0d721e` (staged
 diff `c236c895…`). Full record: `git show ad4fb7e:.agent/HANDOFF.md`.
 
-## Phase 6 change 6 observations (`.cache/evidence/phase6-6/`)
+## Phase 6 change 6 (commit `4694a77`)
 
-- Change 5's review (`phase6-5/review-r1.md`, section 6) left three
-  suggestions for `scripts/zones/zone_data.py`, each about names or
-  docstrings: `Overlay.formations` was a flag beside the stock layout's list
-  of formations, which has the same name; in `write_formations()` `edit`
-  named a dump's formation and `formation` the stock record, while
-  `remix_zone()` and `reshape()` call a dump's formation `formation`;
-  `dump_package_texts()` kept a phrase in a local named `edits`; and
-  `Overlay.folder` was the only property without a docstring, while
-  `remix_package_texts()`'s said "whose own description is the package's".
-- The changed tool differs from HEAD's only by those names and docstrings.
-  `ast_compare.py` (`proofs.log`) parses both, takes out every docstring,
-  undoes the renames inside `Overlay`, `write_formations()` and
-  `dump_package_texts()` only, and finds the two syntax trees equal. Before
-  the renames are undone, only those three of the 82 top-level definitions
-  differ in code, and only three docstrings differ: `Overlay`'s, which
-  names `has_formations`, `Overlay.folder`'s, which is new, and
-  `remix_package_texts()`'s. The comparison fails when the code changes
-  beyond that (`ast_planted.sh` / `.log`: a check that reads another field,
-  the flag read the other way round and a rename in another function each
-  make it exit 1) and passes a change to a docstring alone.
-- That comparison undoes the renames, so it cannot see one left incomplete:
-  with `overlay.formations` put back in a scratch copy of the staged tool
-  (`r2/completeness.sh` / `.log`, review round 1's suggestion 5), it and
-  pyflakes still pass, while 9 of the 61 tests, all of them through the
-  package command, fail on the missing attribute. So what shows the rename
-  complete is those tests and the searches, which find no reader of an old
-  name, no `_replace`, `_asdict`, `_fields`, `getattr` or keyword construction
-  of an `Overlay`, and no use of the class in other tracked code.
-- Nothing the tool does changed (`proofs.sh` / `.log`): the 61 tests pass
-  and leave nothing behind; the 142 baseline outputs equal
-  `code-quality/zone-baseline/baseline-head/` byte for byte; change 5's
-  differential against HEAD's tool finds no difference in 600,161 inputs,
-  and its log (`differential.log`) is byte-identical to change 5's, since
-  both runs use the same seed on tools that behave alike.
-- Two of the bugs that change 5's `mutations.py` plants quote names this
-  change renames: `overlay.formations` (its line 84) and `edits` (line 86, the
-  phrase in `dump_package_texts()`). On the renamed tool it would report both
-  snippets as occurring 0 times and count each as a failure (its lines 145-149),
-  and `gaps_differential.py`, which plants both among its 14 (`GAPS`, lines
-  23-29), would report both as missing (lines 64-66); of the 28 mutations,
-  only these two snippets no longer occur once (`r2/snippets.py` / `.log`).
-  `differential.py` uses none of the renamed names, as its run here shows. A
-  later change that plants bugs in the package code needs its own snippets.
-- Phase 7 change 3's review round 2, suggestion 3: the loop in
-  `phase7-3/r2/screen_check.py` stops sampling 48 frames after the load,
-  before a shot at 48 frames could be taken, so each run took one shot, 24
-  frames in, for each of the five experiments in `SHOT_EXPERIMENTS`; the 10
-  saved shots, from two runs, are all such. Its `SHOT_FRAMES` and docstring
-  now say so, which changes nothing it did.
+Change 6 took up the three suggestions that change 5's review left for
+`scripts/zones/zone_data.py` (`phase6-5/review-r1.md`, section 6), each
+about names or docstrings: `Overlay`'s flag `formations` became
+`has_formations`; in `write_formations()` a dump's formation became
+`formation` and the stock record `record`, as `remix_zone()` and
+`reshape()` name them; `dump_package_texts()`'s phrase became `edited`;
+`Overlay.folder` got a docstring and `remix_package_texts()`'s was reworded.
+The tool's syntax tree, with docstrings left out and the renames undone in
+those three definitions, equals HEAD's (`phase6-6/ast_compare.py`, which
+fails three planted code changes and passes a docstring change). That
+comparison cannot see a rename left incomplete, so the tests (9 of the 61
+fail on a planted reader of the old name) and searches show it complete.
+The 142 baseline outputs stayed byte-identical, and change 5's differential
+found no difference in 600,161 inputs. Two of change 5's planted-bug
+snippets quote the renamed names (`phase6-5/mutations.py:84` and `:86`,
+both also among `phase6-5/gaps_differential.py`'s `GAPS`), so on the
+renamed tool those scripts report them missing. Change 6 also condensed
+Phase 7 change 3 and took up that change's round 2 suggestions: two in this
+file, and the account `phase7-3/r2/screen_check.py` gives of its one shot
+per experiment. Review: round 1 NEEDS CHANGES (two Low, in this file: a
+second snippet of change 5's that no longer matches, and the boost level E
+exception left out of Phase 7 change 3's condensed section), round 2 NEEDS
+CHANGES (one Low: an entry said that round 1 re-ran the checks script),
+round 3 PASS on tree `8b44ee4` (staged diff `f8fc6233…`). Reports:
+`phase6-6/review-r1.md`, `phase6-6/r2/review-r2.md` and
+`phase6-6/r3/review-r3.md`; full record: `git show 4694a77:.agent/HANDOFF.md`.
 
-## Phase 6 change 6 changes
+## Phase 6 change 7 observations (`.cache/evidence/phase6-7/`)
 
-- `scripts/zones/zone_data.py`: `Overlay`'s field `formations` is now
-  `has_formations`, in its docstring too, and `dump_package_texts()` reads
-  it; in `write_formations()` a dump's formation is `formation` and the
-  stock record `record`; `dump_package_texts()`'s phrase is `edited`;
-  `Overlay.folder` has a docstring, and `remix_package_texts()`'s says that
-  the recipe's own description becomes the package's.
-- `.agent/HANDOFF.md`: the scope; Phase 7 change 3 condensed, with its
-  review round 2's suggestion 1; these sections; the hypotheses' Mouse Aim
-  item, with suggestion 2; the review state; the next action.
-- Round 2, for review round 1's two findings: Phase 7 change 3's condensed
-  section again says that at boost level E boost moves the mech sideways, as
-  the full record did, and the observation on change 5's evidence names both
-  snippets that no longer match the tool. From its suggestions: in that
-  section, the wait that ran its full 5 s with the feature off, W's delay
-  explained and the HLE mode of the three routes (3); the five experiments
-  that take a shot (2); a bullet on what shows the rename complete (5); and
-  where round 1's checks put the differential's temporary files (4).
-- Round 3, for review round 2's finding: the review state's entry on round 1 now
-  names what that reviewer re-ran, which did not include the checks script. From
-  round 2's suggestions, both in Phase 7 change 3's condensed section: the
-  `phase7-3/r2/` base for three paths that lacked one, and the full record's
-  reason why the wait before D ran its 5 s with the feature off.
-- Untracked (ignored): `.cache/evidence/phase6-6/`, with review round 1's
-  report (`review-r1.md`), round 2's evidence (`r2/`), review round 2's report
-  (`r2/review-r2.md`) and round 3's evidence (`r3/`); in
-  `.cache/evidence/phase7-3/r2/`, `screen_check.py` (Phase 7 change 3's
-  suggestion 3, and in round 2 a docstring sentence reworded) and Phase 7
-  change 3's round 2 report, `review-r2.md`.
+- The audit's finding 2a (`code-quality/audit-r1.md`, lines 46-49):
+  `trace()` read a register's value back through straight-line code and
+  stopped at jumps and branches, but not at a branch's target, where a
+  second path joins. The audit's probe (`code-quality/probes/probe_join.py`)
+  adds a path that sets `$a1` and branches to the call that passes the
+  table: HEAD's `read_table()` still reports the table at 0x80120040, while
+  on that path the call receives 0x1274. A package built from such a reading
+  would guard the same wrong bytes, so the runtime would accept it.
+- The word a call returns to is such a point too. Walking back from a call,
+  `trace()` reads an earlier call's delay slot, which runs before that
+  callee; the callee then runs, and control comes back past the slot, so the
+  value the slot set may have changed. `difficulty_branches()` already starts
+  a basic block there.
+- `join_points(code)` collects the words of the file that control can reach
+  other than from the word before: the targets of its jumps, branches and
+  calls, and the word each call returns to. Words of data that decode as
+  jumps, branches or calls add join points too, which can only make the tool
+  give up sooner. `argument()` reads back no further than the last join
+  point at or before the call. One at the call itself leaves only the delay
+  slot, which every path through the call runs; one at the delay slot leads
+  past the call and does not count. Entries that only pointers or the EXE
+  lead to, such as the wave callbacks and the targets of `jr` and `jalr`,
+  are not known, as the docstrings of `join_points()` and `argument()` say.
+- On the player's disc `join_points()` finds 163 to 3,151 join points a
+  file, 61.8 ms for all 25 files, and no word decodes as a coprocessor branch
+  (BC0F, BC0T, BC2F or BC2T), which no part of the tool models
+  (`join_counts.py` / `.log`). All 113 arguments the tool traces there (the
+  14 table addresses, and the record and two counts of 33 formation calls)
+  start at least one word after the last join point before their call
+  (`disc_windows.py` / `.log`), so no output changes: `check` rebuilds the 14
+  zones identically and the 142 baseline outputs equal
+  `code-quality/zone-baseline/baseline-head/` byte for byte (`baseline.sh` /
+  `.log`).
+- Change 5's differential, run by `differential.sh` against commit
+  `4694a77`'s tool as it is (`differential-raw.log`), finds 10 differences
+  in 600,161 inputs, all in `describe`, in 10 of its 5,000 random callbacks:
+  in each, one value passed to a formation call became `?`, and in four of
+  them the notes, which name each distinct call once, merged or split as a
+  result. Every other check, `read_table` and `read_formations` included,
+  matched. Run against that tool with the rule written into its `argument()`
+  independently (`reference.py`, with its own decoder of targets and return
+  points, and the first word the old `argument()` reads found by cutting the
+  code to start later and later; `differential.log`), it finds no
+  difference: of the 120,330 arguments asked for, the old tool traced
+  114,591 to a value, and the rule made 11 of those unknown. The first raw
+  run (`differential-raw-first.log`) found 902 more differences, in the
+  package and remix commands: its copy of the old tool sat straight in the
+  scratch directory, so that tool took a directory above it for its
+  repository and refused to write the differential's packages there ("zone
+  data comes from the disc; write it under .cache/ or outside the
+  repository"). With the copy in the repository's layout, the same inputs
+  give none.
+- Three evidence scripts call the old `argument(code, call, reg)`:
+  `phase5-6/formation_scan.py`, `phase5-6/formation_layout.py` and
+  `code-quality/join_check.py` (written while the audit was checked, never
+  run). They need commit `4694a77`'s tool to be reused.
+- Round 1's review found that this change's tests catch two of the gaps the
+  next action listed (`review-r1.md`, section 3). `r3/gaps_now.py` (`.log`)
+  plants the ten gaps that the list named in the instruction decoding that
+  `trace()` and `join_points()` rely on, in copies of commit `4694a77`'s tool
+  and tests and of this change's. Branch targets one word late fail the
+  existing `test_the_dump_says_when_a_call_runs` and three of the four new
+  tests, all but `test_an_argument_set_before_an_earlier_call_is_not_known`,
+  and `jalr` left out of `is_call()` fails the join-point test. The other
+  eight pass in both: `jalr` left out of `control()`, a move that needs
+  `$zero` as its second source, `or` not taken for a move, `blez` and `bgtz`
+  swapped, and `destination()` without `cfc`, without COP2's `mfc2` and
+  `cfc2`, without `lui` or without `lwr`. Change 2's review did not record
+  its mutations, so these four are a reading of the list's words. The next
+  action now lists those eight. Round 2's `r2/gaps_now.py` planted only the
+  first six, though this bullet then said that it planted every listed gap
+  (review round 2's finding); its docstring now says so, and with it the
+  script still reproduces its log but for the tests' times.
 
-## Phase 6 change 6 checks
+## Phase 6 change 7 changes
 
-- `proofs.sh` / `.log`, as in the observations: the tests, the baseline,
-  the differential and the syntax trees; `ast_planted.sh` / `.log`, the
-  comparison's planted cases.
-- pyflakes finds nothing in the tool, and no line of it is longer than 99
-  columns.
-- `checks-p6-6.sh` / `.log` (the staged tree; it writes in a scratch
-  directory, except that change 5's differential, run without `TMPDIR`,
-  made and removed its work directory in the system's temporary directory,
-  as review round 1 found): only the two files change; the tool's syntax
-  tree equals HEAD's but for the renames and docstrings, and
-  `ast_planted.sh` reproduces its log; the help texts equal HEAD's; this
-  file's header, overall paragraph, Phase 0 to Phase 7 change 2 and review
-  entries up to Phase 7 change 3's round 2 equal HEAD's, and it has no
-  placeholder, doubled blank line, long added line, new reflow leftover or
-  local path; the gates, the pins and clean submodules, `psxrecomp` ignoring
-  only `overlay_codegen_hash.h`; Phase 7 change 3's round 2 report against
-  session message 1550, HEAD and `origin/master` at `ad4fb7e`, and the
-  figures its condensed section cites (W's first frames, the expectations,
-  the save-state check's results and shots, the probe's speeds); pyflakes;
-  the four test files, the Beetle driver's within three runs; the baseline
-  of the staged tool and of HEAD's; change 5's differential, its log equal
-  to this change's and to change 5's; the audit's probes; no listener; and
-  no whitespace error. All pass. The first run (`checks-p6-6-first.log`),
-  on the tree before this bullet replaced its placeholder, passed the same
-  way.
-- Round 2, `r2/checks-p6-6-r2.sh` / `.log` (the staged tree; it writes only
-  in a scratch directory, and its `TMPDIR` is there too, which round 1's
-  checks and `proofs.sh` did not arrange for change 5's differential):
-  round 1's checks again; the delta from round 1's tree (rebuilt from
-  `snapshot/index-entries.txt`) touches only this file, so the tool is
-  round 1's, and its changed words are printed; `r2/snippets.py`,
-  `r2/wait_frames.py` and `r2/completeness.sh` reproduce their logs; the
-  boost level E sentence matches the full record and the FAQ; and this
-  change's round 1 report matches session message 745. All pass.
-- Round 3, `r3/checks-p6-6-r3.sh` / `.log` (the staged tree; it writes only
-  in a scratch directory): the delta from round 2's tree (rebuilt from
-  `r2/snapshot/index-entries.txt`) touches only this file, so the tool is
-  still the blob that rounds 1 and 2 checked, and its changed words are
-  printed; this file's header, overall paragraph, Phase 0 to Phase 7 change 2
-  and review entries up to Phase 7 change 3's round 2 equal HEAD's, and it has
-  no placeholder, doubled blank line, long added line, new reflow leftover or
-  local path; the lines the corrections rest on are printed (round 1's report
-  on what it re-ran, the full record on the wait before D and line 8 of
-  `phase7-3/r2/mouse_checks.log`), and the three paths that change 3's condensed
-  section now gives under `phase7-3/r2/` exist; round 2's report matches session
-  message 1014; the gates, the pins and clean submodules; and no whitespace
-  error. All pass. It runs no tests, baseline or differential, since only
-  this file changed: round 2's checks ran them on the same tool.
+- `scripts/zones/zone_data.py`: `join_points(code)`, whose docstring names
+  the entries it leaves out; `trace()` takes `first`, the lowest index it may
+  read, 0 by default, so `loaded()` reads as before; `argument(code, joins,
+  call, reg)` passes the last join point at or before the call as `first`;
+  `read_table()`, `read_formations()` and `describe()` each collect the join
+  points once and pass them. A value given up gives the existing errors
+  ("cannot trace ...") and `?` in the notes.
+- `scripts/zones/test_zone_data.py`: four tests. A jump or branch to the call
+  that passes the table makes the address unknown, one to its `lui` or its
+  delay slot does not; branches into a formation call's loads; an argument
+  set in an earlier call's delay slot; the join points of synthetic code,
+  with the return points of `jal`, `jalr` and `bgezal` and the target of
+  each kind of conditional branch. 65 tests.
+- `.agent/HANDOFF.md`: the scope; change 6 condensed, with its rounds'
+  verdicts; these sections; the review state, with change 6's round 3
+  suggestion applied to the paths in the entries of Phase 7 change 3 and
+  change 6; the next action, with its list of test gaps corrected.
+- Untracked (ignored): `.cache/evidence/phase6-7/`, and change 6's round 3
+  report (`phase6-6/r3/review-r3.md`).
+
+## Phase 6 change 7 checks
+
+- The tests: 65 pass and leave nothing behind; pyflakes finds nothing; no
+  added line is longer than 99 columns.
+- `regression.sh` / `.log`: the new test file fails on commit `4694a77`'s
+  tool exactly in the new tests, the join point test with an
+  `AttributeError` and the five cases that must refuse with "ZoneError not
+  raised", and leaves nothing behind.
+- `mutations.py` / `.log`: 16 bugs planted one at a time in the new code
+  (each kind of join point left out or moved by a word, join points outside
+  the file kept, a join at the call or at its delay slot misjudged, the first
+  join taken instead of the last, the word at the join point not read, an
+  `addiu`'s base traced past it, and each caller without join points): the
+  tests catch every one.
+- `checks-p6-7.sh` / `.log` (the staged tree; it writes only in a scratch
+  directory, with `TMPDIR` there too): only the three files change, and the
+  working tree holds the staged files; the definitions whose code changed;
+  the help texts equal HEAD's; this file's header, overall paragraph, Phase
+  0 to Phase 7 change 3, hypotheses and review entries up to Phase 7 change
+  3's round 1 equal HEAD's, the changed words of the edited entries and of
+  the next action are printed, and it has no placeholder, doubled blank
+  line, long added line, new reflow leftover or local path; every evidence
+  path that these sections and entries cite exists; the gates, the pins and
+  clean submodules; change 6's round 3 report against session message 1183,
+  and HEAD and `origin/master` at `4694a77`; pyflakes; the four test files,
+  the Beetle driver's within three runs; `regression.sh` and `join_counts.py`
+  (but for their times), `mutations.py`, `disc_windows.py`, `baseline.sh` and
+  both differentials reproduce their logs; the audit's probes give their
+  logged output but for `probe_join.py`, which now meets the refusal; no
+  listener; and no whitespace error. All pass. Its first run
+  (`checks-p6-7-first.log`) found `mutations.log` and `disc_windows.log`
+  different only in the exit line that ends each saved log, which the
+  script did not yet append, and it printed the wrong line of change 6's
+  completeness log; both are fixed.
+- Round 2 (`r2/`): `code_same.py` finds the tool's syntax tree, docstrings
+  left out, equal to round 1's, with only `join_points()`'s docstring
+  changed, and HEAD's unequal to round 1's, so it sees a change of code; the
+  tests' only changed definition is the join-point test, and their delta
+  removes no line. `mutations.py` / `.log` adds two bugs for the new
+  assertions, conditional branches other than `beq` and the REGIMM ones left
+  out and a branch that does not link taken for a call: the tests catch all
+  18, and round 1's tests (`mutations-r1-tests.log`) miss exactly those two.
+  `checks-p6-7-r2.sh` / `.log` runs round 1's checks on this tree, rebuilds
+  round 1's tree from its index entries and prints the delta from it; the
+  four logs that name the tool's or the test file's hash, made again in
+  `r2/` (`regression.log`, `baseline.log` and both differential logs),
+  reproduce and equal round 1's but for that line and the tests' time;
+  round 1's `mutations.log` and `disc_windows.log` reproduce as they are,
+  and round 1's `join_counts.log` and `gaps_now.py`'s log but for their
+  times. All pass.
+- Round 3 (`r3/`) changes only this file: the tool and the tests are round
+  2's blobs, so round 2's baseline, differentials and mutations stand.
+  `gaps_now.py` / `.log` plants the ten gaps above; its first six sections
+  equal round 2's log but for the tests' times. `checks-p6-7-r3.sh` / `.log`
+  rebuilds round 2's tree from its index entries, prints the delta from it
+  and the words it changes, and checks this file as round 2's checks did. It
+  runs both gap scripts and `regression.sh`, which reproduce their logs but
+  for the tests' times, pyflakes, the four test files (the Beetle driver's
+  within three runs), the gates, the pins and the submodule checks, and
+  compares both review reports with their session messages. All pass.
 
 ## Hypotheses and unknowns
 
@@ -1719,56 +1781,102 @@ diff `c236c895…`). Full record: `git show ad4fb7e:.agent/HANDOFF.md`.
   strafe ran mirrored on both axes (D and the right arrow moved the mech to
   the left of the screen, W and the up arrow down). The reviewer tied the
   screen to the game's own steering from one save state, re-ran
-  `checks-p7-3.sh` into scratch (every section passed), disassembled the
-  hook's site and the movement, and read the framework's hook dispatch.
-  Report: `review-r1.md` (session message 1142). Round 2 negates both axes
-  in the plugin and corrects every text that gave a direction on round 1's
-  axes. Its suggestion 1, a check tied to the screen, is `r2/screen_check.py`
-  and two expectations in `r2/mouse_check.py`, both comparing the strafe with
-  the steering; suggestion 2 softens the manifest's replay sentence, and
-  `AGENTS.md`'s with it.
+  `phase7-3/checks-p7-3.sh` into scratch (every section passed),
+  disassembled the hook's site and the movement, and read the framework's
+  hook dispatch. Report: `phase7-3/review-r1.md` (session message 1142).
+  Round 2 negates both axes in the plugin and corrects every text that gave
+  a direction on round 1's axes. Its suggestion 1, a check tied to the
+  screen, is `phase7-3/r2/screen_check.py` and two expectations in
+  `phase7-3/r2/mouse_check.py`, both comparing the strafe with the steering;
+  suggestion 2 softens the manifest's replay sentence, and `AGENTS.md`'s
+  with it.
 - Phase 7 change 3, round 2: PASS on tree `c0d721e` (staged diff
   `c236c895…`), no findings, from the same reviewer: it re-ran
-  `r2/checks-p7-3-r2.sh` into scratch, reproduced the frozen snapshot, and
-  ran its own probe from one save state on round 2's build, where each
-  strafe moved the mech the way its key points and the game's own turn and
-  climb, measured the same way, confirmed the measurement. Report:
-  `r2/review-r2.md` (session message 1550). Commit `ad4fb7e`, pushed. Its
-  three suggestions: 1, W's delay after the first windowed run, 35 frames in
-  the on view and 47 in the invert view, is in change 3's condensed section;
-  2, naming both pushes that the first windowed runs met, is in the
-  hypotheses' Mouse Aim item; 3, the save-state check's one shot, is in that
-  script (Phase 6 change 6's observations).
+  `phase7-3/r2/checks-p7-3-r2.sh` into scratch, reproduced the frozen
+  snapshot, and ran its own probe from one save state on round 2's build,
+  where each strafe moved the mech the way its key points and the game's own
+  turn and climb, measured the same way, confirmed the measurement. Report:
+  `phase7-3/r2/review-r2.md` (session message 1550). Commit `ad4fb7e`,
+  pushed. Its three suggestions: 1, W's delay after the first windowed run,
+  35 frames in the on view and 47 in the invert view, is in change 3's
+  condensed section; 2, naming both pushes that the first windowed runs met,
+  is in the hypotheses' Mouse Aim item; 3, the save-state check's one shot,
+  is in that script (see Phase 6 change 6).
 - Phase 6 change 6, round 1: NEEDS CHANGES on tree `5424877` (staged diff
   `6a090484…`), two Low findings, both in this file. The fresh reviewer
   found the tool's change to be exactly the stated renames and docstrings
   (its own reversal of the renames, token by token, gave HEAD's file byte
-  for byte) and re-ran the four test files, the baseline, the differential, the
-  help texts, the probes, the syntax-tree comparison and its planted cases, the
-  gates and the pins, but not the checks script itself. Low 1: the observation
-  on change 5's evidence named one snippet that no longer matches the tool
-  (`mutations.py:84`); there are two, the other at line 86 quoting `edits`, and
-  `gaps_differential.py` plants both. Low 2: the condensed Phase 7 change 3
-  section dropped the boost level E exception that the full record and its FAQ
-  give. Report: `review-r1.md` (session message 745). Round 2 corrects both. Of
+  for byte) and re-ran the four test files, the baseline, the differential,
+  the help texts, the probes, the syntax-tree comparison and its planted
+  cases, the gates and the pins, but not the checks script itself. Low 1:
+  the observation on change 5's evidence named one snippet that no longer
+  matches the tool (`phase6-5/mutations.py:84`); there are two, the other at
+  line 86 quoting `edits`, and `phase6-5/gaps_differential.py` plants both.
+  Low 2: the condensed Phase 7 change 3 section dropped the boost level E
+  exception that the full record and its FAQ give. Report:
+  `phase6-6/review-r1.md` (session message 745). Round 2 corrects both. Of
   its six suggestions, 1 (the commit draft's count of renamed locals and its
-  deferred line) is in the draft; 2 (the five experiments that take a shot, and
-  a short line in `screen_check.py`'s docstring), 3 (the waits, W's delay and
-  the HLE routes) and 5 (what shows the rename complete) are in these sections
-  and that script; 4 (the temporary directory of change 5's differential) is in
-  round 2's checks and in the bullet on round 1's checks; 6 (one meaning for
-  `formation` and `record` across the module) is left for a later naming pass.
+  deferred line) went into the draft; 2 (the five experiments that take a
+  shot, and a short line in `phase7-3/r2/screen_check.py`'s docstring), 3
+  (the waits, W's delay and the HLE routes) and 5 (what shows the rename
+  complete) into change 6's full sections and that script; 4 (the temporary
+  directory of change 5's differential) into round 2's checks and the bullet
+  on round 1's checks; 6 (one meaning for `formation` and `record` across
+  the module) is left for a later naming pass.
 - Phase 6 change 6, round 2: NEEDS CHANGES on tree `8e3dcf2` (staged diff
-  `16534a38…`), one Low finding, in this file: the round 1 entry said that the
-  reviewer re-ran the checks script, which its report names only in a
+  `16534a38…`), one Low finding, in this file: the round 1 entry said that
+  the reviewer re-ran the checks script, which its report names only in a
   suggestion. The same reviewer confirmed that both round 1 findings are
-  resolved and that suggestions 2 to 5 landed, recomputing the snippet counts,
-  W's delays and the waits independently, and that the tool is round 1's byte
-  for byte. Report: `r2/review-r2.md` (session message 1014). Round 3 corrects
-  the entry, which now names what round 1 re-ran. Both of round 2's suggestions
-  are applied in Phase 7 change 3's condensed section: the `phase7-3/r2/` base
-  of three paths, and why the wait before D ran its 5 s with the feature off.
-- Phase 6 change 6, round 3: pending delta re-review.
+  resolved and that suggestions 2 to 5 landed, recomputing the snippet
+  counts, W's delays and the waits independently, and that the tool is
+  round 1's byte for byte. Report: `phase6-6/r2/review-r2.md` (session
+  message 1014). Round 3 corrects the entry, which now names what round 1
+  re-ran. Both of round 2's suggestions are applied in Phase 7 change 3's
+  condensed section: the `phase7-3/r2/` base of three paths, and why the
+  wait before D ran its 5 s with the feature off.
+- Phase 6 change 6, round 3: PASS on tree `8b44ee4` (staged diff
+  `f8fc6233…`), no findings, from the same reviewer. With its own word-level
+  diff of the delta and its comparison of this file's sections with HEAD's,
+  it confirmed round 2's finding fixed and both of round 2's suggestions
+  applied, and it read the evidence they rest on. By that round's rule it
+  ran no tests, baseline or differential; the tool was the blob it had
+  tested in rounds 1 and 2. Report: `phase6-6/r3/review-r3.md` (session
+  message 1183). Commit `4694a77`, pushed. Its one suggestion, to spell out
+  the evidence directory in the paths of the entries for Phase 7 change 3
+  and change 6, is applied in those entries (Phase 6 change 7).
+- Phase 6 change 7, round 1: NEEDS CHANGES on tree `ff94e7b` (staged diff
+  `dd9cb039…`), one Low finding, in this file: the next action still listed
+  two test gaps that this change closes, branch targets one word late and
+  `jalr` in `is_call()`, and counted the bugs that `differential.py` reports
+  by that list. The fresh reviewer confirmed the rule and its tests: it
+  worked out the expectations by hand, saw exactly the new cases fail on
+  HEAD's tool, found no mismatch between its own decoder of join points and
+  the tool on 200,000 random programs, and reproduced the baseline, the
+  mutations, both differentials and the disc windows. Report:
+  `phase6-7/review-r1.md` (session message 880). Round 2 corrects the list
+  and the count (`phase6-7/r2/gaps_now.py`). Of its five suggestions, 1 (the
+  target of each kind of conditional branch in the join-point test), 3
+  (`join_points()`'s docstring) and 4 (change 6's verdicts in its condensed
+  section) are applied; 2 and 5 are left for later changes, as the next
+  action says.
+- Phase 6 change 7, round 2: NEEDS CHANGES on tree `58ada63` (staged diff
+  `66188d42…`), one Low finding, in this file: the observation on the gaps
+  said that `r2/gaps_now.py` planted every gap the next action listed in the
+  instruction decoding, but it planted six of ten; the same reviewer planted
+  the other four, in `destination()`, itself, and neither version's tests
+  catch them. It confirmed round 1's finding resolved, suggestions 1, 3 and 4
+  applied, and the tool's code round 1's but for one docstring; it re-ran the
+  tests on both tools, `r2/mutations.py` (all 18 caught) and
+  `r2/gaps_now.py`, rebuilt the baseline, ran its round 1 fuzz again (600,000
+  arguments, no mismatch) and compared the four regenerated logs with round
+  1's. Report: `phase6-7/r2/review-r2.md` (session message 1231). Round 3
+  plants all ten in `r3/gaps_now.py` and corrects the observation and
+  `r2/gaps_now.py`'s docstring. Of its four suggestions, 1 (naming the tests
+  that branch targets one word late fail), 3 (`join_counts.log` reproduces
+  but for its times) and 4 (a short line in the next action, reflowed) are
+  applied; 2 (that `join_points()`'s docstring could say that coprocessor
+  branches are not modelled) goes with the next fix, as the next action says.
+- Phase 6 change 7, round 3: pending delta re-review.
 
 ## Next action
 
@@ -1787,10 +1895,10 @@ layout or the plugin. Then the rest of the code-quality work the user chose
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
 `code-quality/zone-baseline/` and with `phase6-5/differential.py`: perhaps
-modules for the disc reader and the MIPS analysis; the three fixes (register
-values traced across a join, a "calls nothing" note for a callback that returns
-before the formation it starts, a traceback on a malformed directory record; the
-probes in `code-quality/probes/` reproduce each); the route-script hang (below),
+modules for the disc reader and the MIPS analysis; the other two fixes (a
+"calls nothing" note for a callback that returns before the formation it
+starts, and a traceback on a malformed directory record; the probes in
+`code-quality/probes/` reproduce each); the route-script hang (below),
 which the user placed just before the next step; one module for what the
 two route scripts share, with smaller `main()` functions and with
 `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1), then
@@ -1800,24 +1908,23 @@ clock, so while the host is busy a test now and then fails with a late
 event, see change 1; the fake could wait for the driver except in the tests
 about lateness, `test_output_directory_rules` should print the driver's
 output when a run fails, `mutation_compare.py` could match catches by
-reason, and `test_zone_data.py` misses three bugs that change 2 planted
-(moves recognised only with `$zero` as the second source, a delay of 2**31
-accepted, branch targets one word late) and others that change 2's review
-round 1 found: lists of four values taken where three are needed (by its
-reading a `struct.error` traceback, not run), the low edge of 16-bit signed
-fields and the high edges of 16- and 32-bit unsigned ones, a record size
-without its pointers, the destinations of `cfc`, `mfc2`, `lui` and `lwr`,
-`or` moves, `jalr` in `is_call()` and `control()`, and the order of `blez`
-and `bgtz`; one that change 3 planted, a branch on a register loaded from
-a word other than the difficulty word that `loaded()` can trace; two that
-change 4 planted, a recipe's formation edit without an address, which
-`expect_keys` then refuses with another message, and a recipe address
-beyond 32 bits, which the parser accepts; the 14 that change 5 planted in
-a package manifest's text, which no test reads; and `write_formations()`'s
-refusal "it has none", which no test reaches; `differential.py` reports
-the first four bugs and the last 17); names for the C
-plugins' registers (the same object code). For new zones (the
-doc's section 6, step 5), the candidates: a plugin that gives index 23 a
+reason, and `test_zone_data.py` misses two bugs that change 2 planted (moves
+recognised only with `$zero` as the second source, a delay of 2**31
+accepted) and other bugs that change 2's review round 1 found: lists of four
+values taken where three are needed (by its reading a `struct.error`
+traceback, not run), the low edge of 16-bit signed fields and the high edges
+of 16- and 32-bit unsigned ones, a record size without its pointers, the
+destinations of `cfc`, `mfc2`, `lui` and `lwr`, `or` moves, `jalr` in
+`control()`, and the order of `blez` and `bgtz`; one that change 3 planted,
+a branch on a register loaded from a word other than the difficulty word
+that `loaded()` can trace; two that change 4 planted, a recipe's formation
+edit without an address, which `expect_keys` then refuses with another
+message, and a recipe address beyond 32 bits, which the parser accepts; the
+14 that change 5 planted in a package manifest's text, which no test reads;
+and `write_formations()`'s refusal "it has none", which no test reaches;
+`differential.py` reports the first three bugs and the last 17); names for
+the C plugins' registers (the same object code). For new zones (the doc's
+section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
 nothing, a results screen and music; or a new zone in an existing zone's
 slot, a new file reached through a new directory record as in the spike's
@@ -1835,6 +1942,17 @@ zones that end in their own code; a committed feature-on route (a runner
 option for a run directory with its own `mods/state.toml`); a whole
 campaign with instant clears, which would also show whether the spike's
 post-credits halt happens with every zone loaded.
+
+Two of change 7's round 1 suggestions are left for later changes. With fix
+2b, `describe()` can collect the join points once a render rather than once
+a wave (suggestion 2; the reviewer measured 645 ms to render the 14 zones,
+against HEAD's 101 ms). The trace could also stop at the word after an
+unconditional jump's delay slot (`j`, `jr`, `b`), which control cannot reach
+from the word before (suggestion 5; no window on the disc crosses one).
+Round 2's suggestion 2 goes with fix 2b, since that change also corrects
+`flow()`'s docstring (the audit's 2c): the docstrings of `join_points()`,
+`control()` and `flow()` could each say, as this change's observations do,
+that coprocessor branches are not modelled (the disc has none).
 
 The checks also found a hang outside the audit, in both route scripts (see
 change 1), and the user placed its fix just before the route-scripts

@@ -175,6 +175,50 @@ class Tables(unittest.TestCase):
                 with self.assertRaisesRegex(zone_data.ZoneError, message):
                     zone_data.read_table(blob)
 
+    def test_the_table_address_must_be_the_same_on_every_path_to_the_call(self):
+        # A second path sets $a1 to 0x1234 at +0x98, then at +0x9C goes to the
+        # code that passes the table: lui at +0x80, the call at +0x84, and its
+        # delay slot at +0x88.
+        unknown = "cannot trace the table address passed at 0x80120084"
+        cases = [
+            ("a branch to the call", i_type(0x04, 0, 0, -7), unknown),  # beq $zero, $zero
+            ("a jump to the call", jump(BASE + 0x84), unknown),
+            ("a branch to the lui, which runs the whole load", i_type(0x04, 0, 0, -8), None),
+            ("a branch to the delay slot, which skips the call", i_type(0x04, 0, 0, -6), None),
+        ]
+        for name, go, message in cases:
+            with self.subTest(name):
+                blob = patched((0x98, addiu(5, 0, 0x1234)), (0x9C, go))
+                if message:
+                    with self.assertRaisesRegex(zone_data.ZoneError, message):
+                        zone_data.read_table(blob)
+                else:
+                    self.assertEqual(zone_data.read_table(blob)[1], TABLE)
+
+    def test_join_points_are_the_targets_and_return_points_in_the_file(self):
+        # zone() calls functions in the EXE at +0x84, +0xD0 and +0x104, which
+        # return past the delay slot, and some of its data decode as jumps far
+        # outside the file.
+        returns = {0x8C, 0xD8, 0x10C}
+        self.assertEqual(zone_data.join_points(zone_data.words(zone())),
+                         {offset // 4 for offset in returns})
+        blob = patched((0x98, i_type(0x04, 0, 0, -6)),  # beq to +0x84
+                       (0xA0, jump(BASE + 0x80)),
+                       (0xA8, jal(B)),  # returns to +0xB0
+                       (0xB0, i_type(0x01, 0, 0x11, -2)),  # bgezal to +0xAC, returns to +0xB8
+                       (0xBC, 25 << 21 | 31 << 11 | 0x09))  # jalr $t9, returns to +0xC4
+        added = {0x84, 0x80, B - BASE, 0xB0, 0xAC, 0xB8, 0xC4}
+        self.assertEqual(zone_data.join_points(zone_data.words(blob)),
+                         {offset // 4 for offset in returns | added})
+        # Each kind of conditional branch adds its target, and a branch that does
+        # not link adds no return point.
+        branches = patched((0x98, i_type(0x05, 2, 3, -3)),  # bne $v0, $v1 to +0x90
+                           (0xA0, i_type(0x06, 2, 0, -4)),  # blez $v0 to +0x94
+                           (0xA8, i_type(0x07, 2, 0, -4)),  # bgtz $v0 to +0x9C
+                           (0xB0, i_type(0x01, 2, 0, -4)))  # bltz $v0 to +0xA4
+        self.assertEqual(zone_data.join_points(zone_data.words(branches)),
+                         {offset // 4 for offset in returns | {0x90, 0x94, 0x9C, 0xA4}})
+
     def test_notes_list_each_callbacks_calls(self):
         blob = zone()
         self.assertEqual(zone_data.describe(blob, A), "calls 0x80057F0C(0x80120190, 4, 5)")
@@ -448,6 +492,33 @@ class Formations(unittest.TestCase):
             with self.subTest(case=n, message=message):
                 with self.assertRaisesRegex(zone_data.ZoneError, re.escape(message)):
                     zone_data.read_formations(patched(*writes))
+
+    def test_the_record_must_be_the_same_on_every_path_to_the_call(self):
+        # Callback A loads $a1 at +0xC4 and +0xC8 and $a2 at +0xCC, calls
+        # 0x80057F0C at +0xD0 and sets $a3 in the delay slot. Branches at +0xE0
+        # and +0xE8 go to the count at +0xCC or to the lui at +0xC4.
+        to_count, to_lui = (0xE0, i_type(0x04, 0, 0, -6)), (0xE8, i_type(0x04, 0, 0, -10))
+        found = [zone_data.Formation(RECORD, STEPS_AT, 4, MEMBERS_AT, 5, [BASE + 0xD0])]
+        self.assertEqual(zone_data.read_formations(patched(to_lui)), found)
+        for writes in ([to_count], [to_lui, to_count]):  # the last one before the call counts
+            with self.subTest(branches=len(writes)):
+                blob = patched(*writes)
+                with self.assertRaisesRegex(zone_data.ZoneError, "cannot trace the formation"
+                                            " record and counts passed at 0x801200D0"):
+                    zone_data.read_formations(blob)
+                self.assertEqual(zone_data.describe(blob, A), "calls 0x80057F0C(?, 4, 5)")
+
+    def test_an_argument_set_before_an_earlier_call_is_not_known(self):
+        # Callback A, changed: it calls 0x80063C5C at +0xC0 and sets $a2 in that
+        # call's delay slot, so 0x80063C5C runs after; then it loads $a1 and
+        # calls 0x80057F0C at +0xD0.
+        blob = patched((0xC0, jal(0x80063C5C)), (0xC4, addiu(6, 0, 4)),
+                       (0xC8, lui(5, 0x8012)), (0xCC, addiu(5, 5, 0x190)))
+        with self.assertRaisesRegex(zone_data.ZoneError, "cannot trace the formation record"
+                                    " and counts passed at 0x801200D0"):
+            zone_data.read_formations(blob)
+        self.assertEqual(zone_data.describe(blob, A),
+                         "calls 0x80063C5C, 0x80057F0C(0x80120190, ?, 5)")
 
     def test_the_dump_says_when_a_call_runs(self):
         word = [lui(2, 0x800A), i_type(0x23, 2, 2, 0x7C34)]  # lw $v0, 0x7C34($v0)

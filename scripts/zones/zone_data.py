@@ -399,15 +399,36 @@ def destination(word):
     return RA if op == JAL else None
 
 
-def trace(seq, index, reg, steps=32):
-    """Value of reg after seq[index], from straight-line lui/addiu/ori/move code."""
-    while reg != ZERO and index >= 0 and steps > 0:
+def join_points(code):
+    """The word indices in the file where control can arrive other than from
+    the word before, as far as the file's own code shows: the targets of its
+    jumps, branches and calls, and the word each call returns to, past its
+    delay slot. Entries that only pointers or the EXE lead to, such as the
+    wave callbacks and the targets of jr and jalr, are not among them. Words
+    of data that decode as jumps, branches or calls add join points too,
+    which can only make argument() give up sooner."""
+    joins = set()
+    for i, word in enumerate(code):
+        op = opcode(word)
+        if op in (J, JAL):
+            joins.add(index_of(jump_target(word, address_of(i))))
+        elif op in BRANCHES:
+            joins.add(branch_target(word, i))
+        if is_call(word):
+            joins.add(i + 2)
+    return {join for join in joins if 0 <= join < len(code)}
+
+
+def trace(seq, index, reg, first=0, steps=32):
+    """Value of reg after seq[index], from straight-line lui/addiu/ori/move
+    code in seq[first:index + 1]."""
+    while reg != ZERO and index >= first and steps > 0:
         word = seq[index]
         op = opcode(word)
         if op == LUI and rt(word) == reg:
             return immediate(word) << 16
         if op in (ADDIU, ORI) and rt(word) == reg:
-            base = trace(seq, index - 1, rs(word), steps - 1)
+            base = trace(seq, index - 1, rs(word), first, steps - 1)
             if base is None:
                 return None
             if op == ADDIU:
@@ -422,10 +443,18 @@ def trace(seq, index, reg, steps=32):
     return 0 if reg == ZERO else None
 
 
-def argument(code, call, reg):
-    """Register reg as the function called by the jal at code[call] receives it."""
-    seq = code[:call] + code[call + 1:call + 2]  # the delay slot runs before the call
-    return trace(seq, len(seq) - 1, reg)
+def argument(code, joins, call, reg):
+    """Register reg as the function called by the jal at code[call] receives
+    it. The trace reads back no further than the last of joins
+    (join_points(code)) at or before the call, since control that arrives
+    there from a jump, a branch or a call's return may bring another value.
+    Entries that only pointers or the EXE lead to are not known, so the trace
+    can still read back past one of those."""
+    # The delay slot runs before the call, so it takes the call's place in seq:
+    # a path that jumps to the call runs the delay slot but not the words before.
+    seq = code[:call] + code[call + 1:call + 2]
+    first = max((j for j in joins if j <= call), default=0)
+    return trace(seq, len(seq) - 1, reg, first)
 
 
 def read_table(blob):
@@ -437,7 +466,7 @@ def read_table(blob):
         raise NoTimeline(f"no shared wave timeline: nothing calls 0x{RUNNER_NEW:08X}")
     if len(calls) > 1:
         raise ZoneError(f"{len(calls)} calls to 0x{RUNNER_NEW:08X}; expected one")
-    address = argument(code, calls[0], A1)
+    address = argument(code, join_points(code), calls[0], A1)
     if (address is None or address % 4
             or not BASE <= address <= BASE + len(blob) - ENTRY.size):
         raise ZoneError("cannot trace the table address passed at "
@@ -460,12 +489,13 @@ def read_table(blob):
 def read_formations(blob):
     """A Formation for every record the zone passes to 0x80057F0C, by address."""
     code = words(blob)
+    joins = join_points(code)
     found = {}
     for index, word in enumerate(code):
         if word != jal(FORMATION):
             continue
         at = address_of(index)
-        record, steps, members = (argument(code, index, reg) for reg in (A1, A2, A3))
+        record, steps, members = (argument(code, joins, index, reg) for reg in (A1, A2, A3))
         if record is None or steps is None or members is None:
             raise ZoneError(f"cannot trace the formation record and counts passed at 0x{at:08X}")
         if not (0 < steps <= MAX_COUNT and 0 < members <= MAX_COUNT):
@@ -635,13 +665,14 @@ def gate(code, entry, call):
 def describe(blob, callback):
     """The calls a callback makes before its first `jr $ra`."""
     code = words(blob)
+    joins = join_points(code)
     notes = []
     for i in callback_span(code, callback):
         if opcode(code[i]) == JAL:
             target = jump_target(code[i], address_of(i))
             note = f"0x{target:08X}"
             if target == FORMATION:
-                args = (argument(code, i, reg) for reg in (A1, A2, A3))
+                args = (argument(code, joins, i, reg) for reg in (A1, A2, A3))
                 note += "(" + ", ".join("?" if a is None else f"0x{a:08X}" if a > 0xFFFF
                                         else str(a) for a in args) + ")"
             if note not in notes:
