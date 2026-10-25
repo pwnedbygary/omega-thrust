@@ -68,6 +68,10 @@ LOADS = {  # code at +0x80 that passes $a1 to the constructor
                                  i_type(0x05, 4, 0, 2), 0, jal(RUNNER_NEW), 0],
     "the file's last word": [lui(5, 0x8012), jal(RUNNER_NEW), addiu(5, 5, 0x1FC)],
 }
+# Callback A's call of 0x80057F0C, from +0xC4 (its jal at +0xD0): the record in
+# $a1, 4 steps in $a2, and 5 members in $a3, set in the delay slot.
+FORMATION_CALL = [lui(5, 0x8012), addiu(5, 5, RECORD - BASE), addiu(6, 0, 4), jal(FORMATION),
+                  addiu(7, 0, 5)]
 
 
 def zone(entries=STOCK, end=-100, after=(), calls=1, load="lui and addiu", own_clear=False):
@@ -89,8 +93,7 @@ def zone(entries=STOCK, end=-100, after=(), calls=1, load="lui and addiu", own_c
         ws[38:40] = [jal(RUNNER_NEW), 0]
     if own_clear:
         ws[40:42] = [jal(CLEAR_ROUTINE), 0]
-    ws[48:56] = [addiu(29, 29, -0x20), lui(5, 0x8012), addiu(5, 5, 0x190), addiu(6, 0, 4),
-                 jal(FORMATION), addiu(7, 0, 5), JR_RA, addiu(29, 29, 0x20)]
+    ws[48:56] = [addiu(29, 29, -0x20), *FORMATION_CALL, JR_RA, addiu(29, 29, 0x20)]
     ws[64:69] = [addiu(29, 29, -0x18), jal(0x80063C5C), addiu(5, 0, 150), JR_RA,
                  addiu(29, 29, 0x18)]
     ws[80:82] = [JR_RA, 0]
@@ -109,6 +112,12 @@ def entries_at(blob, count):
 
 def dumped(blob, path="S1/S1.BIN"):
     return zone_data.parse(zone_data.render(path, blob), "test")
+
+
+def described(blob, callback):
+    """describe() for the callback at address callback, as render() calls it."""
+    code = zone_data.words(blob)
+    return zone_data.describe(code, zone_data.join_points(code), callback)
 
 
 def record(name, lba, size, is_dir):
@@ -221,9 +230,37 @@ class Tables(unittest.TestCase):
 
     def test_notes_list_each_callbacks_calls(self):
         blob = zone()
-        self.assertEqual(zone_data.describe(blob, A), "calls 0x80057F0C(0x80120190, 4, 5)")
-        self.assertEqual(zone_data.describe(blob, B), "calls 0x80063C5C")
-        self.assertEqual(zone_data.describe(blob, C), "calls nothing")
+        self.assertEqual(described(blob, A), "calls 0x80057F0C(0x80120190, 4, 5)")
+        self.assertEqual(described(blob, B), "calls 0x80063C5C")
+        self.assertEqual(described(blob, C), "calls nothing")
+
+    def test_notes_list_a_call_past_an_early_return(self):
+        # Callback A returns at +0xD4 while the difficulty word is non-zero, and
+        # otherwise branches over that return to its call of 0x80057F0C at +0xE8.
+        load = [lui(2, 0x800A), i_type(0x23, 2, 2, 0x7C34)]  # lw $v0, 0x7C34($v0)
+        ret = [JR_RA, addiu(29, 29, 0x20)]
+        text = zone_data.render("S1/S1.BIN", with_callback_a(
+            load + [addiu(29, 29, -0x20), i_type(0x04, 2, 0, 3), 0] + ret + FORMATION_CALL + ret))
+        self.assertEqual(wave_note(text, A), "calls 0x80057F0C(0x80120190, 4, 5)")
+        self.assertIn("Started at 0x801200E8 by wave 0 (callback 0x801200C0)", comments(text))
+
+    def test_notes_leave_out_a_call_that_no_path_reaches(self):
+        # Callback A jumps at +0xC4 over its call of 0x80057F0C at +0xD8 to its
+        # return at +0xE0.
+        text = zone_data.render("S1/S1.BIN", with_callback_a(
+            [addiu(29, 29, -0x20), jump(BASE + 0xE0), 0] + FORMATION_CALL
+            + [JR_RA, addiu(29, 29, 0x20)]))
+        self.assertEqual(wave_note(text, A), "calls nothing")
+        self.assertIn("Started at 0x801200D8 by code outside this table's callbacks",
+                      comments(text))
+
+    def test_notes_list_calls_in_address_order_once_each(self):
+        # Callback A jumps to +0xD8, calls 0x80063D70 and 0x80063C5C there, then
+        # jumps back to call 0x80063C5C at +0xC8 and return.
+        text = zone_data.render("S1/S1.BIN", with_callback_a(
+            [jump(BASE + 0xD8), 0, jal(0x80063C5C), 0, JR_RA, 0,
+             jal(0x80063D70), 0, jal(0x80063C5C), 0, jump(BASE + 0xC8), 0]))
+        self.assertEqual(wave_note(text, A), "calls 0x80063C5C, 0x80063D70")
 
     def test_the_dump_notes_a_zone_that_also_ends_through_its_own_code(self):
         self.assertIn("own code (1 call)", zone_data.render("U4/U4.BIN", zone(own_clear=True)))
@@ -341,12 +378,25 @@ def comments(text):
     return " ".join(line[2:] for line in text.splitlines() if line.startswith("# "))
 
 
+def wave_note(text, callback):
+    """The note beside the first wave in a dump whose callback is callback."""
+    for line in text.splitlines():
+        if line.startswith(f"  {{ callback = 0x{callback:08X},"):
+            return line.split("  # ", 1)[1]
+    raise AssertionError(f"no wave of callback 0x{callback:08X} in the dump")
+
+
 def patched(*writes):
     """zone() with (offset, word) pairs written over it."""
     blob = bytearray(zone())
     for offset, word in writes:
         struct.pack_into("<I", blob, offset, word)
     return bytes(blob)
+
+
+def with_callback_a(code):
+    """zone() with code written over callback A's words."""
+    return patched(*((A - BASE + 4 * i, word) for i, word in enumerate(code)))
 
 
 class Formations(unittest.TestCase):
@@ -506,7 +556,7 @@ class Formations(unittest.TestCase):
                 with self.assertRaisesRegex(zone_data.ZoneError, "cannot trace the formation"
                                             " record and counts passed at 0x801200D0"):
                     zone_data.read_formations(blob)
-                self.assertEqual(zone_data.describe(blob, A), "calls 0x80057F0C(?, 4, 5)")
+                self.assertEqual(described(blob, A), "calls 0x80057F0C(?, 4, 5)")
 
     def test_an_argument_set_before_an_earlier_call_is_not_known(self):
         # Callback A, changed: it calls 0x80063C5C at +0xC0 and sets $a2 in that
@@ -517,8 +567,7 @@ class Formations(unittest.TestCase):
         with self.assertRaisesRegex(zone_data.ZoneError, "cannot trace the formation record"
                                     " and counts passed at 0x801200D0"):
             zone_data.read_formations(blob)
-        self.assertEqual(zone_data.describe(blob, A),
-                         "calls 0x80063C5C, 0x80057F0C(0x80120190, ?, 5)")
+        self.assertEqual(described(blob, A), "calls 0x80063C5C, 0x80057F0C(0x80120190, ?, 5)")
 
     def test_the_dump_says_when_a_call_runs(self):
         word = [lui(2, 0x800A), i_type(0x23, 2, 2, 0x7C34)]  # lw $v0, 0x7C34($v0)

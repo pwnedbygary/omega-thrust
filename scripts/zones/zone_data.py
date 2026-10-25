@@ -126,6 +126,8 @@ SPECIAL, REGIMM, J, JAL, BEQ, BNE, BLEZ, BGTZ = range(8)  # opcodes 0 to 7
 BRANCHES = (REGIMM, BEQ, BNE, BLEZ, BGTZ)  # the conditional branches
 ADDIU, ORI, LUI, LW = 0x09, 0x0D, 0x0F, 0x23
 IMMEDIATE_OPS, LOADS = range(0x08, 0x10), range(0x20, 0x27)  # these write rt
+# The console's coprocessors. The analysis does not model their branches (bc0f,
+# bc0t, bc2f and bc2t), and no word of the disc's zone files decodes as one.
 COP0, COP2 = 0x10, 0x12
 COP_MOVES = (0, 2)        # rs of mfc and cfc, coprocessor ops that write rt
 JR, JALR = 0x08, 0x09     # SPECIAL functions that jump through a register
@@ -133,8 +135,6 @@ ADDU, OR = 0x21, 0x25     # SPECIAL functions that move when one source is $zero
 MULT_DIV = range(0x18, 0x1C)  # SPECIAL functions mult to divu, which write no rd
 LINK = 0x10               # REGIMM's rt bit for bltzal and bgezal, which link
 ZERO, A1, A2, A3, RA = 0, 5, 6, 7, 31  # registers
-JR_RA = 0x03E00008        # jr $ra
-SCAN_LIMIT = 256          # the most words of a callback its notes read
 
 # ISO 9660: the primary volume descriptor, and the fields of a directory record.
 PVD_SECTOR, PVD_MAGIC, PVD_ROOT = 16, b"\x01CD001", slice(156, 190)  # the root directory's record
@@ -382,7 +382,8 @@ def is_move(word):
 
 
 def control(word):
-    """True for jumps and branches, whose delay slots end straight-line code."""
+    """True for jumps and branches, whose delay slots end straight-line code.
+    Branches on the console's coprocessors, COP0 and COP2, are not modelled."""
     op = opcode(word)
     return REGIMM <= op <= BGTZ or (op == SPECIAL and funct(word) in (JR, JALR))
 
@@ -406,7 +407,9 @@ def join_points(code):
     delay slot. Entries that only pointers or the EXE lead to, such as the
     wave callbacks and the targets of jr and jalr, are not among them. Words
     of data that decode as jumps, branches or calls add join points too,
-    which can only make argument() give up sooner."""
+    which can only make argument() give up sooner. Branches on the console's
+    coprocessors, COP0 and COP2, are not modelled, so their targets are not
+    among them either."""
     joins = set()
     for i, word in enumerate(code):
         op = opcode(word)
@@ -547,22 +550,15 @@ def layout(blob):
     return Layout(timeline, formations, parts)
 
 
-def callback_span(code, callback):
-    """Word indices of a callback's code up to its first `jr $ra` and delay slot,
-    whose calls the timeline's notes list."""
-    start = index_of(callback)
-    for i in range(start + 1, min(len(code), start + SCAN_LIMIT)):
-        if code[i - 1] == JR_RA:
-            return range(start, i + 1)
-    return range(start, min(len(code), start + SCAN_LIMIT))
-
-
 def flow(code, entry):
     """{word index: where control goes next} for the code reached from word
-    entry. A jump or branch runs its delay slot, then goes to its target and,
-    if conditional, to the word after the slot; a call (jal, jalr, bltzal,
-    bgezal) returns to the word after its slot; jr, and indices outside the
-    file, end a path."""
+    entry. A jump or branch goes to its target and, if conditional, also to
+    the word after its delay slot; a call (jal, jalr, bltzal, bgezal) returns
+    to the word after its slot; jr, and indices outside the file, end a path.
+    Each jump, branch, call and jr leads past its delay slot: the slot runs
+    on the console, but the graph has no node for it unless another path in
+    the graph leads there. Branches on the console's coprocessors, COP0 and
+    COP2, are not modelled."""
     graph, todo = {}, [entry]
     while todo:
         i = todo.pop()
@@ -662,12 +658,14 @@ def gate(code, entry, call):
     return "only on some paths through its callback"
 
 
-def describe(blob, callback):
-    """The calls a callback makes before its first `jr $ra`."""
-    code = words(blob)
-    joins = join_points(code)
+def describe(code, joins, callback):
+    """The calls the callback at address callback can make: each jal that
+    flow() reaches from its first word, in address order, leaving out any
+    whose note repeats an earlier one. For 0x80057F0C, the note holds the
+    formation record and counts that argument() traces, with joins =
+    join_points(code), or "?" where it cannot."""
     notes = []
-    for i in callback_span(code, callback):
+    for i in sorted(flow(code, index_of(callback))):
         if opcode(code[i]) == JAL:
             target = jump_target(code[i], address_of(i))
             note = f"0x{target:08X}"
@@ -755,6 +753,7 @@ def render(path, blob):
     folder = path.split("/")[0]
     label = f", the {LABELS[folder]}" if folder in LABELS else ""
     code = words(blob)
+    joins = join_points(code)
     own = code.count(jal(CLEAR_ROUTINE))
     entries = [f"{{ callback = 0x{callback:08X}, delay = {delay_text(delay)} }},"
                for callback, delay in timeline.waves]
@@ -788,7 +787,7 @@ def render(path, blob):
         f"address = 0x{timeline.address:08X}  # file offset 0x{timeline.address - BASE:X}",
         f"slots = {timeline.slots}  # 8-byte entries in place, the end entry included",
         "waves = [",
-        *(f"  {entry:<{width}}  # {describe(blob, callback)}"
+        *(f"  {entry:<{width}}  # {describe(code, joins, callback)}"
           for entry, (callback, _) in zip(entries, timeline.waves)),
         "]",
     ]

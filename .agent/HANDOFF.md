@@ -18,30 +18,29 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 7 change 4, round 3: the strafe made visible. The
-user tried change 3's strafe in the play copy and saw nothing happen
-(`phase7-3/play-01/`). A headless run of their setup strafed at 76.5 units a
-frame (`phase7-3/support/`), but the game's camera followed the mech
-exactly, so in open space the strafe barely showed. The user chose to make
-the camera lag behind sideways moves and then catch up. Invariant: while
-the feature is on and the keys strafe, the hook at 0x80033044 adds the
-force it adds to the step's sums to the player's words +0xBC to +0xC4 as
-well, which the camera's spring is pushed against, so the camera falls
-behind a strafe and catches up when the keys come up. The strafe's speed
-and directions, everything with the feature off, and the hook site stay as
-they were, so `game.toml`, `generated/` and the manifest do not change.
-This file records change 7's round 3 PASS and commit `d1f289a` and
-condenses change 7. Rounds 2 and 3 change only this file. Review round 1
-found that the observation on the other code using offsets +0xBC to +0xC4
-was wrong about how some of it is reached and missed one routine, so
-round 2 rewrites it from a saved scan and takes up the review's
-suggestions on this file. Review round 2 found that its last sentence
-claimed a search of the zone files for routines the scan had not searched
-for, two of which zone files call, so round 3 widens the scan to every
-routine that the fourth and fifth observations name, rewrites the sentence
-from it and takes up the review's three suggestions. Baseline: `d1f289a`.
-Out of scope: the zone-1 jolt, a strafe in the game's other movement (see
-the hypotheses), the code-quality work, the framework and the routes.
+Current iteration, Phase 6 change 8, round 2: the audit's fixes 2b and 2c,
+the second of its fixes to the code analysis in `scripts/zones/zone_data.py`
+(`code-quality/audit-r1.md`, lines 50-54). Invariant: a dump's timeline
+notes list the calls each wave's callback can make, each jal that `flow()`
+reaches from its first word, in address order and leaving out a note that
+repeats an earlier one, so they agree with the formation section, which
+says by the same reach which waves start a formation. `describe()` gets the
+file's words and their join points from `render()`, which finds the join
+points once a dump (change 7's round 1 suggestion 2). `flow()`'s docstring
+says that the graph has no node for a delay slot unless another path leads
+there (2c), and the docstrings of `control()`, `join_points()` and `flow()`
+say that branches on the console's coprocessors are not modelled (change
+7's round 2 suggestion 2). No output from the player's disc changes. This
+file also records Phase 7 change 4's round 3 PASS, its commit `4899039` and
+the user's trial of it, and condenses change 4. Review round 1 found three
+statements in this file that its evidence does not hold, two in the
+condensed change 4 and one on the user's trial, so round 2 corrects them,
+saves the trial's mod selection, and takes up the review's eight
+suggestions, which change only comments and docstrings in the tool and how
+the tests build callback A. Baseline: `4899039`. Out of scope: stopping the
+trace at the word after an unconditional jump's delay slot (change 7's
+round 1 suggestion 5), the rest of the code-quality work, Mouse Aim, the
+framework and the routes.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -982,189 +981,175 @@ planted gaps than were planted), round 3 PASS on tree `15f6f93` (staged diff
 and `phase6-7/r3/review-r3.md`; full record:
 `git show d1f289a:.agent/HANDOFF.md`.
 
-## Phase 7 change 4 observations (`.cache/evidence/phase7-4/`)
+## Phase 7 change 4 (commit `4899039`)
 
-- The user's session on change 3's build (`phase7-3/play-01/`) ended during
-  the zone-1 briefing, before the mech was in play. A headless run of their
-  setup (`phase7-3/support/run_user_setup.sh`: the play copy's mod state,
-  LLE on the SCPH-1001 dump) strafed at 76.5 units a frame each way along
-  the screen's axes, as change 3's probe had; no setting was missing, since
-  the strafe is part of Mouse Aim. Its shots show why the strafe looked
-  broken: in open space the mech stays at the screen's centre and only the
-  sparse starfield moves.
-- The view (0x80071F78) builds the root of the matrix stack in the
-  scratchpad (0x1F8003A0) from the camera block at 0x800A7D18 (position
-  +0x00 to +0x08, angles +0x0C to +0x14), which the camera controller
-  0x800630B4 writes every step (0x800638B4 to 0x800638F8;
-  `camera_writers.py` / `.log`). Rebuilt from write traces (`view_probe.py`
-  / `.log`), the camera on change 3's build kept the same offset from the
-  player, (-51, 2579, 6121), while strafing right as while cruising, so the
-  mech did not move on the screen.
-- The controller puts the camera 0x1400 units behind the player along its
-  view direction (the player's words +0x60 and +0x64, through 0x8007897C),
-  plus an offset that a damped spring moves (in its own object: force +0x00
-  to +0x08, velocity +0x0C, drag 0x333 through the GTE, offset +0x18). The
-  spring pulls the offset back, and the controller subtracts from its force
-  the player's words +0xBC to +0xC4, the step's thrust (+0xC8 to +0xD0) and
-  the words +0xD4 to +0xDC (0x800632A8 to 0x8006333C): the camera falls
-  behind when the mech is pushed and catches up when the push ends.
-- The per-step routine 0x80030558, which the player's update (0x80060460)
-  calls once a step, first clears +0xBC to +0xC4 and the thrust (0x80030574
-  to 0x8003058C), then picks a case by the player's state (+0x128; table
-  0x80012680), and each case runs at most one movement (`r3/reader_scan.py`'s
-  part 3 lists the twelve calls of 0x80032D50 and 0x800334D8). In play
-  (state 3) it runs 0x80032414 while +0x140 is above zero (0x800311A0), else
-  0x800334D8 while the player's word +0x168 is not zero (0x800311C0), else
-  0x80032D50, where the strafe hook is (0x80031248). State 6 does the same
-  (0x80031438 to 0x800314E0), state 2 always runs 0x800334D8 (0x80030ED4),
-  and state 7 reaches 0x80033EC4, which writes +0x168 as 1 before running
-  0x800334D8 and as 0 before running 0x80032D50. In the EXE only 0x80031ABC,
-  which only 0x800334D8 calls, adds +0xBC to +0xC4 to the step's force sums,
-  after adding the stick's force across the screen to them (0x80031CCC to
-  0x80031D28); 0x80032D50 leaves those words at zero. So the strafe force in
-  them pushes the camera as the game's own moves do in the other movement,
-  and is not added to the sums twice.
-- `r3/reader_scan.py` / `.log` lists the 46 loads and stores in the EXE at
-  offsets +0xBC to +0xC7 through a register other than `$sp`. Four routines
-  use the player's own words there: the camera, through the player pointer
-  (loaded at 0x8006329C); the per-step routine's clears; 0x80031ABC; and
-  0x800302D4, which clears them when 0x8006000C makes the player's task
-  (0x800600A0, after storing the task at 0x8009C064). The rest work on other
-  memory: the scratchpad, 0x1F800000, in 0x800265EC and 0x8004EEC0, whose
-  base registers hold it on every path to their accesses (`r3/reach.py` /
-  `.log`: `$a3` set at 0x800267E0; `$a2` copied from `$s4` at 0x8004F370
-  and 0x8004F38C, `$s4` set at 0x8004EEF4, or set at 0x8004FF84 before a
-  loop jumps back to them); the structure that the word +0x2C of
-  0x800384B8's argument points to (0x800385C0), whose words +0x00 to +0x08
-  it subtracts from its words +0xB4 to +0xBC as two points (0x800385C8 to
-  0x80038614), while the player keeps its position at +0x34; the fixed word
-  0x8010F330 in 0x8007D784 (0xC0 above `$s3`, which 0x8007D7B4 sets to
-  0x8010F334 minus 0xC4); and player+0x24C in 0x800417E8, 0x80043DA8 and
-  seven small routines from 0x80041D34. 0x8006000C passes player+0x24C to
-  0x800417E8 (0x800600B0) and the player's update passes it to 0x80043DA8
-  (0x80060474), which passes it unchanged to 0x80045160 (0x80043DF8), which
-  passes it to the seven (0x8004520C to 0x80045688), so they read the
-  player's +0x310, not its +0xC4. For each routine that this observation and
-  the one before name, part 3 of the scan lists the jal calls, lui pairs and
-  data words that name it. In the EXE it finds jal calls and lui pairs;
-  0x800265EC, 0x800384B8, 0x8007D784, the camera and the player's update are
-  named only by lui pairs. Of these routines the zone files name only two:
-  20 of the 25 call 0x8006000C, which makes the player's task, and S4, S8,
-  U4 and U7 call 0x8004EEC0, which sets its own base to the scratchpad. No
-  zone file uses those offsets through a register just loaded from the
-  player pointer (part 2, which also counts the 417 other loads and stores
-  at those offsets in the zone files, whose registers are not traced; in the
-  EXE it finds its control, the camera's three reads).
-- On this change's build (build-dev 89a60b3e), strafing right left the camera
-  up to 1,048 units behind the mech along screen right (the x axis at this
-  heading), and 764 while the key stayed down; after its release the camera
-  was back within about 60 frames (`lag_probe.py` / `.log`). Strafing left
-  held it 661 units the other way; strafing up lowered it from 2,580 to
-  1,881 units above the player. The shots (`lag/lag_sheet.png`, and
-  `lag/lag_sheet_x2.png` with centre lines) show the mech right of the
-  screen's centre while strafing right, left of it while strafing left,
-  higher while strafing up, and back near the centre after; the crosshair
-  stays near the centre.
+The user tried change 3's strafe in the play copy and saw nothing happen
+(`phase7-3/play-01/`). A headless run of their setup strafed at 76.5 units
+a frame (`phase7-3/support/`), but the game's camera followed the mech
+exactly, so in open space the strafe barely showed, and the user chose to
+make the camera lag behind sideways moves and catch up. The view
+(0x80071F78) builds its matrix from the camera block at 0x800A7D18, which
+the camera controller 0x800630B4 writes every step: it hangs the camera
+0x1400 units behind the player on a damped spring, pushed against the
+step's thrust and the player's words +0xBC to +0xC4 and +0xD4 to +0xDC
+(0x800632A8 to 0x8006333C). The per-step routine 0x80030558 clears +0xBC
+to +0xC4 every step and runs at most one movement: in play, 0x80032414
+while +0x140 is above zero, else 0x800334D8 while +0x168 is not zero, whose
+0x80031ABC adds the stick's force across the screen to those words and to
+the step's force sums (0x80031CCC), else 0x80032D50, which has the strafe
+hook and leaves the words at zero. The hook now adds its force to them as
+well (`add_to_word()`, `PLAYER_CAMERA_FORCE`). On build-dev `89a60b3e`,
+strafing right left the camera up to 1,048 units behind the mech, 764 while
+the key stayed down, and back within about 60 frames of its release;
+strafing left held it 661 units the other way, and strafing up lowered it
+from 2,580 to 1,881 units above the player (`phase7-4/lag_probe.log`; the
+shots in `phase7-4/lag/lag_sheet.png` show the mech off the screen's centre
+while it strafes). The strafe's force did not change: over the second half
+of each strafing phase but one, the mech moved 79.5 to 80.0 units a frame,
+as with change 3 (`phase7-4/steady_compare.log`); in the other, strafing
+right, it moved 107.9 units a frame, meeting a push of the game's own,
+which the run with the feature off met in the same phase. A scan of the EXE
+and the 25 zone files (`phase7-4/r3/reader_scan.py`) finds one more routine
+that uses the player's words +0xBC to +0xC4, 0x800302D4, which clears them
+when the player is made, and no zone file using them through a register
+just loaded from the player pointer; the zone files' 417 other loads and
+stores at those offsets go through registers that no check traces.
+`AGENTS.md`'s Mouse Aim paragraph explains the camera. The builds, the
+plugin audit, the strict compiles, the check from one save state (17
+checks, cosine +0.999), the windowed checks, the nine feature-on route
+runs, a feature-off sample and the four test files passed. The user then
+flew it on the desktop in the 1ST ZONE at Strafe speed 80
+(`phase7-4/play-01/`: LLE on the SCPH-1001 dump, no unknown dispatch or
+segment miss; `phase7-4/play-01/mods-state.toml` is the mod selection that
+the session's launch wrote) and reported: "Strafe works great!" Review:
+round 1 NEEDS CHANGES (one Low: an observation on the other code using
++0xBC to +0xC4 was wrong about how some of it is reached and missed one
+routine), round 2 NEEDS CHANGES (one Low: it claimed a search of the zone
+files for routines the scan had not searched for), round 3 PASS on tree
+`e0e627a` (staged diff `41868b49…`). Reports: `phase7-4/review-r1.md`,
+`phase7-4/r2/review-r2.md` and `phase7-4/r3/review-r3.md`; full record:
+`git show 4899039:.agent/HANDOFF.md`.
 
-## Phase 7 change 4 changes
+## Phase 6 change 8 observations (`.cache/evidence/phase6-8/`)
 
-- `src/mods/omega_mouse_aim.c`: the strafe hook adds its force to the
-  player's words +0xBC to +0xC4 (`PLAYER_CAMERA_FORCE`) as well as to the
-  step's sums, through a new helper, `add_to_word()`; the comment over the
-  hook's site explains the camera.
-- `AGENTS.md`: two sentences in Mods' Mouse Aim paragraph on the camera.
-- `.agent/HANDOFF.md`: the scope; change 7 condensed; these sections; the
-  hypotheses' Mouse Aim item; the review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase7-4/`, and change 7's round 3
-  report (`phase6-7/r3/review-r3.md`).
+- The audit's finding 2b (`code-quality/audit-r1.md`, lines 50-53): the
+  timeline's notes listed the jal instructions among a callback's words up
+  to its first `jr $ra` (`callback_span()`), while the formation section
+  says which waves start a formation by the words `flow()` reaches, so the
+  two could disagree. The new tests' notes show it three ways on commit
+  `4899039`'s tool (`regression.sh` / `.log`): a callback that branches over
+  an early return to its call of 0x80057F0C gets the note "calls nothing";
+  a call that a jump skips is listed; and of the calls a callback reaches by
+  jumping past its first `jr $ra`, only those before it are listed. Beside
+  the first two, the formation section names the wave, and says that code
+  outside the table's callbacks starts the formation: this change leaves the
+  section's code as it was, the new tests check its text on the new tool,
+  and for the first case the audit's probe printed both
+  (`code-quality/probes/probes-zone.log`). On the player's disc both ways
+  list the same calls for every callback, so no dump changes.
+- The audit's 2c (line 54): `flow()`'s docstring said that a jump runs its
+  delay slot, but no edge leads to a slot, so the graph has no node for one
+  unless another path leads there: a jump or branch to it, or the return or
+  fall-through of a call or branch whose own delay slot holds a jump.
+- `cop_branches.py` / `.log`: no word of the 25 zone files decodes as a
+  branch on COP0 or COP2, the console's coprocessors, which the tool does
+  not model. Change 7's `phase6-7/join_counts.py` counted the same two, so
+  its section's "no word decodes as a coprocessor branch" means these.
+  Three data words decode as branches on COP1 (S3 at file offset 0x15B0,
+  S10 and U9 at 0x44C), which the console's CPU does not have.
+- `render()`'s join points cannot change a note in a file that renders
+  (derived): `layout()` refuses a file in which `argument()` cannot trace,
+  with them, an argument of a call of 0x80057F0C, and where it can, it
+  finds the same value without them. Only `describe()`'s own tests, on
+  files that do not render, see them.
 
-## Phase 7 change 4 checks
+## Phase 6 change 8 changes
 
-- Builds with the documented command (`build-dev.log`, `build-release.log`):
-  only the plugin's object compiled and the staged catalog is OK (10 packages);
-  build-dev went from `18c3329a…` to `89a60b3e…` and build-release from
-  `e9152fc8…` to `2afd4aab…` (`binaries-before.sha256`, which takes build-dev's
-  earlier binary from the play copy that `phase4-2/play/play.sh` had refreshed
-  from it, and `binaries-after.sha256`). After the last edits, which changed
-  only comments, both rebuilt byte-identical (`build-dev-2.log`,
-  `build-release-2.log`). `strict_compile.log`: the plugin alone with strict
-  warnings as errors, under GCC 16.2.1 and clang 23.1.3, prints nothing.
-  `plugin-audit.log`: both builds pass, with 10 manifests, 10 declared and 8
-  registered ids, and nothing written in the audit's working directory.
-- The windowed checks (`phase7-3/r2/run_mouse_checks.sh` on this build;
-  `mouse_checks.log`, `mouse/`): no expectation failed in any of the three
-  settings, and each run loaded its copy's `keybinds.ini`. They pass any strafe
-  of 25 units a frame and do not see the camera, so the headless probe's speeds
-  are the check that the strafe itself did not change.
-- `runs.sh` / `.log` ran the rest on this build in three lanes at once, one
-  port each. The headless strafe probe (`phase7-3/run_strafe_probe.sh`, Mouse
-  Aim on and off; `strafe-on/analysis.log` and `strafe-off/analysis.log`): with
-  the feature off nothing strafes; with it on, each phase averages 72.7 to 75.3
-  units a frame against change 3's 76.5 to 76.8, but this run covered about
-  half as many frames a phase, the host being busy with the other lanes, so the
-  strafe's build-up weighs more. Over the second half of each phase
-  (`steady_compare.py` / `.log`, against change 3 round 2's samples) the strafe
-  moves the mech 79.5 to 80.0 units a frame and its velocity settles at 80.0 to
-  80.2, as in change 3's run, so the force did not change. The right phase,
-  left out of that comparison, met a push of the game's own, which the
-  feature-off run met in the same phase and change 3's runs in the one before.
-- The check from one save state (`phase7-3/r2/run_screen_check.sh`;
-  `screen.log`, `screen/`): all 17 checks pass, each strafe against the game's
-  own turn or climb at cosine +0.999, and each strafe moves the mech 51.2 to
-  52.7 units a frame without turning it (change 3: 52.7 to 55.3). The check's
-  figures vary from run to run: the game's own turns, which this change cannot
-  touch, differ as much (turn-left 59.8 against 66.4 units a frame), and
-  strafe-left moved the mech 2,530 units in both runs.
-- The feature-on routes (`phase7-2/feature_on_routes.sh`;
-  `feature_on_routes.log`, `feature-on/`): all nine runs pass. Against Phase 7
-  change 3's feature-off batch (`feature_on_compare.log`), card 1 differs only
-  in the TYPE byte and the save's checksum, as before. Each run's probe
-  (overlay counters, most-run PCs and plugin counters: one attach in each
-  title_to_zone1 run and no strafed step, the routes leaving the right stick
-  centred) and each saved card match change 3 round 2's feature-on runs.
-- The feature-off sample (`feature_off_sample.sh` / `.log`, outputs in
-  scratch): title_to_zone1, memcard and demo_zone1 pass in HLE mode, with Phase
-  7 change 3's batch's overlay instruction counts (1,309 in 7 rows, 2,628 in 2
-  and 12 in 1) and most-run PCs, no `omega.*` counter, and both saved cards
-  equal to the batch's.
-- `checks-p7-4.sh` / `.log` (the staged tree; it writes only in a scratch
+- `scripts/zones/zone_data.py`: `describe(code, joins, callback)` lists each
+  jal that `flow()` reaches from the callback's first word, in address order
+  and leaving out a note that repeats an earlier one; `render()` finds the
+  join points once a dump and passes them; `callback_span()`, `JR_RA` and
+  `SCAN_LIMIT` are gone; `flow()`'s docstring says that the graph has no
+  node for a delay slot unless another path leads there, and the docstrings
+  of `control()`, `join_points()` and `flow()` say that branches on COP0 and
+  COP2 are not modelled, while a comment beside those constants adds that no
+  word of the disc's zone files decodes as one.
+- `scripts/zones/test_zone_data.py`: three tests on the rendered notes (68
+  in all): a call past an early return is listed, a call that no path
+  reaches is not, and calls are listed in address order, once each. New
+  helpers: `described()`, `wave_note()`, `with_callback_a()` and
+  `FORMATION_CALL`, from which `zone()` now writes callback A's call; the
+  three tests that call `describe()` pass it the words and their join
+  points.
+- `.agent/HANDOFF.md`: the scope; Phase 7 change 4 condensed, with the
+  user's trial; these sections; the hypotheses' Mouse Aim item; the review
+  state; the next action.
+- Untracked (ignored): `.cache/evidence/phase6-8/`, and Phase 7 change 4's
+  round 3 report (`phase7-4/r3/review-r3.md`) and the user's mod selection
+  (`phase7-4/play-01/mods-state.toml`, with its provenance in
+  `phase7-4/play-01/mods-state.txt`).
+
+## Phase 6 change 8 checks
+
+- `scripts/zones/test_zone_data.py`: 68 tests pass (`tests-green.log`).
+  Before the change to the tool (`tests-red.log`), and against commit
+  `4899039`'s tool (`regression.sh` / `.log`), it gives 3 failures, the new
+  tests with the old notes, and 4 errors, the runs that call `describe()`
+  with its new arguments.
+- `check` (`check.log`) rebuilds all 14 timeline zones identically, and the
+  zone baseline (`baseline.log`, run by `phase6-7/baseline.sh`) gives the
+  same 142 outputs as commit `0761991`'s tool, byte for byte.
+- Change 5's differential, in this change's copy (`differential.py`, run by
+  `differential.sh`: it calls each tool's `describe()` with the arguments
+  it takes, compares no `callback_span()`, and also compares the notes of
+  change 3's 20,000 callback-like programs from both their entries). Against
+  commit `4899039`'s tool as it is (`differential-raw.log`), 7,796 of
+  635,161 inputs differ, all in the notes: 1,538 of the 5,000 random
+  programs and 6,258 of the 40,000 callback-like ones; the 625 renders of
+  the player's zone files and their corrupted copies do not differ. Against
+  that tool with the rule written into it independently (`reference.py`:
+  `callback_span()` gives the words that a walk of its own reaches, in
+  address order), no input differs; of the 61,299 callbacks the reference
+  walked, 10,973 reach other calls than the old span.
+- `mutations.py` / `.log`: six bugs planted in the new code, one at a time,
+  are all caught: the notes in the order `flow()` visits their words, a call
+  listed each time it is reached, the walk from the word after the
+  callback's first, the old span up to the first `jr $ra`, `flow()`'s words
+  only up to the first `jr $ra`, and `describe()` ignoring its join points.
+- `render_timing.py` / `.log`: rendering the 14 timeline zones took 215 ms
+  (best of five) against 796 ms with commit `4899039`'s tool; the log does
+  not record the host's load. Round 2's copy, which prints it
+  (`r2/render_timing.py` / `.log`), measured 188 ms against 645 ms, on 16
+  cores at a load under 1 (change 7's review measured 645 ms with that tool,
+  against 101 ms before change 7).
+- `checks-p6-8.sh` / `.log` (the staged tree; it writes only in a scratch
   directory, with `TMPDIR` there too): only the three files change, and the
-  working tree holds the staged files; no pin, submodule, `CMakeLists.txt`,
-  `game.toml`, `generated/`, manifest or layout changes; this file's header,
-  overall paragraph, Phase 0 to Phase 6 change 6 and review entries up to
-  change 7's round 3 equal HEAD's, the changed words of the scope, the
-  hypotheses and the next action are printed, and it has no placeholder,
-  doubled blank line, long added line, new reflow leftover or local path; every
-  evidence path that the added lines cite exists, but for the play copy's
-  `keybinds.ini` and `mods/state.toml`; the gates pass and the documented
-  generate finds nothing to change; both binaries are the runs' and both builds
-  compiled only the plugin; the plugin audit passes and the strict compiles
-  print nothing; it prints the game code the change rests on;
-  `phase7-3/r2/strafe_analyze.py`, `steady_compare.py` and
-  `phase7-2/feature_on_compare.py` reproduce their logs; the four test files
-  pass, the Beetle driver's within three runs; change 7's round 3 report
-  matches session message 1432; no listener; and no whitespace error. All pass.
-  Its first run (`checks-p7-4-first.log`) found three citations in this file
-  without their directories, now given in full.
-- Round 2 (`r2/`): `r2/reader_scan.py` / `.log` and `r2/key_masks.py` /
-  `.log` back the rewritten observations. `r2/checks-p7-4-r2.sh` / `.log`
-  repeats the checks above on round 2's tree, in which only this file
-  differs from round 1's (it prints the whole word diff); it also recomputes
-  the scan and the masks, prints the game code that round 2 cites, and
-  matches round 1's report against session message 887. All pass.
-- Round 3 (`r3/`): `r3/reader_scan.py` / `.log` is round 2's scan with its
-  part 3 widened to every routine the fourth and fifth observations name
-  and with lui pairs up to 24 words apart; parts 1 and 2 print the same as
-  round 2's. `r3/reach.py` / `.log`, run by `r3/run_reach.sh`, follows every
-  path through 0x800265EC and 0x8004EEC0. It finds no jump through a
-  register, no branch out of either routine or into a delay slot, and no
-  branch into either from code: the ten words that decode as branches into
-  0x800265EC lie below the lowest routine the recompiler found (0x800243E4,
-  the lowest `func_` name in `generated/`) and the EXE's first `jr $ra`
-  (0x80024718), so it counts them as data. `r3/checks-p7-4-r3.sh` / `.log`
-  repeats round 2's checks on round 3's tree, in which only this file
-  differs from round 2's; it also recomputes both scripts' output and
-  matches round 2's report against session message 1296. All pass.
+  working tree holds the staged files; it prints the definitions that differ
+  from HEAD's (`phase6-7/changed_defs.py`), and the tool's help texts are
+  HEAD's; this file's header, overall paragraph, Phase 0 to Phase 6 change 7
+  and review entries up to Phase 7 change 4's round 3 equal HEAD's, the
+  changed words of the scope, the hypotheses and the next action are
+  printed, and it has no placeholder, doubled blank line, long added line,
+  new reflow leftover or local path; every evidence path that the added
+  lines cite exists, but for the play copy's `keybinds.ini` and
+  `mods/state.toml`; the gates pass; Phase 7 change 4's round 3 report
+  matches session message 1562; the four test files pass, the Beetle
+  driver's within three runs; `regression.sh`, `mutations.py`,
+  `cop_branches.py`, `check`, the baseline and both differentials reproduce
+  their logs; the audit's probe of 2b now gets the note that lists the call,
+  and its probe of the directory record still prints what it did at the
+  audit; no listener; and no whitespace error. All pass.
+- Round 2 (`r2/`): `r2/same_code.py` shows that the tool's code is the
+  same as round 1's, docstrings and comments aside, and
+  `r2/zone_bytes.py` / `.log` that the tests' `zone()` writes round 1's
+  bytes for 81 sets of arguments, with the same `FORMATION_CALL`.
+  `r2/checks-p6-8-r2.sh` / `.log` repeats round 1's checks on round 2's
+  tree, in which all three files differ from round 1's; it also prints the
+  index entries against round 1's, the tool's changed lines, the words
+  changed in this file and the saved mod selection; it matches round 1's
+  report against session message 920, and finds that the evidence scripts
+  give round 1's logs again, but for the hashes of the tool and the test
+  file that three of them print. All pass.
 
 ## Hypotheses and unknowns
 
@@ -1242,7 +1227,10 @@ and `phase6-7/r3/review-r3.md`; full record:
   OpenBIOS; the strafe and the camera's lag also headless, through the debug
   server's stick axes, in the same zone. The user flew change 2's build,
   without the strafe, on the desktop with a real mouse through the 1ST and
-  2ND ZONE. The strafe exists only in the movement 0x80032D50. In play the
+  2ND ZONE, and change 4's, with the strafe and the camera's lag at Strafe
+  speed 80, in the 1ST ZONE (`phase7-4/play-01/`, its mod selection in
+  `phase7-4/play-01/mods-state.toml`), and reported "Strafe works great!"
+  The strafe exists only in the movement 0x80032D50. In play the
   game runs 0x800334D8 instead while the player's word +0x168 is not zero, and
   the per-step routine sets that word to the held buttons in the mask at
   0x800A7970 (0x800307B0 to 0x800307E0), which was L1 in zone 1 with the
@@ -1256,21 +1244,20 @@ and `phase6-7/r3/review-r3.md`; full record:
   +0xBA, which 0x80030684 to 0x800306C0 fill from the left stick's bytes in
   the pad buffer when the pad is analog, as the plugin presents player 1.
   This is read from the code, not run, and Phase 7 change 3's section, which
-  says the game has no strafe of its own, misses it. Not yet:
-  the strafe and the camera's lag on the desktop and
-  in other zones; how the strafe meets the stage's limits, which the
-  movement applies after the forces, the stages that move the player along
-  z, where it drops its z part as the game does for the thrust, and the
-  game's other pushes (two of change 3's first windowed runs each met one
-  they did not cause: round 1's while D was held near zone 1's asteroid
-  base, round 2's as a jolt of 4 to 7 degrees after W's release; neither is
-  traced); ZONE PLAY and TRAINING, which the plugin counts as flight;
-  losing the window's focus, which should free the cursor; the runtime's own
-  save-state and rewind menus, during which the cursor may stay captured,
-  since the plugin frees it only for the game's pause, outside flight or
-  without focus; CONTROL B; a key setup that moves ATTACK off Cross and
-  Square (the plugin presses the setup's first button, read from
-  0x800A7C40); and the d-pad in directions other than up. That a saved
+  says the game has no strafe of its own, misses it. Not yet: the strafe and
+  the camera's lag in other zones and at other Strafe speeds; how the strafe
+  meets the stage's limits, which the movement applies after the forces, the
+  stages that move the player along z, where it drops its z part as the game
+  does for the thrust, and the game's other pushes (two of change 3's first
+  windowed runs each met one they did not cause: round 1's while D was held
+  near zone 1's asteroid base, round 2's as a jolt of 4 to 7 degrees after
+  W's release; neither is traced); ZONE PLAY and TRAINING, which the plugin
+  counts as flight; losing the window's focus, which should free the cursor;
+  the runtime's own save-state and rewind menus, during which the cursor may
+  stay captured, since the plugin frees it only for the game's pause,
+  outside flight or without focus; CONTROL B; a key setup that moves ATTACK
+  off Cross and Square (the plugin presses the setup's first button, read
+  from 0x800A7C40); and the d-pad in directions other than up. That a saved
   replay cannot play a strafe back is Derived. While the feature is on it
   also overrides a TYPE chosen in CONTROL SETUPS, and a gamepad's sticks
   neither steer nor strafe in flight, so a gamepad player turns it off.
@@ -1996,35 +1983,67 @@ and `phase6-7/r3/review-r3.md`; full record:
   (`phase7-4/r3/reach.py`); so are the routines that only lui pairs name;
   and the hypotheses say how the pad buffer holds a held button and that the
   left stick fills +0xB8 and +0xBA when the pad is analog.
-- Phase 7 change 4, round 3: pending delta re-review.
+- Phase 7 change 4, round 3: PASS on tree `e0e627a` (staged diff
+  `41868b49…`), no findings, from the same reviewer: round 2's finding is
+  resolved, and round 3's other statements hold against the EXE. It re-ran
+  `phase7-4/r3/checks-p7-4-r3.sh` into scratch (as logged), and checked the
+  widened scan and `phase7-4/r3/reach.py` against a search and a dataflow
+  check of its own. Report: `phase7-4/r3/review-r3.md` (session message
+  1562). Commit `4899039`, pushed. Of its four nonblocking suggestions, the
+  three on wordings in change 4's sections lapsed when Phase 6 change 8
+  condensed them. The fourth, that `phase7-4/r3/reach.py` does not count
+  calls among the control that comes from elsewhere, is recorded here: the
+  reviewer's own search, which counted calls, found no branch, jump or call
+  in code (from 0x800243E4 up) that enters either routine past its first
+  word.
+- Phase 6 change 8, round 1: NEEDS CHANGES on tree `ea12b59` (staged diff
+  `20384365…`), three Low findings in this file, from a fresh read-only
+  reviewer, which found nothing to fix in the tool or the tests. The
+  condensed Phase 7 change 4 said that the scan finds no zone file using the
+  player's words +0xBC to +0xC4 through the player pointer, while the scan
+  follows only a register just loaded from it and leaves 417 accesses
+  untraced; it gave the second half of every strafing phase as 79.5 to 80.0
+  units a frame, while `phase7-4/steady_compare.log` has the right phase at
+  107.9; and it, the hypotheses and the next action gave the user's Strafe
+  speed as 80, which nothing in `phase7-4/play-01/` recorded. The reviewer
+  re-ran `phase6-8/checks-p6-8.sh` into scratch (as logged), read the rule,
+  re-derived the new tests' expectations by hand, counted the coprocessor
+  branches its own way, and checked the condensed section against HEAD's
+  sections and the reports. Report: `phase6-8/review-r1.md` (session message
+  920). Round 2 restores the two qualifiers, saves the session's mod
+  selection as `phase7-4/play-01/mods-state.toml` and cites it, and takes up
+  all eight suggestions: `zone()` builds callback A from `FORMATION_CALL`;
+  `flow()`'s docstring covers every path to a delay slot; `describe()`'s
+  says which notes it leaves out; one comment beside `COP0` and `COP2` holds
+  the fact about the disc; the first observation says what `regression.log`
+  shows and where the rest is; Phase 7 change 4's round 3 entry says "in
+  code"; the timing script prints the load; and the commit's deferred list
+  names the camera's lag at other Strafe speeds.
+- Phase 6 change 8, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. The user can then try the strafe with the
-camera's lag in the play copy: a session started with `play/play.sh <session
-dir> <SCPH-1001 dump>` (in `.cache/evidence/phase4-2/`) refreshes the play copy
-from `build-dev/`; the play copy's `mods/state.toml` already enables Mouse Aim,
-and its `keybinds.ini` is change 3's `controls/keybinds.ini`
-(`phase7-3/playcopy-keybinds.sha256`). The strafe needs no setting beyond Mouse
-Aim itself, and the keys strafe only once the mech is in play, after the zone's
-briefing and fly-by, and, as read from the code, not while Q, the game's SCAN,
-is held, when the mouse pushes the mech across the screen (see the
-hypotheses). With Mouse Aim on, a gamepad's sticks neither steer nor strafe in
-flight, while a gamepad's buttons and the keyboard's work
-(`pad_external_input.c:25-26`, `main.cpp:5417-5435`). The user's notes may
-retune the strafe speed or the sensitivity (options on the Mods page), the
-layout, the camera's lag (the force the hook adds to its words; at Strafe
-speed 100 the push is twice the default's, and the lag there is not
-measured), what the keys and the mouse do while SCAN is held, or the plugin.
+After a PASS: commit and push. Mouse Aim waits on the user's choices (see
+the hypotheses): what the keys and the mouse should do while Q, the game's
+SCAN, is held, when, as read from the code, the keys do not strafe and the
+mouse pushes the mech across the screen; and the camera's lag at other
+Strafe speeds (at 100 the push is twice the default's, and the lag there is
+not measured). The play copy (`play/play.sh <session dir> <SCPH-1001 dump>`
+in `.cache/evidence/phase4-2/`) refreshes from `build-dev/`; its
+`mods/state.toml` enabled Mouse Aim at Strafe speed 80 for the user's trial
+(`phase7-4/play-01/mods-state.toml`), and its `keybinds.ini` is change 3's
+`controls/keybinds.ini` (`phase7-3/playcopy-keybinds.sha256`). With Mouse
+Aim on, a gamepad's sticks neither steer nor strafe in flight, while a
+gamepad's buttons and the keyboard's work (`pad_external_input.c:25-26`,
+`main.cpp:5417-5435`).
 Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
 `code-quality/zone-baseline/` and with `phase6-5/differential.py`: perhaps
-modules for the disc reader and the MIPS analysis; the other two fixes (a
-"calls nothing" note for a callback that returns before the formation it
-starts, and a traceback on a malformed directory record; the probes in
-`code-quality/probes/` reproduce each); the route-script hang (below),
+modules for the disc reader and the MIPS analysis; the zone tool's last fix,
+a traceback on a malformed directory record (the audit's probe in
+`code-quality/probes/` reproduces it); the route-script hang (below),
 which the user placed just before the next step; one module for what the
 two route scripts share, with smaller `main()` functions and with
 `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1), then
@@ -2069,16 +2088,10 @@ option for a run directory with its own `mods/state.toml`); a whole
 campaign with instant clears, which would also show whether the spike's
 post-credits halt happens with every zone loaded.
 
-Two of change 7's round 1 suggestions are left for later changes. With fix 2b,
-`describe()` can collect the join points once a render rather than once a wave
-(suggestion 2; the reviewer measured 645 ms to render the 14 zones, against 101
-ms with commit `4694a77`'s tool). The trace could also stop at the word after
-an unconditional jump's delay slot (`j`, `jr`, `b`), which control cannot reach
-from the word before (suggestion 5; no window on the disc crosses one).
-Change 7's round 2 suggestion 2 goes with fix 2b, since that change also
-corrects `flow()`'s docstring (the audit's 2c): the docstrings of
-`join_points()`, `control()` and `flow()` could each say, as change 7's
-section does, that coprocessor branches are not modelled (the disc has none).
+One of change 7's round 1 suggestions is still open: the trace could also
+stop at the word after an unconditional jump's delay slot (`j`, `jr`, `b`),
+which control cannot reach from the word before (suggestion 5; no window on
+the disc crosses one).
 
 The checks also found a hang outside the audit, in both route scripts (see
 change 1), and the user placed its fix just before the route-scripts
