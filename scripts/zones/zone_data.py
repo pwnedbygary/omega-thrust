@@ -231,6 +231,26 @@ class Overlay(collections.namedtuple("Overlay", "zone start stop has_formations"
         return f"{self.zone.path}, bytes 0x{self.start:X} to 0x{self.stop - 1:X}"
 
 
+def directory_record_problem(rest):
+    """Why the directory record at the start of rest cannot be read, as the
+    words that follow "a directory record" in a message, or None if it can.
+    The bytes in rest run to the end of the record's sector, since ISO 9660
+    keeps every record within its sector. Rules that reading does not need,
+    such as the padding byte after a name of even length, are not checked."""
+    length = rest[0]
+    if length > len(rest):
+        return f"of length {length} runs past its sector"
+    if length < DIR_NAME:
+        return f"of length {length} is too short for its fields"
+    name_length = rest[DIR_NAME_LENGTH]
+    if DIR_NAME + name_length > length:
+        return f"of length {length} is too short for its name of length {name_length}"
+    name = rest[DIR_NAME:DIR_NAME + name_length]
+    if not name.isascii():
+        return f"has a name that is not ASCII: {name!r}"
+    return None
+
+
 class Disc:
     """A one-track MODE2/2352 cue/bin image, read through its ISO 9660 tree."""
 
@@ -261,11 +281,15 @@ class Disc:
         return bytes(data)
 
     def directory(self, lba, size):
-        """(name, lba, size, is_dir) for each record but '.' and '..'."""
+        """(name, lba, size, is_dir) for each record but '.' and '..'. A record
+        that cannot be read is a ZoneError that names its sector and byte."""
         data = self.sectors(lba, -(-size // USER))
         for start in range(0, len(data), USER):
             pos = start
             while pos < start + USER and (length := data[pos]):  # a record starts with its length
+                if problem := directory_record_problem(data[pos:start + USER]):
+                    where = f"sector {lba + start // USER}, byte {pos - start}"
+                    raise ZoneError(f"{self.bin}: {where}: a directory record {problem}")
                 rec = data[pos:pos + length]
                 name = rec[DIR_NAME:DIR_NAME + rec[DIR_NAME_LENGTH]]
                 if name not in SELF_AND_PARENT:

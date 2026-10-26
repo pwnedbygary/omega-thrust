@@ -132,6 +132,11 @@ def record(name, lba, size, is_dir):
     return bytes(rec)
 
 
+def with_byte(data, offset, value):
+    """data with its byte at offset set to value."""
+    return data[:offset] + bytes([value]) + data[offset + 1:]
+
+
 def image(files):
     """A MODE2/2352 image with a root directory holding <NAME>/<NAME>.BIN files."""
     sectors, lba = {}, 19 + len(files)
@@ -895,6 +900,66 @@ class CommandLine(unittest.TestCase):
         result = self.run_tool("list")
         self.assertEqual(result.returncode, 1)
         self.assertIn("no ISO 9660 volume", result.stderr)
+
+    def with_records(self, sector, records):
+        """Writes the disc anew with records in a directory's sector after its
+        "." and ".." records, which take the sector's first 68 bytes, and zeros
+        after them to the sector's end. The root directory is sector 18."""
+        data = bytearray(image(self.files))
+        user = sector * 2352 + 24  # the sector's first byte of user data
+        start, end = user + 68, user + 2048
+        data[start:end] = records[:end - start].ljust(end - start, b"\x00")
+        (self.dir / "t.bin").write_bytes(bytes(data))
+
+    def test_directory_records_that_cannot_be_read(self):
+        s1 = record("S1", 19, 2048, True)  # 36 bytes: 33 of fields, the name, a pad byte
+        cases = [
+            (with_byte(s1, 0, 1),  # its length
+             "byte 68: a directory record of length 1 is too short for its fields"),
+            (with_byte(s1, 0, 32),  # one byte short of its fields
+             "byte 68: a directory record of length 32 is too short for its fields"),
+            (with_byte(s1, 0, 33),
+             "byte 68: a directory record of length 33 is too short for its name of length 2"),
+            (with_byte(s1, 32, 4),  # its name's length
+             "byte 68: a directory record of length 36 is too short for its name of length 4"),
+            (with_byte(s1, 33, 0xC9),  # its name's first byte
+             "byte 68: a directory record has a name that is not ASCII: b'\\xc91'"),
+            # 59 records of 34 bytes, the last at byte 68 + 58 * 34 = 2040
+            (59 * record("F", 0, 0, False),
+             "byte 2040: a directory record of length 34 runs past its sector"),
+            # 57 records of 34 bytes, then at byte 68 + 57 * 34 = 2006 a record that fills
+            # the 42 bytes left, whose length says 43
+            (57 * record("F", 0, 0, False) + with_byte(record("ABCDEFGHI", 0, 0, False), 0, 43),
+             "byte 2006: a directory record of length 43 runs past its sector"),
+        ]
+        for records, message in cases:
+            with self.subTest(message):
+                self.with_records(18, records)
+                result = self.run_tool("list")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(f"t.bin: sector 18, {message}\n", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_a_record_may_end_at_its_sectors_end(self):
+        # 57 records of 34 bytes, then one of 42 that ends at byte 68 + 57 * 34 + 42 = 2048
+        self.with_records(18, 57 * record("F", 0, 0, False) + record("ABCDEFGHI", 0, 0, False))
+        names = [name for name, *_ in zone_data.Disc(self.cue).directory(18, 2048)]
+        self.assertEqual(names, 57 * ["F"] + ["ABCDEFGHI"])
+
+    def test_refusals_in_a_directory_two_sectors_long(self):
+        # TITLE's directory and U4's, sectors 20 and 21, read as one directory
+        cases = [
+            (21, with_byte(record("U4.BIN;1", 0, 0, False), 0, 1),  # U4.BIN's record, cut
+             "sector 21, byte 68: a directory record of length 1 is too short for its fields"),
+            (20, 59 * record("F", 0, 0, False),  # the last at byte 68 + 58 * 34 = 2040
+             "sector 20, byte 2040: a directory record of length 34 runs past its sector"),
+        ]
+        for sector, records, message in cases:
+            with self.subTest(message):
+                self.with_records(sector, records)
+                refusal = rf"t\.bin: {re.escape(message)}$"
+                with self.assertRaisesRegex(zone_data.ZoneError, refusal):
+                    list(zone_data.Disc(self.cue).directory(20, 2 * 2048))
 
     def package(self, *args, edit=("delay = 60 }", "delay = 90 }"), more=()):
         dump = self.dir / "S1.zone.toml"

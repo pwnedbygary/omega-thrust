@@ -18,31 +18,33 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 7 change 5, round 3: the strafe while Q, the game's
-SCAN, is held, which the user chose ("Make WASD strafe while Q is held too, as
-its own change"). Invariant: with Mouse Aim on, the keys strafe in two of the
-player's three movements, the usual one as before and SCAN's, 0x800334D8,
-through a second instruction hook at the same force sum (0x800337CC, listed in
-`game.toml`, then a regenerate), along the rotation that the game builds there
-from the view's angles, along which its own slide pushes the mech sideways. The
-strafe there also pushes the camera's words, its steps have their own counter,
-and the mouse keeps the game's own slide. With the feature off nothing changes.
-This file also records Phase 6 change 8's round 2 PASS and its commit
-`7a05758`, condenses change 8, and corrects Phase 7 change 3's section, which
-said that the game has no strafe of its own. Review round 1 found that the
-texts left out the slide's pull and the player's third movement, worded the
-speed in SCAN as caused by the view's turn, and gave a check of the strafe's
-directions that holds only with Invert vertical off. Round 2 corrects the texts
-and comments, takes up the review's suggestions, which give the plugin a type
-and a new name, and, through `game.toml`'s comment, changes three values of the
-static shard's audit; both binaries stay the same. Review round 2 found that
-the third movement runs for 6 steps rather than 18 when the boost is a sideways
-dash, so round 3 corrects the texts that gave 18 alone, a comment in the plugin
-among them, which leaves both binaries the same again, and takes up the
-review's five suggestions. Baseline: `7a05758`. Out of scope: what makes
-sideways motion faster in SCAN, a strafe in the third movement or one that
-pulls as the slide does, the camera's lag at other Strafe speeds, the rest of
-the code-quality work, a decompilation and the framework.
+Current iteration, Phase 6 change 9, round 3: the zone tool's last fix from the
+audit, the first item of its finding 10 (`code-quality/audit-r1.md`, line 117).
+Invariant: `Disc.directory()` in `scripts/zones/zone_data.py` refuses a
+directory record that runs past its sector, is too short for its fields or for
+its name, or has a name that is not ASCII, with a `ZoneError` that names the
+record's sector and byte, so that the tool stops with status 1 and a one-line
+message where commit `cd5273e`'s tool ended in a traceback, misread the record
+or accepted it without a word. Every record it reads, it reads as before, and
+no output from the player's disc changes. This file also records Phase 7 change
+5's round 3 PASS and its commit `cd5273e`, condenses change 5 and takes up that
+review's one suggestion. Review round 1 found three sentences in that condensed
+record which said more than the record they condense, so round 2 corrects them
+and takes up the review's six suggestions, which add two test cases and rename
+the check to `directory_record_problem`. Review round 2 found that the
+observations said the old tool misread a record that it read correctly, so
+round 3 runs the old reader on each bad record of the tests, corrects that
+sentence from what the reader returned, and takes up the review's three
+suggestions: the scope's words on a name of length 0, the check's docstring and
+a test comment. Baseline: `cd5273e`. Out of scope: a directory's extent and
+size, which are not checked against the image (a size beyond the image's end
+makes the reader read every sector up to that end before it stops with "no
+sector"); three things the reader lets pass, none of which changes how it reads
+a record: a name of length 0, which reads as "" (no record of the player's disc
+has one), a name of even length without the padding byte after it (ECMA-119
+9.1.12), and a record of odd length (9.1.13); the split of the tool into
+modules, which comes next; the rest of the code-quality work, Mouse Aim and the
+framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1063,261 +1065,225 @@ and the user's Strafe speed cited without evidence), round 2 PASS on tree
 `8c158de` (staged diff `354d150c…`). Reports: `phase6-8/review-r1.md` and
 `phase6-8/r2/review-r2.md`; full record: `git show 7a05758:.agent/HANDOFF.md`.
 
-## Phase 7 change 5 observations (`.cache/evidence/phase7-5/`)
+## Phase 7 change 5 (commit `cd5273e`)
 
-- While SCAN is held, the per-step routine runs the movement 0x800334D8
-  (Phase 7 change 4). It calls 0x80031ABC first, which updates the view's
-  angles (+0x60 to +0x68), builds a rotation from them at +0x40
-  (0x80078014) and slides the mech with the left stick along that
-  rotation's axes: the stick as the game reads it, at +0xB8 and +0xBA
-  (0x80030684: the pad buffer's signed bytes shifted left by 5, nothing
-  within 0x400 of the centre), times 40, or 80 while the word at 0x800A7EEC
-  is set (0x80031B40 to 0x80031BB4), added to the step's sums and to the
-  words +0xBC to +0xC4 (0x80031CCC to 0x80031D28). The movement thrusts
-  along the view, which the camera follows. From 0x800337CC to its end it
-  is the usual movement's code from 0x80033044 on, word for word but for
-  seven jumps (`compare_tails.py` / `.log`): the same force sum before the
-  same instruction (`lw $v0, 0x24($s0)`), and the same drag.
-- The slide does more than push sideways (review round 1). 0x80031ABC then
-  passes the same stick force to 0x8003A0E0 (0x80031D2C to 0x80031D44), which
-  returns the square of the force's size over 32 r, r being the distance from
-  the player's position to the target's, whose x, y and z words start at
-  `[[[0x8009C030]+0x38]]` (0x8003A10C to 0x8003A16C), or 0 where the stage
-  moves the player along z (`[0x8009C030]+0x4C` set) or names no target (the
-  word at `[0x8009C030]+0x38`, or the word it points to, zero). 0x8007897C
-  turns that into a force along the angles at `[0x8009C030]+0x24` and `+0x28`,
-  which the view's angles ease toward, and it goes to the step's sums alone
-  (0x80031D48 to 0x80031D9C): a pull along the view's turn, which neither the
-  camera's words nor the strafe get. Where the stage moves the player along z,
-  0x80031ABC still adds the sideways force's z part, reading no `+0x4C`, while
-  the strafe drops it there, as outside SCAN. In `force_sums-after.log` the
-  slides moved the mech ahead at 48.6 to 65.5 units a frame and the strafes at
-  12.4 to 13.3. There the pushes of -128 moved it ahead 1.31 times as fast as
-  those of 112, and in `force_sums-before.log` 1.25 times (64.2 against 51.5),
-  near (128/112) squared, 1.31, as a pull that grows with the square of the
-  force would; the distance to the target, which also sets the pull, changes
-  from phase to phase (derived).
-- The stick's y at +0xBA follows TYPE (review round 1): the game negates it
-  where the word at 0x800A7960 is set (0x800306C4 to 0x800306E4), and each
-  flight loop copies TYPE (0x800A7E50) into that word (0x8002F8BC, 0x8002FCC4,
-  0x8002FEF8). The plugin's TYPE B is 1, so the game negates it under TYPE B,
-  which the plugin keeps while Invert vertical is off: pushing the stick up
-  then slides the mech up. Under TYPE A, which Invert vertical selects, pushing
-  it up slides the mech down, while W still strafes up.
-  `phase7-4/r2/key_masks.log` lists 0x800A7960 with the key masks, as L2, whose
-  bit the value 1 shares.
-- The per-step routine has a third movement, 0x80032414 (0x80032414 to
-  0x80032D4C), which it runs while the player's word +0x140 is above zero,
-  before it looks at SCAN's +0x168 (0x800311A0 to 0x800311B8 in play, and again
-  at 0x80031438 to 0x80031450). A fresh press of a button in the mask at
-  0x800A796C, while +0x140 is not above zero and +0x230 and +0x13C are zero,
-  calls 0x80032144 (0x80030800 to 0x80030888), and 0x80032414 lowers +0x140 by
-  one each step (0x80032428 to 0x80032434) and calls neither of the other
-  movements. 0x80032144 stores +0x140 on every path (0x800323A4): 18
-  (0x80032398 to 0x8003239C), with a push along the heading (0x8003231C to
-  0x8003232C), or 6 (0x80032350 to 0x80032354) while the word at 0x800A7EF4 is
-  set and the stick as the game reads it, +0xB8 or +0xBA, is past 0x800 either
-  way, more than half way. Then the push runs along the stick instead, one of
-  four vectors (0x80012650 to 0x80012674) for each axis pushed, turned by the
-  heading (0x8003220C to 0x80032310): a sideways dash (review round 2). With
-  the default setup that mask held Triangle and Circle in zone 1
-  (`phase7-4/r2/key_masks.log`), the keys that `controls/keybinds.ini` calls
-  boost. So for 18 steps after such a press, or 6 after a dash, in SCAN or not,
-  neither hook runs and the keys do not strafe (review rounds 1 and 2; read
-  from the code, not run). What sets 0x800A7EF4 is not traced; the boost level
-  E of the FAQ, with which the mech "quickly moves laterally in the direction
-  held down when boost is pressed" instead of rolling
-  (`phase7-2/r2/faq-5017.txt:802-803`), fits the dash (a hypothesis).
-- Before the change (build-dev `89a60b3e`; `scan_probe.py` and
-  `scan_analyze.py`, `scan-before.log`), the keys did nothing while SCAN was
-  held: no strafed step, and no movement along the stick beyond SCAN's own.
-  The left stick slid the mech along the rotation's axes at 179 to 204 units
-  a frame, while the view turned to keep the enemy ahead and rolled, up to
-  164 degrees. The rotation's axes are the camera's, roll included: they
-  agree with the view's pitch and yaw axes to the cosine of the view's roll,
-  which the camera block shares (`scan-before/analysis.log`).
-- The framework keeps a plugin's instruction hooks by address
-  (`psxrecomp/runtime/src/mod_packages.cpp:1525-1533`) and runs each whose
-  expected word is the instruction about to run, passing its address
-  (`psxrecomp/runtime/src/mod_runtime.cpp:2489-2504`), so the plugin
-  registers a hook at each force sum.
-- The drag that both movements end with (0x8003305C to 0x800331A0 and
-  0x800332F4 to 0x800333BC, while +0x13C is not above zero): the velocity
-  (+0x28 to +0x30) gains the step's sums, then loses 0x199/4096 of itself;
-  the sums are cleared, and the position gains the velocity over 4096
-  (`dis/usual-tail.dis`). A steady force F so holds the velocity at about
-  9.015 F: 80.13 units a frame for a full strafe at the default and 160.26
-  for the thrust, against 80.1 and 160.1 to 160.2 measured outside SCAN
-  (`force_sums-after.log`). Every sample read the sums as zero
-  (`force_sums.py`), so the forces show only in the velocity.
-- With Q held, a full strafe at the default settled at about 98 units a frame
-  in the headless probe (velocity 98.9 right, 97.2 left, 98.0 up and 97.6 down
-  in `force_sums-after.log`; `scan-after.log`), while the view turned to keep
-  the enemy ahead (`view_turn.py` / `view_turn-after.log`: the yaw by 107
-  degrees while strafing right and 93 left, the pitch by 95 up and 93 down,
-  where the yaw and the roll also turned about 152) and the speed ahead fell
-  from 160 to about 13. The game's own slide gained in the same proportion
-  (derived): 195.7 units a frame where its sideways force, 112 << 5 times 40,
-  gives 157.8 under the same drag (1.24 times, the strafe 1.23). In the
-  windowed checks the view held still with Q held, and the strafe matched the
-  one outside SCAN (`mouse_checks.log`, over holds of a second: to the right
-  51.9 and 55.1 units a frame with Q, against 55.5 and 55.9 without, and up
-  55.5 and 55.7 against 55.6 and 56.0, with Mouse Aim on and with Invert
-  vertical). The higher speed came with the turning view, but the two kinds of
-  run also differ in the input's path (the debug server's stick axes against
-  keys sent by xdotool), in the length of the hold (about 329 frames against
-  about 60), and in the enemy and its distance, which sets the slide's pull; no
-  run varied the turn alone, so what causes the higher speed is not
-  established. A hypothesis: the speed the mech gains flying at the enemy turns
-  sideways as the view follows it.
+The strafe while Q, the game's SCAN, is held, which the user chose ("Make
+WASD strafe while Q is held too, as its own change"). While SCAN is held,
+the per-step routine runs the movement 0x800334D8, which first calls
+0x80031ABC: it eases the view's angles (+0x60 to +0x68), builds a rotation
+from them at +0x40 (0x80078014) and slides the mech with the left stick
+along that rotation's axes, roll included, adding the force to the step's
+sums and to the camera's words +0xBC to +0xC4 (0x80031CCC to 0x80031D28).
+From 0x800337CC on, the movement is the usual one's code from 0x80033044,
+word for word but for seven jumps, drag included
+(`phase7-5/compare_tails.log`). Mouse Aim's plugin now hooks that force sum
+too (0x800337CC, listed in `game.toml`; the regenerated
+`SCUS_944.49_full_05.c` calls `psx_mod_instruction` before it, and the
+static shard's audit changed while its C did not) and strafes there along
+the rotation's axes (`view_axes()`), pushing the camera's words as outside
+SCAN. Those steps count as `omega.mouse-aim.scan-strafed-steps`, and the
+mouse keeps the game's own slide. Change 3's section said that the game has
+no strafe of its own; change 5 corrected it, since SCAN's slide is one. Where
+the stage names a target (its x, y and z words at `[[[0x8009C030]+0x38]]`) and
+does not move the player along z (`[0x8009C030]+0x4C` clear), the slide also
+pulls the mech along the view's turn (0x8003A0E0), which the strafe does not,
+as the force-sum logs partly show (`phase7-5/force_sums-after.log`): with Q
+held, the slides moved the mech ahead at 49 to 66 units a frame and the strafes
+at about 13. Read from the code, not run: where the stage moves the player
+along z, the slide keeps its force's z part, which the strafe drops; the
+slide's vertical direction follows TYPE (0x800306C4 to 0x800306E4), so under
+TYPE A pushing the stick up slides the mech down, while W still strafes up; and
+after a press of a boost key (the mask at 0x800A796C held Triangle and Circle
+in the default setup) the game runs a third movement, 0x80032414, which has no
+hook, so the keys do not strafe for 18 steps, or for 6 if the boost is a dash,
+as it is while the word at 0x800A7EF4 is set (what sets it is not traced; the
+FAQ's boost level E fits) and the stick is past half way (0x80032144). The dash
+goes along the stick, across the heading: `AGENTS.md` and the plugin call it
+sideways, after the FAQ's "laterally", but with only the vertical axis pushed
+it goes up or down (0x80012668 and 0x80012674; review round 3's suggestion).
 
-## Phase 7 change 5 changes
+Both movements end in the same drag, which holds the velocity under a steady
+force F at about 9.015 F: 80 units a frame for a full strafe at the default
+(`phase7-5/force_sums-after.log`). In the headless probe a full strafe with Q
+held settled at about 98 units a frame while the view turned to keep the enemy
+ahead, and the game's slide gained in the same proportion (derived); in the
+windowed checks, where the view held still, the strafe matched the one outside
+SCAN (`phase7-5/view_turn-after.log`, `phase7-5/mouse_checks.log`). The two
+kinds of run also differed in the input's path, the hold's length and the enemy
+and its distance, and no run varied the turn alone, so what causes the
+difference is not established; a hypothesis is that the speed the mech gains
+flying at the enemy turns sideways as the view follows it. The checks passed:
+the strict compiles and the plugin audit; from one save state made with Q held,
+each strafe moved the mech the way the game's slide in the same direction does
+(`phase7-5/screen.log`, 17 checks, TYPE B); the windowed checks with Q held,
+after their first run (`phase7-5/mouse_checks-first.log`) found the mouse's
+slide under the 25 units a frame the check asked, since the mouse moves the
+stick about half as far as a key, and the check came to ask only for the
+slide's direction, at least 10 units a frame; all 66 route runs with every
+feature off, whose probes match change 3's batch but for four counters of when
+they sampled (and the memcard route's cards match that batch's byte for byte);
+and the nine with Mouse Aim on. Rounds 2 and 3 corrected texts and comments;
+round 2 also gave the plugin a type and a new name, and through `game.toml`'s
+comment changed three values of the static shard's audit. Both binaries stayed
+the same through the three rounds (build-dev `7c234043`, build-release
+`3781e02a`), so the runs hold for the final tree. Review: round 1 NEEDS CHANGES
+(four Lows in the texts: the slide's pull, the third movement, the speed in
+SCAN worded as caused by the view's turn, and a direction check that needs
+Invert vertical off), round 2 NEEDS CHANGES (one Low: the third movement lasts
+18 steps or 6), round 3 PASS on tree `f850389` (staged diff `59c6f9ba…`).
+Reports: `phase7-5/review-r1.md`, `phase7-5/r2/review-r2.md` and
+`phase7-5/r3/review-r3.md`; full record: `git show cd5273e:.agent/HANDOFF.md`.
 
-- `src/mods/omega_mouse_aim.c`: `SCAN_FORCE_SUM` (0x800337CC) beside
-  `FORCE_SUM`, with the same expected word; `heading_axes()` gives the usual
-  movement's screen axes, as before, and `view_axes()` SCAN's, minus the first
-  and second columns of the rotation at `PLAYER_VIEW_ROTATION` (read by
-  `view_rotation_entry()` and `signed_half()`, `ROTATION_ONE` for 1.0);
-  `strafe()` holds what both hooks share and takes the axes, a `ScreenAxes`
-  function, and the counter; `strafe_at_force_sum()` counts
-  `omega.mouse-aim.strafed-steps` and `strafe_at_scan_force_sum()`
-  `omega.mouse-aim.scan-strafed-steps`; the constructor registers both. The
-  header says the hooks are in two of the player's three movements; the
-  movement comment says what SCAN's movement does, that its slide also pulls
-  the mech where the stage names a target and does not move the player along z,
-  which the strafe does not, and that the keys do not strafe in the third
-  movement, for 18 steps or the 6 of a sideways dash; the camera paragraph says
-  that the slide pushes the camera's words with its sideways force.
-- `game.toml`: 0x800337CC in `mod_instruction_sites`, and its comment, which
-  says the hooks are in two of the player's three movements.
-- `generated/`, from the documented `generate`: one call of
-  `psx_mod_instruction` before 0x800337CC in `SCUS_944.49_full_05.c`, and
-  four values of `generated/AOT_STATIC_AUDIT.json` (`recipe_input_sha256`,
-  `game_toml_sha256`, `cache_tag`, `generation_inputs_sha256`); the static
-  shard's C stayed the same.
-- `AGENTS.md`: the count of hook sites (four), and Mouse Aim's paragraph: the
-  hooks in two of the player's three movements, SCAN's movement and axes, what
-  its slide does that the strafe does not, the speed in SCAN, the keys during
-  the third movement, and the check of the strafe's directions in SCAN, which
-  needs Invert vertical off.
-- `mods/preloaded/packages/omega.enhancement.mouse-aim/1.0.0/manifest.toml`:
-  the feature's description says what the keys and the mouse do in SCAN.
-- `.agent/HANDOFF.md`: the scope; Phase 6 change 8 condensed; change 3's
-  section corrected; these sections; the hypotheses' Mouse Aim item; the
-  review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase7-5/`.
+## Phase 6 change 9 observations (`.cache/evidence/phase6-9/`)
 
-## Phase 7 change 5 checks
+- The audit's finding 10, first item (`code-quality/audit-r1.md`, line 117):
+  `Disc.directory()` read each directory record without checking it, and
+  `main()` catches only `ZoneError`. The audit's probe
+  (`code-quality/probes/probe_iso.py`) cuts the root's S1 record to one byte
+  and calls `Disc.zone_files()`, which raised an `IndexError`; the probe caught
+  it and printed "uncaught: IndexError index out of range"
+  (`code-quality/probes/probes-zone.log`). On commit `cd5273e`'s tool
+  (`regression.sh`; `r2/regression.log` with round 2's tests), of this change's
+  seven command-line cases four ended in a traceback (a record of one byte, one
+  of 32 bytes and one running past the end of a directory one sector long,
+  `IndexError`; a name byte of 0xC9, `UnicodeDecodeError`), and three exited
+  with status 0: two having misread the record, one of 33 bytes, whose name it
+  read as "", and one of 36 whose name needs 37, whose name it read with the
+  pad byte after it, either way losing S1 from the listing; and one having
+  accepted a record whose length says 43 where 42 bytes are left in its sector,
+  from which it read the same fields as from a record of 42, since its name
+  ends at its 42nd byte. In a directory two sectors long, a record running past
+  the first sector was read with bytes from the second, which left it without a
+  name, and no error. `r3/old_reads.py` / `.log` builds each of these records
+  as the tests do and prints what the old reader returned for it, beside what
+  it returns for the record well formed.
+- ECMA-119 9.1 puts a directory record's length in its byte 0, its name's
+  length in its byte 32 and the name from byte 33, and 6.8.1.1 says that "Each
+  Directory Record shall end in the Logical Sector in which it begins" (in the
+  2nd and the 4th edition alike). Its file names are d-characters and
+  separators, all ASCII. Its 9.1.12 puts a (00) byte after a name of even
+  length, and its 9.1.13 adds one at a record's end if needed "so that the
+  Directory Record comprises an even number of bytes" (both editions); the
+  reader takes a name's bytes from the name's length and steps to the next
+  record by the record's length, so it reads the same bytes with these pads or
+  without them, and does not ask for them.
+- On the player's disc, every record of its 30 directories (169 but "." and
+  "..") reads the same with the old reader and the new one
+  (`directory_differential.py` / `.log`), so the checks refuse none of them.
 
-- `generate.log`: the documented `generate` exited 0 and rebuilt the static
-  shard, whose audit records the hash of `game.toml`; the shard's C came
-  out the same.
-- Builds with the documented commands (`build-dev.log`, `build-release.log`;
-  `binaries-before.sha256`, `binaries-after.sha256`): build-dev `89a60b3e`
-  to `7c234043`, build-release `2afd4aab` to `3781e02a`, no warnings; beside
-  the plugin and `SCUS_944.49_full_05.c` they compiled the shard's files
-  again, which `generate` had written anew. GCC and clang compile the
-  plugin with strict warnings and no message (`strict_compile.log`), and
-  the plugin audit passes in both builds (`plugin-audit.log`).
-- `scan_probe.py` on the new build (`scan-after.log`; `scan_analyze.py`'s
-  summary in `scan-after/analysis.log`): outside SCAN the strafe settles as
-  before (80.1 units a frame, `force_sums-after.log`). With Q held, each key
-  now strafes along the rotation's axes, 97.2 to 99.2 units a frame over
-  each phase's second half, counted only as SCAN steps (164 to 166 a phase),
-  and the camera falls 867 to 890 units behind; the game's slides with the
-  left stick ran at 178.0 to 203.0 units a frame, as before (178.7 to 204.2).
-- `scan_screen_check.py` (`screen.log`, shots in `screen/`): from one save
-  state made with Q held, with Mouse Aim at its defaults (TYPE B), each strafe
-  moves the mech the way the game's slide in the same direction does (cosines
-  +0.917 to +0.984) and counts only SCAN steps, while the slides count no
-  strafed step: 17 checks pass. The strafes right, left and up moved 53.5 to
-  55.3 units a frame along their axes; the strafe down moved 69.4 down, with
-  22.8 to the right and 30.1 ahead (79.0 a frame in all).
-- The windowed checks (`run_mouse_checks.sh`, `mouse_check.py`: change 3's
-  round 2 check with phases at its end in which Q is held, alone and with D,
-  with W and with the mouse moving right). In the first run
-  (`mouse_checks-first.log`) every expectation passed but one in both Mouse
-  Aim settings: with Q held the mouse slid the mech the right way, at 18.6
-  and 22.6 units a frame along the rotation's axes with no strafed step, but
-  under the 25 the check asked, a key's strafe, while the mouse moves the
-  stick about half as far, in about half of the frames. The check now asks
-  the slide for its direction, at least 10 units a frame (`SLIDE_MOVED`);
-  in the re-run (`mouse_checks.log`) every expectation passes, 10 with the
-  feature off and 38 in each Mouse Aim setting, and each run loaded its
-  copy's `keybinds.ini`.
-- The route batch with every feature off (`routes.sh` / `.log`: every
-  committed route in the three modes on build-dev `7c234043`, with Phase 5
-  change 2's `phase5-2/probe.py` beside each run): all 66 runs pass
-  (`routes_summary.log`). Each run's probe (overlay counters, most-run PCs,
-  plugin counters, unlock flags) is the same as in Phase 7 change 3's batch
-  (`phase7-3/probe/`; its outputs moved to `routes-before/`), but for four
-  counters of how far the run had got when the probe sampled it: the frame,
-  and the instructions, blocks and native handoffs run (`probe_summary.log`,
-  `r2/probe_fields.py` / `.log`). The memcard route's cards are that batch's,
-  byte for byte; the card check finds no problem and the unlocked save is
-  unchanged (`card_check.log`, `inputs-after-routes.sha256`).
-  `clear_time_check.log` finds the results screen in each demonstration
-  route; its lists of shots differ from change 3's batch's in 7 of 57
-  lines, by one shot at a screen's edge or, in one route, by an early shot
-  flagged in another mode.
-- The feature-on routes (`feature_on.sh`: Phase 7 change 2's runner, on a
-  copy of this build with Mouse Aim on; `feature_on_routes.log`,
-  `feature-on/`): all nine runs pass. Against this change's batch
-  (`feature_on_compare.log`), card 1 differs only in the TYPE byte and the
-  save's checksum, in all three modes, and the plugin counts one attach in
-  each title_to_zone1 run and no strafed step. Each run's probe and each
-  saved card match Phase 7 change 4's feature-on runs (`phase7-4/feature-on/`).
-- Both builds ran again after the manifest's last edit (`build-dev-2.log`,
-  `build-release-2.log`): they compiled and linked nothing but staged the
-  mod catalog again, and both binaries stayed the same, byte for byte
-  (`binaries-after-2.sha256`); each build's staged manifest now equals the
-  source. The runs above ran before the rebuild, with the earlier staged
-  manifest, which differs from the source only in the feature's description.
-- `checks-p7-5.sh` / `.log` (the staged tree; it writes only in a scratch
-  directory, with `TMPDIR` there too): only the seven files change, and the
-  working tree holds the staged files; no pin, submodule or `CMakeLists.txt`
-  changes; it prints how `game.toml`, `generated/`, `AGENTS.md` and the
-  manifest differ from HEAD; this file's header, overall paragraph, Phase 0
-  to Phase 7 change 2, Phase 6 change 6 to Phase 7 change 4 and review
-  entries up to Phase 6 change 8's round 2 equal HEAD's, and it prints the
-  changed words of Phase 7 change 3's section, the scope, the hypotheses
-  and the next action; no placeholder, doubled blank line, long added line,
-  new reflow leftover or local path; every evidence path that the added
-  lines cite exists, but for the play copy's `keybinds.ini`; the gates pass
-  and the documented `generate` finds nothing to change; the binaries are
-  the ones the runs used; the plugin audit and the strict compiles pass; it
-  prints the game code the change rests on; it recomputes the probes'
-  analyses from their samples and the feature-on comparison, which match
-  their logs, and sums up the save-state check, the windowed checks and the
-  batch from theirs; the four test files pass, the Beetle driver's within
-  three runs; Phase 6 change 8's round 2 report matches session message
-  1332; no listener; and no whitespace error. All pass.
-- Round 2: `r2/strict_compile.log`; `r2/generate.log` (the documented
-  `generate`, after `game.toml`'s comment: `RESULT_STATIC=built`, the static
-  shard's C the same, and the audit's `recipe_input_sha256`, `game_toml_sha256`
-  and `generation_inputs_sha256` new); `r2/build-dev.log` and
-  `r2/build-release.log` (each compiled the shard's files, which `generate` had
-  written anew, and the plugin, with no warning): both binaries stayed the
-  same, byte for byte (`r2/binaries-after.sha256`), so every run above holds
-  for round 2's tree. `r2/probe_fields.py` / `.log` compares every field of the
-  batch's 66 probes with change 3's: only the four sampling counters differ.
-  `r2/checks-p7-5-r2.sh` / `.log` repeats round 1's checks on the staged tree,
-  and also compares the index with round 1's and each file with its round 1
-  blob, prints the game code that round 2's observations cite, re-runs
-  `r2/probe_fields.py` and matches this change's round 1 report against session
-  message 1014. All pass. Its first run (`r2/checks-p7-5-r2-first.log`), on an
-  earlier tree, passed as well; its print of the game code showed that a press
-  of a boost key needs +0x140 to be not above zero rather than zero, which the
-  observations now say.
-- Round 3 (`r3/`): `r3/strict_compile.log`; `r3/build-dev.log` and
-  `r3/build-release.log` (each compiled the plugin alone, with no warning,
-  after its comment's edit): both binaries stayed the same, byte for byte
-  (`r3/binaries-after.sha256`), so every run above holds for round 3's tree.
-  `r3/checks-p7-5-r3.sh` / `.log` repeats round 2's checks on the staged tree,
-  and also compares the index with round 2's and each file with its round 2
-  blob, prints the code of 0x80032144 and 0x8003A0E0 that round 3's
-  observations cite and the ratios from both force-sum logs, and matches round
-  2's report against session message 1466. All pass.
+## Phase 6 change 9 changes
+
+- `scripts/zones/zone_data.py`: `directory_record_problem(rest)` takes the
+  bytes from a directory record to the end of its sector and says why the
+  record cannot be read, in the words that follow "a directory record" in the
+  message, or gives None: it runs past its sector, it is shorter than the 33
+  bytes of fields before its name, it is too short for its name, or its name is
+  not ASCII. `Disc.directory()` calls it before it reads each record and raises
+  `ZoneError` with the image's path, the sector and the record's byte in it,
+  such as "sector 18, byte 68: a directory record of length 1 is too short for
+  its fields"; `main()` already prints a `ZoneError` on one line and exits with
+  status 1. Round 1 named it `record_problem`; round 2 names the directory
+  record in it, since in this tool "record" mostly means a formation record,
+  and its docstring now says what it returns and that it leaves out the rules
+  that reading does not need; round 3 splits that docstring's long first
+  sentence in two.
+- `scripts/zones/test_zone_data.py`: `with_byte()` beside `record()`;
+  `CommandLine.with_records()`, which writes the disc anew with given records
+  in a directory's sector; and three tests (71 in all):
+  `test_directory_records_that_cannot_be_read`, seven cases through `list`
+  (status 1, the message, no traceback), two of them added in round 2, a record
+  of 32 bytes, one short of its fields, and one at byte 2006 that fills the 42
+  bytes left in its sector but whose length says 43, a case whose comment round
+  3 rewords; `test_a_record_may_end_at_its_sectors_end`; and
+  `test_refusals_in_a_directory_two_sectors_long`, which reads TITLE's and U4's
+  directories as one, so that a refusal must name the record's own sector and
+  its byte there, and a record may not run on into the next.
+- `.agent/HANDOFF.md`: the scope; Phase 7 change 5 condensed; these
+  sections; the hypotheses' Mouse Aim item; the review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase6-9/`, with round 2's evidence in
+  its `r2/` and round 3's in its `r3/`, and the report
+  `phase7-5/r3/review-r3.md` with its header.
+
+## Phase 6 change 9 checks
+
+- `r2/tests-green.log`: `scripts/zones/test_zone_data.py` passes, 71 tests, the
+  player's disc's among them, with nothing left in `TMPDIR` (round 1's file:
+  `tests-green.log`). `regression.sh` runs the same file against commit
+  `cd5273e`'s tool (`r2/regression.log`; round 1's file: `regression.log`): the
+  nine cases of bad records fail, as the observations say, and the test of a
+  record that ends at its sector's end passes there too.
+- `r2/mutations.py` / `.log`: twelve bugs planted in the new code one at a
+  time, each check removed or its bound moved by one, both ways for the two
+  checks of the record's length, the byte or the sector counted from the
+  directory's start, and the rest of the directory checked in place of the rest
+  of the sector, are all caught. Round 1's tests miss the two that review round
+  1 planted (`r2/mutations-round1-tests.log`), a record running one byte past
+  its sector accepted and one of 32 bytes let through to the check of its name,
+  and catch the other ten, as round 1's `mutations.py` / `.log` showed.
+- `directory_differential.py` / `.log`: the old reader and the new one read
+  the player's disc's whole tree the same. On 20,000 copies of the tests'
+  disc with a directory sector changed in one of five ways (a record's
+  length, its name's length, a byte of its name, one to three bytes in or
+  just after the records, or a root packed with records up to its sector's
+  end, the last fitting exactly, one byte too long or random), the new
+  reader raised nothing but `ZoneError`, returned only what the old one
+  returned, and refused only records that a parse written into the script
+  from ECMA-119 finds unreadable for the reason given; the 5,613 copies on
+  which the old reader crashed are all refused now. Breaches: 0. Round 2's run
+  (`r2/directory_differential.log`) is the same.
+- `check.log`: the 14 timeline zones rebuild identically. `baseline.log`
+  (`phase6-7/baseline.sh`): all 142 outputs are byte-identical to commit
+  `0761991`'s. `probe_iso.log`: the audit's probe now prints the `ZoneError`
+  "sector 18, byte 68: a directory record of length 1 is too short for its
+  fields". Round 2's `r2/check.log`, `r2/baseline.log` and `r2/probe_iso.log`
+  are the same, but for the tool's hash in the baseline's log and the probe's
+  scratch path. `r2/changed_defs.log` (`phase6-7/changed_defs.py`): in the tool
+  only `directory_record_problem` is new and `Disc.directory` changed (round
+  1's `changed_defs.log` names `record_problem`), so the MIPS analysis is
+  untouched and `phase6-5/differential.py` was not run. pyflakes finds nothing
+  in the tool, the tests or the evidence scripts.
+- `checks-p6-9.sh` / `.log` (the staged tree; it writes only in a scratch
+  directory, with `TMPDIR` there too): only the three files change, and the
+  working tree holds the staged files; it lists the definitions that differ
+  from HEAD's and the new messages; the tool's help texts equal HEAD's; this
+  file's header, overall paragraph, Phase 0 to Phase 6 change 8 and review
+  entries up to Phase 7 change 5's round 2 equal HEAD's, and it prints the
+  changed words of the scope, the hypotheses and the next action; no
+  placeholder, doubled blank line, long added line, new reflow leftover or
+  local path; every evidence path that the added lines cite exists, but for
+  the play copy's `keybinds.ini` and `mods/state.toml`; the gates and pins
+  pass and the submodules are clean; change 5's round 3 report matches
+  session message 1655, and its commit's message `phase7-5/commit-msg.txt`;
+  the four test files pass, the Beetle driver's within three runs; the
+  evidence scripts reproduce their logs; the audit's probe now prints the
+  `ZoneError`; no listener; and no whitespace error. All pass. Its first run
+  (`checks-p6-9-first.log`), on an earlier tree, found one reflow leftover in
+  change 5's condensed section, since rewrapped.
+- Round 2 (`r2/`): `r2/same_code.py` / `.log`: round 1's tool and round 2's
+  have the same syntax trees once `record_problem` is renamed and docstrings
+  and comments are left out; without the rename, or against commit `cd5273e`'s
+  tool, they differ. `r2/checks-p6-9-r2.sh` / `.log` repeats round 1's checks
+  on the staged tree, also compares the index with round 1's and each file with
+  its round 1 blob, runs `r2/same_code.py`, round 2's mutations with both test
+  files and the other evidence scripts against round 2's logs, and matches
+  round 1's report against session message 720. All pass.
+- Round 3 (`r3/`): `r3/old_reads.py` / `.log` builds the bad record of each of
+  the tests' nine cases as the tests do, reads it with commit `cd5273e`'s
+  reader and with the new one, and does the same with the record well formed:
+  the old reader crashed on five, misread three and read the record whose
+  length says 43 as it reads that record of 42, and the new one refuses all
+  nine and reads each well-formed record as the old one does (the
+  observations). `r3/same_code.sh` / `.log` (`r2/same_code.py`): round 3's tool
+  and tests have round 2's code, and the tool round 1's but for the rename,
+  while commit `cd5273e`'s tool and round 1's tests differ.
+  `r3/checks-p6-9-r3.sh` / `.log` repeats round 2's checks on the staged tree,
+  also compares the index with round 2's and each file with its round 2 blob,
+  runs `r3/same_code.sh` and `r3/old_reads.py`, finds the other evidence
+  scripts' output as in round 2's logs but for the tool's and the test file's
+  hash in two of them, and matches round 2's report against session message
+  1140. All pass. Its first run (`r3/checks-p6-9-r3-first.log`), on an earlier
+  tree, found two scripts that the review state cited without their
+  directories, now given in full.
 
 ## Hypotheses and unknowns
 
@@ -1409,16 +1375,16 @@ and the user's Strafe speed cited without evidence), round 2 PASS on tree
   (`phase7-2/r2/faq-5017.txt:233-238`), which `controls/keybinds.ini` puts
   on Q. Read from the code, not run: after a press of a boost key, in SCAN or
   not, the game runs its third movement, which has no hook, so the keys do not
-  strafe for 18 steps, or for 6 if the boost is a sideways dash, as it is while
-  the word at 0x800A7EF4 is set (likely the game's boost level E) and the left
-  stick, which the mouse moves, is pushed more than half way; in SCAN the
-  strafe adds only the slide's sideways force, not its pull along the view's
-  turn; and under Invert vertical (TYPE A), pushing the stick up slides the
-  mech down, while W still strafes up. Not yet: what makes sideways motion
-  faster in SCAN in the headless run, the strafe and the game's slide alike,
-  and whether the view's turn does (change 5's observations); the strafe and
-  the camera's lag in other zones and at other Strafe speeds; how
-  the strafe meets the stage's limits, which the movement applies after the
+  strafe for 18 steps, or for 6 if the boost is a dash along the stick, as it
+  is while the word at 0x800A7EF4 is set (likely the game's boost level E) and
+  the left stick, which the mouse moves, is pushed more than half way; in
+  SCAN the strafe adds only the slide's sideways force, not its pull along
+  the view's turn; and under Invert vertical (TYPE A), pushing the stick up
+  slides the mech down, while W still strafes up. Not yet: what makes
+  sideways motion faster in SCAN in the headless run, the strafe and the
+  game's slide alike, and whether the view's turn does (change 5's section);
+  the strafe and the camera's lag in other zones and at other Strafe speeds;
+  how the strafe meets the stage's limits, applied by the movement after the
   forces, the stages that move the player along z, where it drops its z part
   as the game does for the thrust, and the game's other pushes (two of change
   3's first windowed runs each met one they did not cause: round 1's while D
@@ -2239,35 +2205,93 @@ and the user's Strafe speed cited without evidence), round 2 PASS on tree
   a target, in `AGENTS.md` and the plugin (1); where the target's position is
   (2); the TYPE wording the right way round (3); both logs' ratios (4); and the
   checks script's print of 0x80032350 (5).
-- Phase 7 change 5, round 3: pending delta re-review.
+- Phase 7 change 5, round 3: PASS on tree `f850389` (staged diff
+  `59c6f9ba…`), no findings, from the same reviewer: round 2's finding is
+  resolved in every text it named, and round 3's other statements hold
+  against the code (0x80032144's two durations, the target's pointers, TYPE
+  and both logs' ratios). It re-ran `phase7-5/r3/checks-p7-5-r3.sh` into
+  scratch (as logged, but for timings), hashed both binaries (round 1's) and
+  disassembled 0x80079C58 and the four vectors of the dash. Report:
+  `phase7-5/r3/review-r3.md` (session message 1655). Commit `cd5273e`,
+  pushed. Its one nonblocking suggestion, that the dash goes along the stick,
+  up or down with only the vertical axis pushed, rather than always sideways,
+  is taken up in change 5's condensed section and in the hypotheses and the
+  next action; `AGENTS.md` and the plugin keep "sideways", after the FAQ's
+  "laterally", as the reviewer allowed.
+- Phase 6 change 9, round 1: NEEDS CHANGES on tree `66c713a` (staged diff
+  `3e781a83…`), from a fresh read-only reviewer, with three Lows, all in this
+  file's condensed record of Phase 7 change 5, each saying more than the record
+  it condenses, or other than it: that the drag holds a steady force, rather
+  than the velocity under one, at about 9.015 F; that the cards of all 66 route
+  runs matched change 3's batch byte for byte, where only the memcard route's
+  were compared; and that change 5's rounds 2 and 3 changed only texts and
+  comments, where round 2 also gave the plugin a type and a new name and
+  changed three values of the static shard's audit. It found nothing to fix in
+  the tool or the tests. It read ECMA-119's 2nd and 4th editions, tried the
+  check's boundaries with cases of its own, parsed the player's disc with a
+  reader of its own (30 directories, 169 records, each conforming), re-ran the
+  zone tests, `regression.sh`, `mutations.py`, the differential, `check` and
+  the baseline into scratch, all as logged, and planted bugs of its own; for
+  the route tests, the gates, the pins, the submodules and the listeners it
+  relied on `phase6-9/checks-p6-9.log`. Report: `phase6-9/review-r1.md`
+  (session message 720). Round 2 corrects the three sentences and takes up the
+  six suggestions: two test cases that catch the two bugs it planted that the
+  tests missed (1); the name `directory_record_problem` and a docstring that
+  says what it returns (2); in change 5's record, the pull that the force-sum
+  logs partly show, the other differences between the runs behind the faster
+  motion in SCAN, the windowed check's lowered threshold and the "(derived)"
+  label (3); what the audit's probe printed (4); the reader's leniencies, in
+  the scope and the observations (5); and the two short lines in the next
+  action (6). Its limit that the push of `cd5273e` was not checked against the
+  remote is closed: `git ls-remote` finds `cd5273e` there
+  (`phase6-9/r2/ls-remote.log`).
+- Phase 6 change 9, round 2: NEEDS CHANGES on tree `4f8a3fd` (staged diff
+  `9290d89d…`), from the same reviewer, with one new Low, to which its own
+  round 1 suggestion 1 led: the observations said that commit `cd5273e`'s tool
+  misread the record whose length says 43 where its sector has 42 bytes left,
+  but it read that record as it reads a record of 42, since the record's name
+  ends at its 42nd byte, and only its exit status showed the bug. Round 1's
+  three findings are resolved and its six suggestions taken up. The reviewer
+  rebuilt the delta from round 1's blobs, re-ran `phase6-9/r2/same_code.py`,
+  `phase6-7/changed_defs.py`, the zone tests, `phase6-9/regression.sh`, both
+  mutation runs, the differential, `check`, the baseline and the probe, all as
+  logged, read the new statements against their sources, ran the old reader on
+  that record itself, and relied on `phase6-9/r2/checks-p6-9-r2.log` for the
+  route tests, the gates, the pins, the submodules and the listeners. Report:
+  `phase6-9/r2/review-r2.md` (session message 1140). Round 3 checks the finding
+  with `phase6-9/r3/old_reads.py` (the observations), corrects that sentence
+  and the scope's invariant, which said the same of every refused record, and
+  takes up the three suggestions: that no record of the player's disc has a
+  name of length 0 (1), the docstring's first sentence split in two (2), and
+  the test comment reworded (3).
+- Phase 6 change 9, round 3: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push, then the user's trial of the strafe while Q
-is held. The play copy (`play/play.sh <session dir> <SCPH-1001 dump>` in
-`.cache/evidence/phase4-2/`) refreshes from `build-dev/`; its
-`mods/state.toml` enabled Mouse Aim at Strafe speed 80 for the user's trial
-of change 4 (`phase7-4/play-01/mods-state.toml`), and its `keybinds.ini` is
-change 3's `controls/keybinds.ini` (`phase7-3/playcopy-keybinds.sha256`).
+After a PASS: commit and push. Phase 7 change 5, the strafe while Q is
+held, waits for the user's trial. The play copy (`play/play.sh <session
+dir> <SCPH-1001 dump>` in `.cache/evidence/phase4-2/`) refreshes from
+`build-dev/`; its `mods/state.toml` enabled Mouse Aim at Strafe speed 80
+for the user's trial of change 4 (`phase7-4/play-01/mods-state.toml`),
+and its `keybinds.ini` is change 3's `controls/keybinds.ini`, as
+`phase7-3/playcopy-keybinds.sha256` records.
 Mouse Aim then waits on the user's choices: the camera's lag at other Strafe
 speeds (at 100 the push is twice the default's, and the lag there is not
 measured); in SCAN, whether the strafe should also pull the mech along the
 view's turn, as the game's slide does, and whether it should keep the higher
 speed it showed in the headless run, whose cause is not traced; and whether the
 keys should strafe in the third movement too, for the 18 steps after a boost
-key's press, or the 6 of a sideways dash. With Mouse Aim
-on, a gamepad's sticks neither steer nor strafe in flight, while a
-gamepad's buttons and the keyboard's work (`pad_external_input.c:25-26`,
-`main.cpp:5417-5435`).
+key's press, or the 6 of a dash. With Mouse Aim on, a gamepad's sticks neither
+steer nor strafe in flight, while a gamepad's buttons and the keyboard's work
+(`pad_external_input.c:25-26`, `main.cpp:5417-5435`).
 Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
-`code-quality/zone-baseline/` and with `phase6-5/differential.py`: the
-zone tool's last fix, a traceback on a malformed directory record (the
-audit's probe in `code-quality/probes/` reproduces it), then modules for
-the disc reader and the MIPS analysis, as the user chose; the route-script
-hang (below), which the user placed just before the next step; one module
+`code-quality/zone-baseline/` and with `phase6-5/differential.py`: with
+the zone tool's fixes done, modules for the disc reader and
+the MIPS analysis, as the user chose; the route-script hang
+(below), which the user placed just before the next step; one module
 for what the two route scripts share, with smaller `main()` functions and
 with `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1),
 then every route in the three runtime modes and the two Beetle modes; test
