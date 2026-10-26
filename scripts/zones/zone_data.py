@@ -72,6 +72,9 @@ its position after yaw. Values are rounded to the nearest integer, ties to
 even. remix reads each zone from the disc, applies the edits with build's
 rules and writes one package (default .cache/zones/<id>-<version>.psxmod)
 whose feature carries an overlay for each zone.
+
+disc.py, beside this file, reads the disc, and mips.py analyses the zone
+files' MIPS code.
 """
 import argparse
 import collections
@@ -87,10 +90,15 @@ import tomllib
 import zipfile
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # the imports below must not add __pycache__ to the repository
+from disc import USER, Disc, ZoneError  # noqa: E402
+from mips import (A1, A2, A3, BASE, BEQ, BNE, JAL, ZERO, address_of, argument,  # noqa: E402
+                  control, flow, index_of, jal, join_points, jump_target, loaded, opcode, rs,
+                  rt, sx32, words)
+
 REPO = Path(__file__).resolve().parents[2]
 DISC = REPO / "disc" / "Omega Boost (USA).cue"
 OUT_DIR = REPO / ".cache" / "zones"
-BASE = 0x80120000         # every zone file loads whole at this address
 RUNNER_NEW = 0x80071624   # the timeline runner's constructor; $a1 = the table
 CLEAR_ROUTINE = 0x80034104
 FORMATION = 0x80057F0C    # the call wave callbacks use to start a formation
@@ -100,7 +108,6 @@ FORMAT = 2                # dumps of format 1 have no formations
 REMIX = 1                 # the format of remix recipes
 EDITS = {"spread", "pace", "yaw", "move"}  # what a recipe may do to a formation
 GAME_ID = "SCUS-94449"    # game.toml [game] id, which packages target
-SECTOR, HEADER, USER = 2352, 24, 2048  # MODE2/2352 form 1 sectors
 LABELS = {"S1": "1ST ZONE", "S2": "2ND ZONE", "S3": "3RD ZONE", "S4": "4TH ZONE",
           "S5": "5TH ZONE", "S6": "6TH ZONE", "S8": "7TH ZONE", "S9": "8TH ZONE",
           "S10": "LAST ZONE"}
@@ -120,32 +127,6 @@ FULL_TURN = 2**32         # a full turn in binary angle units
 S16, U16 = (-0x8000, 0x7FFF), (0, 0xFFFF)
 S32, U32 = (-2**31, 2**31 - 1), (0, 2**32 - 1)
 TICK_COUNT = (0, 2**31 - 1)  # a delay in ticks: a signed word, not negative
-
-# MIPS I (R3000A) encodings that the code analysis reads.
-SPECIAL, REGIMM, J, JAL, BEQ, BNE, BLEZ, BGTZ = range(8)  # opcodes 0 to 7
-BRANCHES = (REGIMM, BEQ, BNE, BLEZ, BGTZ)  # the conditional branches
-ADDIU, ORI, LUI, LW = 0x09, 0x0D, 0x0F, 0x23
-IMMEDIATE_OPS, LOADS = range(0x08, 0x10), range(0x20, 0x27)  # these write rt
-# The console's coprocessors. The analysis does not model their branches (bc0f,
-# bc0t, bc2f and bc2t), and no word of the disc's zone files decodes as one.
-COP0, COP2 = 0x10, 0x12
-COP_MOVES = (0, 2)        # rs of mfc and cfc, coprocessor ops that write rt
-JR, JALR = 0x08, 0x09     # SPECIAL functions that jump through a register
-ADDU, OR = 0x21, 0x25     # SPECIAL functions that move when one source is $zero
-MULT_DIV = range(0x18, 0x1C)  # SPECIAL functions mult to divu, which write no rd
-LINK = 0x10               # REGIMM's rt bit for bltzal and bgezal, which link
-ZERO, A1, A2, A3, RA = 0, 5, 6, 7, 31  # registers
-
-# ISO 9660: the primary volume descriptor, and the fields of a directory record.
-PVD_SECTOR, PVD_MAGIC, PVD_ROOT = 16, b"\x01CD001", slice(156, 190)  # the root directory's record
-DIR_FLAGS, DIR_NAME_LENGTH, DIR_NAME = 25, 32, 33  # byte 0 is the record's length
-DIR_EXTENT, DIR_SIZE = slice(2, 6), slice(10, 14)  # the little-endian copies
-IS_DIRECTORY = 2          # the flag of a directory
-SELF_AND_PARENT = (b"\x00", b"\x01")  # the names of the "." and ".." records
-
-
-class ZoneError(Exception):
-    pass
 
 
 class NoTimeline(ZoneError):
@@ -229,259 +210,6 @@ class Overlay(collections.namedtuple("Overlay", "zone start stop has_formations"
         """The bytes the overlay replaces as the texts name them, such as
         "S1/S1.BIN, bytes 0x1DE0 to 0x2143"."""
         return f"{self.zone.path}, bytes 0x{self.start:X} to 0x{self.stop - 1:X}"
-
-
-def directory_record_problem(rest):
-    """Why the directory record at the start of rest cannot be read, as the
-    words that follow "a directory record" in a message, or None if it can.
-    The bytes in rest run to the end of the record's sector, since ISO 9660
-    keeps every record within its sector. Rules that reading does not need,
-    such as the padding byte after a name of even length, are not checked."""
-    length = rest[0]
-    if length > len(rest):
-        return f"of length {length} runs past its sector"
-    if length < DIR_NAME:
-        return f"of length {length} is too short for its fields"
-    name_length = rest[DIR_NAME_LENGTH]
-    if DIR_NAME + name_length > length:
-        return f"of length {length} is too short for its name of length {name_length}"
-    name = rest[DIR_NAME:DIR_NAME + name_length]
-    if not name.isascii():
-        return f"has a name that is not ASCII: {name!r}"
-    return None
-
-
-class Disc:
-    """A one-track MODE2/2352 cue/bin image, read through its ISO 9660 tree."""
-
-    def __init__(self, cue):
-        cue = Path(cue)
-        try:
-            text = cue.read_text()
-        except (OSError, UnicodeDecodeError) as exc:
-            raise ZoneError(f"cannot read {cue}: {exc}")
-        names = re.findall(r'^\s*FILE\s+"([^"]+)"\s+BINARY\s*$', text, re.M)
-        if len(names) != 1 or not re.search(r"^\s*TRACK\s+01\s+MODE2/2352\s*$",
-                                            text, re.M):
-            raise ZoneError(f"{cue}: expected one FILE with TRACK 01 MODE2/2352")
-        self.bin = cue.parent / names[0]
-
-    def sectors(self, lba, count):
-        data = bytearray()
-        try:
-            with self.bin.open("rb") as f:
-                for n in range(lba, lba + count):
-                    f.seek(n * SECTOR + HEADER)
-                    chunk = f.read(USER)
-                    if len(chunk) != USER:
-                        raise ZoneError(f"{self.bin}: no sector {n}")
-                    data += chunk
-        except OSError as exc:
-            raise ZoneError(f"cannot read {self.bin}: {exc}")
-        return bytes(data)
-
-    def directory(self, lba, size):
-        """(name, lba, size, is_dir) for each record but '.' and '..'. A record
-        that cannot be read is a ZoneError that names its sector and byte."""
-        data = self.sectors(lba, -(-size // USER))
-        for start in range(0, len(data), USER):
-            pos = start
-            while pos < start + USER and (length := data[pos]):  # a record starts with its length
-                if problem := directory_record_problem(data[pos:start + USER]):
-                    where = f"sector {lba + start // USER}, byte {pos - start}"
-                    raise ZoneError(f"{self.bin}: {where}: a directory record {problem}")
-                rec = data[pos:pos + length]
-                name = rec[DIR_NAME:DIR_NAME + rec[DIR_NAME_LENGTH]]
-                if name not in SELF_AND_PARENT:
-                    yield (name.decode("ascii"), little_endian(rec[DIR_EXTENT]),
-                           little_endian(rec[DIR_SIZE]), bool(rec[DIR_FLAGS] & IS_DIRECTORY))
-                pos += length
-
-    def zone_files(self):
-        """{"S1/S1.BIN": (lba, size), ...}: each directory's file named after it."""
-        pvd = self.sectors(PVD_SECTOR, 1)
-        if not pvd.startswith(PVD_MAGIC):
-            raise ZoneError(f"{self.bin}: no ISO 9660 volume")
-        root = pvd[PVD_ROOT]
-        found = {}
-        for name, lba, size, is_dir in self.directory(little_endian(root[DIR_EXTENT]),
-                                                      little_endian(root[DIR_SIZE])):
-            if is_dir:
-                for fname, flba, fsize, fdir in self.directory(lba, size):
-                    if not fdir and fname.split(";")[0] == f"{name}.BIN":
-                        found[f"{name}/{name}.BIN"] = (flba, fsize)
-        return found
-
-    def read(self, lba, size):
-        return self.sectors(lba, -(-size // USER))[:size]
-
-    def image_sha256(self):
-        """The sha256 of the data file, which the runtime matches against a
-        package's disc_sha256 when it mounts the cue (mod_runtime.cpp sha256_file)."""
-        digest = hashlib.sha256()
-        try:
-            with self.bin.open("rb") as f:
-                while chunk := f.read(1 << 20):
-                    digest.update(chunk)
-        except OSError as exc:
-            raise ZoneError(f"cannot read {self.bin}: {exc}")
-        return digest.hexdigest()
-
-
-def words(blob):
-    return struct.unpack_from(f"<{len(blob) // 4}I", blob)
-
-
-def little_endian(field):
-    return int.from_bytes(field, "little")
-
-
-def jal(target):
-    return (JAL << 26) | (target & 0x0FFFFFFF) >> 2
-
-
-def sx16(value):
-    return value - 0x10000 if value & 0x8000 else value
-
-
-def sx32(value):
-    return value - 2**32 if value & 0x80000000 else value
-
-
-def opcode(word):
-    return word >> 26
-
-
-def rs(word):
-    return (word >> 21) & 31
-
-
-def rt(word):
-    return (word >> 16) & 31
-
-
-def rd(word):
-    return (word >> 11) & 31
-
-
-def funct(word):
-    return word & 0x3F
-
-
-def immediate(word):
-    return word & 0xFFFF
-
-
-def address_of(index):
-    """The address of a zone file's word index, as loaded."""
-    return BASE + 4 * index
-
-
-def index_of(address):
-    """The word index of an address in a zone file, as loaded."""
-    return (address - BASE) // 4
-
-
-def jump_target(word, address):
-    """Where the j or jal at address goes, within the region of the word after it."""
-    return ((address + 4) & 0xF0000000) | (word & 0x03FFFFFF) << 2
-
-
-def branch_target(word, index):
-    """Where the branch at word index goes when taken, as a word index."""
-    return index + 1 + sx16(immediate(word))
-
-
-def is_call(word):
-    """True for jal, jalr, bltzal and bgezal, which come back after their delay slot."""
-    op = opcode(word)
-    if op == SPECIAL:
-        return funct(word) == JALR
-    return op == JAL or (op == REGIMM and (rt(word) & LINK) != 0)
-
-
-def is_move(word):
-    """True for `move rd, rs`: an `addu` or an `or` with $zero as one source."""
-    return opcode(word) == SPECIAL and funct(word) in (ADDU, OR) and ZERO in (rs(word), rt(word))
-
-
-def control(word):
-    """True for jumps and branches, whose delay slots end straight-line code.
-    Branches on the console's coprocessors, COP0 and COP2, are not modelled."""
-    op = opcode(word)
-    return REGIMM <= op <= BGTZ or (op == SPECIAL and funct(word) in (JR, JALR))
-
-
-def destination(word):
-    """The register an instruction writes, if any (common MIPS I forms)."""
-    op = opcode(word)
-    if op == SPECIAL:
-        return None if funct(word) == JR or funct(word) in MULT_DIV else rd(word)
-    if op in IMMEDIATE_OPS or op in LOADS:
-        return rt(word)
-    if op in (COP0, COP2) and rs(word) in COP_MOVES:  # mfc0, mfc2, cfc2
-        return rt(word)
-    return RA if op == JAL else None
-
-
-def join_points(code):
-    """The word indices in the file where control can arrive other than from
-    the word before, as far as the file's own code shows: the targets of its
-    jumps, branches and calls, and the word each call returns to, past its
-    delay slot. Entries that only pointers or the EXE lead to, such as the
-    wave callbacks and the targets of jr and jalr, are not among them. Words
-    of data that decode as jumps, branches or calls add join points too,
-    which can only make argument() give up sooner. Branches on the console's
-    coprocessors, COP0 and COP2, are not modelled, so their targets are not
-    among them either."""
-    joins = set()
-    for i, word in enumerate(code):
-        op = opcode(word)
-        if op in (J, JAL):
-            joins.add(index_of(jump_target(word, address_of(i))))
-        elif op in BRANCHES:
-            joins.add(branch_target(word, i))
-        if is_call(word):
-            joins.add(i + 2)
-    return {join for join in joins if 0 <= join < len(code)}
-
-
-def trace(seq, index, reg, first=0, steps=32):
-    """Value of reg after seq[index], from straight-line lui/addiu/ori/move
-    code in seq[first:index + 1]."""
-    while reg != ZERO and index >= first and steps > 0:
-        word = seq[index]
-        op = opcode(word)
-        if op == LUI and rt(word) == reg:
-            return immediate(word) << 16
-        if op in (ADDIU, ORI) and rt(word) == reg:
-            base = trace(seq, index - 1, rs(word), first, steps - 1)
-            if base is None:
-                return None
-            if op == ADDIU:
-                return (base + sx16(immediate(word))) & 0xFFFFFFFF
-            return base | immediate(word)
-        if is_move(word) and rd(word) == reg:
-            reg = rs(word) or rt(word)
-        elif destination(word) == reg or control(word):
-            return None
-        index -= 1
-        steps -= 1
-    return 0 if reg == ZERO else None
-
-
-def argument(code, joins, call, reg):
-    """Register reg as the function called by the jal at code[call] receives
-    it. The trace reads back no further than the last of joins
-    (join_points(code)) at or before the call, since control that arrives
-    there from a jump, a branch or a call's return may bring another value.
-    Entries that only pointers or the EXE lead to are not known, so the trace
-    can still read back past one of those."""
-    # The delay slot runs before the call, so it takes the call's place in seq:
-    # a path that jumps to the call runs the delay slot but not the words before.
-    seq = code[:call] + code[call + 1:call + 2]
-    first = max((j for j in joins if j <= call), default=0)
-    return trace(seq, len(seq) - 1, reg, first)
 
 
 def read_table(blob):
@@ -572,50 +300,6 @@ def layout(blob):
         if after.start < before.stop:
             raise ZoneError(f"{before.label} and {after.label} overlap")
     return Layout(timeline, formations, parts)
-
-
-def flow(code, entry):
-    """{word index: where control goes next} for the code reached from word
-    entry. A jump or branch goes to its target and, if conditional, also to
-    the word after its delay slot; a call (jal, jalr, bltzal, bgezal) returns
-    to the word after its slot; jr, and indices outside the file, end a path.
-    Each jump, branch, call and jr leads past its delay slot: the slot runs
-    on the console, but the graph has no node for it unless another path in
-    the graph leads there. Branches on the console's coprocessors, COP0 and
-    COP2, are not modelled."""
-    graph, todo = {}, [entry]
-    while todo:
-        i = todo.pop()
-        while 0 <= i < len(code) and i not in graph:
-            word = code[i]
-            op = opcode(word)
-            if op == SPECIAL and funct(word) == JR:
-                graph[i] = []
-            elif op == J:
-                graph[i] = [index_of(jump_target(word, address_of(i)))]
-            elif is_call(word):
-                graph[i] = [i + 2]
-            elif op in BRANCHES:
-                graph[i] = [branch_target(word, i), i + 2]
-            else:
-                graph[i] = [i + 1]
-                i += 1
-                continue
-            todo += graph[i]
-            break
-    return graph
-
-
-def loaded(code, start, index, reg):
-    """The address of the word reg holds at word index, if an lw from word start
-    on wrote reg last and the code from start to it gives the address."""
-    for i in range(index - 1, start - 1, -1):
-        if destination(code[i]) == reg:
-            if opcode(code[i]) != LW:
-                return None
-            base = trace(code[start:i], i - 1 - start, rs(code[i]))
-            return None if base is None else (base + sx16(immediate(code[i]))) & 0xFFFFFFFF
-    return None
 
 
 def difficulty_branches(code, graph, entry):

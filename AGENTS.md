@@ -507,18 +507,21 @@ game saves, such as a card saved with the feature on.
 `scripts/zones/zone_data.py` (Python standard library only) turns a zone's
 wave timeline and formations into editable text and back, byte for byte,
 reading the zone files from the player's disc (`--disc`, default
-`disc/Omega Boost (USA).cue`). A zone file, `<DIR>/<DIR>.BIN`, loads whole at
-0x80120000. Fourteen of them pass a table to the game's shared timeline
-runner: 8-byte entries of a wave callback and a delay, ending in an end entry
-everywhere but the 8TH ZONE (`docs/MODDING_FEASIBILITY.md`, "Scenes and
-files"). The 5TH ZONE, the LAST ZONE, U5, U9, V5 and the files that are not
-zones have no such table. In the 1ST, 2ND, 3RD and 6TH ZONE, wave callbacks
-also start formations through 0x80057F0C: each passes a record of eight
-words (where its steps and members are, a position added to the player's,
-three angles) and, as instruction immediates, its numbers of steps and
-members; 33 records in all (`docs/MODDING_FEASIBILITY.md`, "Formations").
-Five of them start on only one value of the difficulty word, 0x800A7C34, and
-the dump's notes say which.
+`disc/Omega Boost (USA).cue`). It reads the disc through `disc.py` and
+analyses the zone files' MIPS code with `mips.py`, both beside it, and it
+imports them only after setting `sys.dont_write_bytecode`, so that a run
+without `-B` adds no `__pycache__` to the repository. A zone file,
+`<DIR>/<DIR>.BIN`, loads whole at 0x80120000. Fourteen of them pass a table to
+the game's shared timeline runner: 8-byte entries of a wave callback and a
+delay, ending in an end entry everywhere but the 8TH ZONE
+(`docs/MODDING_FEASIBILITY.md`, "Scenes and files"). The 5TH ZONE, the LAST
+ZONE, U5, U9, V5 and the files that are not zones have no such table. In the
+1ST, 2ND, 3RD and 6TH ZONE, wave callbacks also start formations through
+0x80057F0C: each passes a record of eight words (where its steps and members
+are, a position added to the player's, three angles) and, as instruction
+immediates, its numbers of steps and members; 33 records in all
+(`docs/MODDING_FEASIBILITY.md`, "Formations"). Five of them start on only one
+value of the difficulty word, 0x800A7C34, and the dump's notes say which.
 
 ```sh
 python3 scripts/zones/zone_data.py list      # zone files, tables, formations
@@ -543,8 +546,8 @@ offsets may change, and the dump's comments give their units. Which enemy
 the members are is code: each of the four zones spawns every member of every
 formation with one function of its own. Dumps, built zone files and packages
 hold data from the disc, so the tool writes them only under `.cache/` or
-outside the repository. Verify every change to the tool with its tests and
-`check`.
+outside the repository. Verify every change to the tool or its modules with
+its tests and `check`.
 
 `package` makes the game load the edits. It writes a `.psxmod` (default
 `.cache/zones/<id>-<version>.psxmod`, id `omega.remix.` and the zone's folder

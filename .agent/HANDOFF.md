@@ -18,33 +18,44 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 6 change 9, round 3: the zone tool's last fix from the
-audit, the first item of its finding 10 (`code-quality/audit-r1.md`, line 117).
-Invariant: `Disc.directory()` in `scripts/zones/zone_data.py` refuses a
-directory record that runs past its sector, is too short for its fields or for
-its name, or has a name that is not ASCII, with a `ZoneError` that names the
-record's sector and byte, so that the tool stops with status 1 and a one-line
-message where commit `cd5273e`'s tool ended in a traceback, misread the record
-or accepted it without a word. Every record it reads, it reads as before, and
-no output from the player's disc changes. This file also records Phase 7 change
-5's round 3 PASS and its commit `cd5273e`, condenses change 5 and takes up that
-review's one suggestion. Review round 1 found three sentences in that condensed
-record which said more than the record they condense, so round 2 corrects them
-and takes up the review's six suggestions, which add two test cases and rename
-the check to `directory_record_problem`. Review round 2 found that the
-observations said the old tool misread a record that it read correctly, so
-round 3 runs the old reader on each bad record of the tests, corrects that
-sentence from what the reader returned, and takes up the review's three
-suggestions: the scope's words on a name of length 0, the check's docstring and
-a test comment. Baseline: `cd5273e`. Out of scope: a directory's extent and
-size, which are not checked against the image (a size beyond the image's end
-makes the reader read every sector up to that end before it stops with "no
-sector"); three things the reader lets pass, none of which changes how it reads
-a record: a name of length 0, which reads as "" (no record of the player's disc
-has one), a name of even length without the padding byte after it (ECMA-119
-9.1.12), and a record of odd length (9.1.13); the split of the tool into
-modules, which comes next; the rest of the code-quality work, Mouse Aim and the
-framework.
+Current iteration, Phase 6 change 10, round 5: the split of the zone tool into
+modules, which the user chose to follow its last fix ("Yes: split them into
+their own modules after the fix (Recommended)"). Invariant:
+`scripts/zones/disc.py` holds the cue and ISO 9660 reader, `Disc` with
+`directory_record_problem()` and their constants, and `ZoneError`, which `Disc`
+raises; `scripts/zones/mips.py` holds the analysis of the zone files' MIPS
+code: `BASE`, the encodings, the decoders, `control()`, `destination()`,
+`join_points()`, `trace()`, `argument()`, `flow()` and `loaded()`; and
+`zone_data.py` keeps the zone format, the difficulty gating, the notes, the
+dumps, builds, recipes and packages and the command line, and imports what it
+uses from the two only after setting `sys.dont_write_bytecode`, so that a run
+without `-B` adds no `__pycache__` to the repository. Each definition keeps its
+code, and the moved ones their order; only `ZoneError` changes, gaining a
+docstring. The tests stay as they are and pass, and no output from the player's
+disc changes. This file also records Phase 6 change 9's round 3 PASS and its
+commit `287cd6a`, and condenses change 9. Review round 1 found that `disc.py`
+had `little_endian()` ahead of its users, against that invariant, and that the
+check of the order passed it, since it compared the old file's order with
+itself; that `ZoneError`'s docstring said every such error stops the tool; and
+that the next action would prove each step of the tool with a differential that
+cannot load the split tool. So round 2 puts `little_endian()` back after
+`Disc`, corrects the check and both texts, and takes up the review's five
+suggestions. Review round 2 found that the way the next action now gives for
+running the differential would, once HEAD's tool is split too, compare a tree
+with itself, so round 3 says so there, after a run that shows it, and takes up
+the review's two suggestions. Review round 3 found that the remedy round 3 gave
+there, names of their own for each tree's modules, is neither needed nor
+enough, since `zone_data.py` imports `disc` and `mips` by those names, so round
+4 says what a loader needs instead, after a run that shows both, and takes up
+the review's two suggestions. Review round 4 found that the review state's
+round 3 entry credited the reviewer's round 2 with a run of the differential
+that it had left to that round's checks log, so round 5 corrects that entry and
+takes up the review's one suggestion, a wording in round 4's checks bullet.
+Baseline: `287cd6a`. Out of scope: any change to what the tool does or to its
+tests, the gap in the tests that this change's planted bugs found among them
+and a way for the differential to compare two split trees (both in the next
+action); the route scripts, which come next; the rest of the code-quality work,
+Mouse Aim and the framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1134,156 +1145,228 @@ Invert vertical off), round 2 NEEDS CHANGES (one Low: the third movement lasts
 Reports: `phase7-5/review-r1.md`, `phase7-5/r2/review-r2.md` and
 `phase7-5/r3/review-r3.md`; full record: `git show cd5273e:.agent/HANDOFF.md`.
 
-## Phase 6 change 9 observations (`.cache/evidence/phase6-9/`)
+## Phase 6 change 9 (commit `287cd6a`)
 
-- The audit's finding 10, first item (`code-quality/audit-r1.md`, line 117):
-  `Disc.directory()` read each directory record without checking it, and
-  `main()` catches only `ZoneError`. The audit's probe
-  (`code-quality/probes/probe_iso.py`) cuts the root's S1 record to one byte
-  and calls `Disc.zone_files()`, which raised an `IndexError`; the probe caught
-  it and printed "uncaught: IndexError index out of range"
-  (`code-quality/probes/probes-zone.log`). On commit `cd5273e`'s tool
-  (`regression.sh`; `r2/regression.log` with round 2's tests), of this change's
-  seven command-line cases four ended in a traceback (a record of one byte, one
-  of 32 bytes and one running past the end of a directory one sector long,
-  `IndexError`; a name byte of 0xC9, `UnicodeDecodeError`), and three exited
-  with status 0: two having misread the record, one of 33 bytes, whose name it
-  read as "", and one of 36 whose name needs 37, whose name it read with the
-  pad byte after it, either way losing S1 from the listing; and one having
-  accepted a record whose length says 43 where 42 bytes are left in its sector,
-  from which it read the same fields as from a record of 42, since its name
-  ends at its 42nd byte. In a directory two sectors long, a record running past
-  the first sector was read with bytes from the second, which left it without a
-  name, and no error. `r3/old_reads.py` / `.log` builds each of these records
-  as the tests do and prints what the old reader returned for it, beside what
-  it returns for the record well formed.
-- ECMA-119 9.1 puts a directory record's length in its byte 0, its name's
-  length in its byte 32 and the name from byte 33, and 6.8.1.1 says that "Each
-  Directory Record shall end in the Logical Sector in which it begins" (in the
-  2nd and the 4th edition alike). Its file names are d-characters and
-  separators, all ASCII. Its 9.1.12 puts a (00) byte after a name of even
-  length, and its 9.1.13 adds one at a record's end if needed "so that the
-  Directory Record comprises an even number of bytes" (both editions); the
-  reader takes a name's bytes from the name's length and steps to the next
-  record by the record's length, so it reads the same bytes with these pads or
-  without them, and does not ask for them.
-- On the player's disc, every record of its 30 directories (169 but "." and
-  "..") reads the same with the old reader and the new one
-  (`directory_differential.py` / `.log`), so the checks refuse none of them.
+The audit's finding 10, first item (`code-quality/audit-r1.md`, line 117):
+`Disc.directory()` read each ISO 9660 directory record without checking it, and
+`main()` catches only `ZoneError`. On commit `cd5273e`'s tool, of the tests'
+nine bad records five raised an exception other than `ZoneError` (`IndexError`,
+or `UnicodeDecodeError` for a name byte of 0xC9), which ends the tool in a
+traceback; three were misread without an error (a record of 33 bytes and one of
+36 whose name needs 37, either way losing S1 from the listing, and, in a
+directory two sectors long, a record running past the first sector, read with
+bytes from the second); and one, whose length says 43 where 42 bytes are left
+in its sector, was accepted and read as that record of 42
+(`phase6-9/r3/old_reads.log`). `directory_record_problem(rest)` now says why a
+record cannot be read: it runs past its sector (ECMA-119 6.8.1.1), it is
+shorter than its 33 bytes of fields or too short for its name, or its name is
+not ASCII; `Disc.directory()` raises `ZoneError` with the image's path, the
+sector and the record's byte in it, so the tool stops with status 1 and one
+line. The reader does not ask for the padding byte after a name of even length
+(ECMA-119 9.1.12) or for an even record length (9.1.13), lets a name of length
+0 read as "" (no record of the player's disc has one), and does not check a
+directory's extent and size against the image. Every record of the player's
+disc's 30 directories (169 but "." and "..") reads as before, `check` rebuilds
+the 14 timeline zones identically and the 142 baseline outputs stayed
+byte-identical. Three new tests (71 in all) cover the four refusals through the
+command line, both sides of each bound on a record's length, a record that ends
+at its sector's end and a directory two sectors long; nine of their cases fail
+on `cd5273e`'s tool (`phase6-9/r2/regression.log`), and twelve bugs planted in
+the new code are all caught (`phase6-9/r2/mutations.log`). On 20,000 copies of
+the tests' disc with a directory sector changed in one of five ways, the new
+reader raised only `ZoneError`, returned only what the old one returned and
+refused only records that a parse written from ECMA-119 finds unreadable for
+the reason given, all 5,613 on which the old reader crashed among them
+(`phase6-9/directory_differential.log`). Review: round 1 NEEDS CHANGES (three
+Lows, all in this file's condensed record of Phase 7 change 5), round 2 NEEDS
+CHANGES (one Low: the observations said the old tool misread the record whose
+length says 43, which it read correctly), round 3 PASS on tree `ac32f6c`
+(staged diff `91b102d8…`). Reports: `phase6-9/review-r1.md`,
+`phase6-9/r2/review-r2.md` and `phase6-9/r3/review-r3.md`; full record:
+`git show 287cd6a:.agent/HANDOFF.md`.
 
-## Phase 6 change 9 changes
+## Phase 6 change 10 observations (`.cache/evidence/phase6-10/`)
 
-- `scripts/zones/zone_data.py`: `directory_record_problem(rest)` takes the
-  bytes from a directory record to the end of its sector and says why the
-  record cannot be read, in the words that follow "a directory record" in the
-  message, or gives None: it runs past its sector, it is shorter than the 33
-  bytes of fields before its name, it is too short for its name, or its name is
-  not ASCII. `Disc.directory()` calls it before it reads each record and raises
-  `ZoneError` with the image's path, the sector and the record's byte in it,
-  such as "sector 18, byte 68: a directory record of length 1 is too short for
-  its fields"; `main()` already prints a `ZoneError` on one line and exits with
-  status 1. Round 1 named it `record_problem`; round 2 names the directory
-  record in it, since in this tool "record" mostly means a formation record,
-  and its docstring now says what it returns and that it leaves out the rules
-  that reading does not need; round 3 splits that docstring's long first
-  sentence in two.
-- `scripts/zones/test_zone_data.py`: `with_byte()` beside `record()`;
-  `CommandLine.with_records()`, which writes the disc anew with given records
-  in a directory's sector; and three tests (71 in all):
-  `test_directory_records_that_cannot_be_read`, seven cases through `list`
-  (status 1, the message, no traceback), two of them added in round 2, a record
-  of 32 bytes, one short of its fields, and one at byte 2006 that fills the 42
-  bytes left in its sector but whose length says 43, a case whose comment round
-  3 rewords; `test_a_record_may_end_at_its_sectors_end`; and
-  `test_refusals_in_a_directory_two_sectors_long`, which reads TITLE's and U4's
-  directories as one, so that a refusal must name the record's own sector and
-  its byte there, and a record may not run on into the next.
-- `.agent/HANDOFF.md`: the scope; Phase 7 change 5 condensed; these
-  sections; the hypotheses' Mouse Aim item; the review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase6-9/`, with round 2's evidence in
-  its `r2/` and round 3's in its `r3/`, and the report
-  `phase7-5/r3/review-r3.md` with its header.
+- The user chose the split when asked how to go on with the zone tool: "Yes:
+  split them into their own modules after the fix (Recommended)". The plan the
+  user then approved put the cue and ISO 9660 reader in `scripts/zones/disc.py`
+  and the MIPS analysis in `scripts/zones/mips.py`, with `zone_data.py` keeping
+  the command line and the zone format, and the tests unchanged.
+- Commit `287cd6a`'s `zone_data.py` has 1,497 lines and 145 top-level
+  statements: its docstring, 13 imports, 130 definitions and assignments, and
+  the main guard (`r2/moved_defs.log`). The MIPS analysis turns a zone file's
+  word indices into addresses and back (`address_of()`, `index_of()`), so it
+  needs `BASE`, the address where every zone file loads, which moves with it;
+  `zone_data.py` imports it for the zone format. `Disc` raises `ZoneError`, the
+  tool's one error type, which `main()` reports in one line and the tests
+  expect from `Disc`, so it moves with the reader; `NoTimeline`, a `ZoneError`
+  that only `read_table()` raises, stays. `loaded()` reads an lw's address back
+  through `trace()` and knows nothing of the game, so it moves;
+  `difficulty_branches()`, `reach()` and `gate()` test the game's difficulty
+  word, and `describe()` notes 0x80057F0C's arguments, so they stay.
+- The tests take the tool's names only from `zone_data` and replace none: they
+  use 18 of them, among them `Disc`, `ZoneError`, `words()`, `join_points()`
+  and `describe()`, all names that `zone_data.py` uses itself, so its imports
+  keep them there and the tests need no change. Their command-line tests run
+  the tool with `-B` from a temporary directory; the zone baseline runs it from
+  the repository root.
+- Python writes the bytecode of each module it imports to `__pycache__` beside
+  it, unless `sys.dont_write_bytecode` is set, as `-B` and
+  `PYTHONDONTWRITEBYTECODE` set it; a script it runs is not cached. So a run of
+  the split tool without `-B` would leave `__pycache__` in `scripts/zones/` for
+  `disc.py` and `mips.py` (`mutations.log`, with the flag removed), unless the
+  tool sets the flag before importing them, as `scripts/routes/beetle_route.py`
+  does before importing `run_route`.
+- Bugs planted in the moved code found a gap in the tests, which this change
+  leaves as they are: `loaded()` tracing an lw's destination register in place
+  of its base passes them, since every lw of the difficulty word in them loads
+  into its own base register (`lw $v0, 0x7C34($v0)`), as 80 of the 82 lw at
+  offset 0x7C34 in the player's zone files do (`difficulty_loads.py` / `.log`;
+  S4's at 0x80125378 and S8's at 0x801306F8 load into another register). With
+  that bug the 142 baseline outputs stay the same as well, while `loaded()`
+  then misses the difficulty word loaded into `$v0` through `$v1`
+  (`r2/loaded_gap.py` / `.log`).
 
-## Phase 6 change 9 checks
+## Phase 6 change 10 changes
 
-- `r2/tests-green.log`: `scripts/zones/test_zone_data.py` passes, 71 tests, the
-  player's disc's among them, with nothing left in `TMPDIR` (round 1's file:
-  `tests-green.log`). `regression.sh` runs the same file against commit
-  `cd5273e`'s tool (`r2/regression.log`; round 1's file: `regression.log`): the
-  nine cases of bad records fail, as the observations say, and the test of a
-  record that ends at its sector's end passes there too.
-- `r2/mutations.py` / `.log`: twelve bugs planted in the new code one at a
-  time, each check removed or its bound moved by one, both ways for the two
-  checks of the record's length, the byte or the sector counted from the
-  directory's start, and the rest of the directory checked in place of the rest
-  of the sector, are all caught. Round 1's tests miss the two that review round
-  1 planted (`r2/mutations-round1-tests.log`), a record running one byte past
-  its sector accepted and one of 32 bytes let through to the check of its name,
-  and catch the other ten, as round 1's `mutations.py` / `.log` showed.
-- `directory_differential.py` / `.log`: the old reader and the new one read
-  the player's disc's whole tree the same. On 20,000 copies of the tests'
-  disc with a directory sector changed in one of five ways (a record's
-  length, its name's length, a byte of its name, one to three bytes in or
-  just after the records, or a root packed with records up to its sector's
-  end, the last fitting exactly, one byte too long or random), the new
-  reader raised nothing but `ZoneError`, returned only what the old one
-  returned, and refused only records that a parse written into the script
-  from ECMA-119 finds unreadable for the reason given; the 5,613 copies on
-  which the old reader crashed are all refused now. Breaches: 0. Round 2's run
-  (`r2/directory_differential.log`) is the same.
-- `check.log`: the 14 timeline zones rebuild identically. `baseline.log`
-  (`phase6-7/baseline.sh`): all 142 outputs are byte-identical to commit
-  `0761991`'s. `probe_iso.log`: the audit's probe now prints the `ZoneError`
-  "sector 18, byte 68: a directory record of length 1 is too short for its
-  fields". Round 2's `r2/check.log`, `r2/baseline.log` and `r2/probe_iso.log`
-  are the same, but for the tool's hash in the baseline's log and the probe's
-  scratch path. `r2/changed_defs.log` (`phase6-7/changed_defs.py`): in the tool
-  only `directory_record_problem` is new and `Disc.directory` changed (round
-  1's `changed_defs.log` names `record_problem`), so the MIPS analysis is
-  untouched and `phase6-5/differential.py` was not run. pyflakes finds nothing
-  in the tool, the tests or the evidence scripts.
-- `checks-p6-9.sh` / `.log` (the staged tree; it writes only in a scratch
-  directory, with `TMPDIR` there too): only the three files change, and the
-  working tree holds the staged files; it lists the definitions that differ
-  from HEAD's and the new messages; the tool's help texts equal HEAD's; this
-  file's header, overall paragraph, Phase 0 to Phase 6 change 8 and review
-  entries up to Phase 7 change 5's round 2 equal HEAD's, and it prints the
-  changed words of the scope, the hypotheses and the next action; no
+- `scripts/zones/disc.py` (new, 123 lines): from `zone_data.py`, the constants
+  of the sectors (`SECTOR`, `HEADER`, `USER`), the volume descriptor and the
+  directory records, `ZoneError`, `directory_record_problem()`, `Disc` and
+  `little_endian()`, in their old order, which round 1 had changed by putting
+  `little_endian()` ahead of its users. `ZoneError` gains a docstring: an error
+  that `zone_data.py` reports in one line, in this module for a disc image it
+  cannot read; `main()` prints it and exits with status 1, but `list` and
+  `check` take a zone file's error as that file's result and go on. Round 1's
+  docstring said that every such error stops the tool.
+- `scripts/zones/mips.py` (new, 219 lines): from `zone_data.py`, `BASE`, the
+  MIPS I encodings, `words()`, `jal()`, the sign extensions and the field
+  decoders, `address_of()`, `index_of()`, `jump_target()`, `branch_target()`,
+  `is_call()`, `is_move()`, `control()`, `destination()`, `join_points()`,
+  `trace()`, `argument()`, `flow()` and `loaded()`. Round 2 corrects its
+  docstring, which counted `control()` among the functions that find where
+  control can go, while it tells whether a word is a jump or a branch.
+- `scripts/zones/zone_data.py` (1,181 lines): without them; it sets
+  `sys.dont_write_bytecode` and then imports the three names it uses from
+  `disc` and the 22 it uses from `mips` (`# noqa: E402`, as in
+  `scripts/routes/beetle_route.py`), and its docstring ends with a paragraph
+  naming the two modules.
+- `AGENTS.md`, "Zone data": a sentence on the two modules and the flag, and the
+  rule to verify every change to the tool or its modules with its tests and
+  `check`.
+- `.agent/HANDOFF.md`: the scope; change 9 condensed; these sections; the
+  review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase6-10/`, with the evidence of
+  rounds 2 to 5 in its `r2/` to `r5/`, and change 9's round 3 report
+  `phase6-9/r3/review-r3.md` with its header and its commit message
+  `phase6-9/commit-msg.txt`.
+
+## Phase 6 change 10 checks
+
+- `r2/moved_defs.py` / `.log`, round 1's `moved_defs.py` with its check of the
+  order corrected (the round 2 bullet below), compares commit `287cd6a`'s
+  `zone_data.py` with the three files by syntax tree: of its 130 definitions
+  and assignments and its main guard, 86 stay in `zone_data.py`, the guard
+  among them, 10 move to `disc.py` and 35 to `mips.py`, each in exactly one
+  file, the same, and in the old order; only `ZoneError` changed, a docstring
+  in place of `pass`. The new files add only their imports, the flag and the
+  two modules' docstrings, and `zone_data.py`'s docstring gains its last
+  paragraph; of the old file's 56 comments none is lost, and three are added:
+  the flag's and two `# noqa: E402`.
+- `tests-green.log`: `scripts/zones/test_zone_data.py`, unchanged, passes: 71
+  tests, the player's disc's among them, with nothing left in `TMPDIR`, and
+  again with round 2's modules (`r2/tests-green.log`). pyflakes finds nothing
+  in the three modules, the tests or the evidence scripts, so no name is
+  undefined and no import unused.
+- `baseline.log` (`phase6-7/baseline.sh`): all 142 outputs are byte-identical
+  to commit `0761991`'s; `check.log`: the 14 timeline zones rebuild
+  identically. `elsewhere.sh` / `.log` runs every subcommand as the baseline
+  does, but from a working directory outside the repository, with absolute
+  paths, without `-B` and without `PYTHONDONTWRITEBYTECODE`: the same 142
+  outputs, no `__pycache__` beside the tool and nothing left in the working
+  directory.
+- `mutations.py` / `.log` plants changes in a copy of `scripts/zones`, one at a
+  time, the player's disc linked in. Five bugs in the moved code, two in
+  `disc.py` and three in `mips.py`, each fail the tests; a sixth, in `mips.py`,
+  `loaded()` tracing an lw's destination in place of its base, passes them (the
+  observations); removing the flag leaves the tests passing, as they run with
+  `-B`, and a run without `-B` then leaves `__pycache__` beside the tool. The
+  copy as it is passes the tests and leaves none.
+- `differential.sh` / `.log`: change 8's differential
+  (`phase6-8/differential.py`) with commit `287cd6a`'s tool as the old one and
+  the split tool as the new, through `split_tool.py`, which binds the names of
+  the three modules in one module, since the differential takes every function
+  it compares from the module it loads: no difference in 635,161 inputs, and
+  nothing left in `TMPDIR`.
+- `checks-p6-10.sh` / `.log` (the staged tree; it writes only in a scratch
+  directory, with `TMPDIR` there too): only the five files change, the tests
+  not among them, and the working tree holds the staged files; `moved_defs.py`
+  gives its log again; each name that the tests take from `zone_data` is in the
+  staged tool; the help texts equal HEAD's; `AGENTS.md`'s changed words are the
+  two edits; this file's header, overall paragraph, Phase 0 to Phase 7 change
+  5, hypotheses and review entries up to Phase 6 change 9's round 2 equal
+  HEAD's, and it prints the changed words of the scope and the next action; no
   placeholder, doubled blank line, long added line, new reflow leftover or
-  local path; every evidence path that the added lines cite exists, but for
-  the play copy's `keybinds.ini` and `mods/state.toml`; the gates and pins
-  pass and the submodules are clean; change 5's round 3 report matches
-  session message 1655, and its commit's message `phase7-5/commit-msg.txt`;
-  the four test files pass, the Beetle driver's within three runs; the
-  evidence scripts reproduce their logs; the audit's probe now prints the
-  `ZoneError`; no listener; and no whitespace error. All pass. Its first run
-  (`checks-p6-9-first.log`), on an earlier tree, found one reflow leftover in
-  change 5's condensed section, since rewrapped.
-- Round 2 (`r2/`): `r2/same_code.py` / `.log`: round 1's tool and round 2's
-  have the same syntax trees once `record_problem` is renamed and docstrings
-  and comments are left out; without the rename, or against commit `cd5273e`'s
-  tool, they differ. `r2/checks-p6-9-r2.sh` / `.log` repeats round 1's checks
-  on the staged tree, also compares the index with round 1's and each file with
-  its round 1 blob, runs `r2/same_code.py`, round 2's mutations with both test
-  files and the other evidence scripts against round 2's logs, and matches
-  round 1's report against session message 720. All pass.
-- Round 3 (`r3/`): `r3/old_reads.py` / `.log` builds the bad record of each of
-  the tests' nine cases as the tests do, reads it with commit `cd5273e`'s
-  reader and with the new one, and does the same with the record well formed:
-  the old reader crashed on five, misread three and read the record whose
-  length says 43 as it reads that record of 42, and the new one refuses all
-  nine and reads each well-formed record as the old one does (the
-  observations). `r3/same_code.sh` / `.log` (`r2/same_code.py`): round 3's tool
-  and tests have round 2's code, and the tool round 1's but for the rename,
-  while commit `cd5273e`'s tool and round 1's tests differ.
-  `r3/checks-p6-9-r3.sh` / `.log` repeats round 2's checks on the staged tree,
-  also compares the index with round 2's and each file with its round 2 blob,
-  runs `r3/same_code.sh` and `r3/old_reads.py`, finds the other evidence
-  scripts' output as in round 2's logs but for the tool's and the test file's
-  hash in two of them, and matches round 2's report against session message
-  1140. All pass. Its first run (`r3/checks-p6-9-r3-first.log`), on an earlier
-  tree, found two scripts that the review state cited without their
-  directories, now given in full.
+  local path; every evidence path that the added lines cite exists; the gates
+  and pins pass and the submodules are clean; change 9's round 3 report matches
+  session message 1401, and its commit's message `phase6-9/commit-msg.txt`;
+  pyflakes finds nothing; the four test files pass, the Beetle driver's within
+  three runs; the evidence scripts reproduce their logs; no listener; and no
+  whitespace error. All pass. Its first run (`checks-p6-10-first.log`), on an
+  earlier tree, found the help texts differing only in the default disc path,
+  which the tool takes from its own location, since it ran the two tools from
+  two directories; it now runs both from one, as change 9's did.
+- Round 2 (`r2/`): `r2/order_check.py` / `.log` runs round 1's and round 2's
+  `moved_defs.py` on round 1's files, on the working tree's with `loaded()`
+  moved ahead of `mips.py`'s other functions, and on the working tree's: round
+  1's script finds all three in order; round 2's finds the first two out of
+  order, naming `little_endian()` and `loaded()`, and the third in order.
+  `r2/loaded_gap.py` / `.log` plants the bug that the tests miss in a copy of
+  `scripts/zones`: `elsewhere.sh` on the copy gives the 142 baseline outputs
+  unchanged, and `loaded()` with the bug finds the difficulty word through
+  `lui $v0, 0x800A` and `lw $v0, 0x7C34($v0)`, the tests' form, but not through
+  `lui $v1, 0x800A` and `lw $v0, 0x7C34($v1)`, where `loaded()` without it
+  finds it. Its first run (`r2/loaded_gap-first.log`) put the copy one folder
+  down, where the tool took the scratch folder for the repository and refused
+  to write a dump in it. `r2/checks-p6-10-r2.sh` / `.log` repeats round 1's
+  checks on the staged tree, with `elsewhere.sh` now on a copy of
+  `scripts/zones` in scratch, and also compares the index with round 1's and
+  each file with its round 1 blob, runs both scripts above and matches round
+  1's report against session message 1054. All pass.
+- Round 3 (`r3/`): `r3/split_twice.py` / `.log` copies the three modules into
+  scratch, plants in the copy the bug in `loaded()` that the tests miss, and
+  loads `split_tool.py` twice in one process with the differential's loader,
+  first on `scripts/zones` and then on the copy: the second load gets the
+  modules of `scripts/zones`, its `loaded()` is the first load's, and it finds
+  the difficulty word through `$v1`, which the copy alone, in a process of its
+  own, does not find; a run from another scratch folder gives the same log.
+  `r3/checks-p6-10-r3.sh` / `.log` repeats round 2's checks on the staged tree,
+  and also compares the index with round 2's and each file with its round 2
+  blob, runs `r3/split_twice.py` and matches round 2's report against session
+  message 1566. All pass.
+- Round 4 (`r4/`): `r4/two_trees.py` / `.log` copies the three modules into
+  scratch, plants the same bug in the copy, and asks each tree's `gate()`, a
+  function of its `zone_data.py`, about a callback that loads the difficulty
+  word through `$v1` and skips a call while the word is zero. Alone, in
+  processes of their own, the trees answer differently: the call runs only
+  while the word is non-zero, and with the bug only on some paths. In one
+  process, after a tool on `scripts/zones`, the second tool's `zone_data.py`
+  runs the first tree's `loaded()` and gives the first tree's answer when the
+  copy is loaded through `split_tool.py` again, and also when the copy's
+  modules get names of their own, though the copy's `mips.py` then misses the
+  word by itself; after `disc`, `mips` and `zone_data` are dropped from
+  `sys.modules`, `split_tool.py` gives the copy its own modules and its own
+  answer, while the first tree keeps its own. A run from another scratch folder
+  gives the same log. `r4/checks-p6-10-r4.sh` / `.log` repeats round 3's checks
+  on the staged tree, and also compares the index with round 3's and each file
+  with its round 3 blob, runs `r4/two_trees.py` and matches round 3's report
+  against session message 1852. All pass.
+- Round 5 (`r5/`): `r5/checks-p6-10-r5.sh` / `.log` repeats round 4's checks on
+  the staged tree, and also compares the index with round 4's and each file
+  with its round 4 blob, prints what the reviewer's four reports and the review
+  state's entries say of its runs of the differential, and matches round 4's
+  report against session message 2116. All pass. Its first run
+  (`r5/checks-p6-10-r5-first.log`), on an earlier tree, passed as well; this
+  bullet then named only two of the reports that the script prints.
 
 ## Hypotheses and unknowns
 
@@ -2264,7 +2347,113 @@ Reports: `phase7-5/review-r1.md`, `phase7-5/r2/review-r2.md` and
   takes up the three suggestions: that no record of the player's disc has a
   name of length 0 (1), the docstring's first sentence split in two (2), and
   the test comment reworded (3).
-- Phase 6 change 9, round 3: pending delta re-review.
+- Phase 6 change 9, round 3: PASS on tree `ac32f6c` (staged diff `91b102d8…`),
+  no findings, from the same reviewer: round 2's finding is resolved, and the
+  observations' account of the old tool's silent exits and the scope's
+  invariant match what the old reader returned, which it saw by re-running
+  `phase6-9/r3/old_reads.py`. It rebuilt the delta from round 2's blobs, re-ran
+  `phase6-9/r3/same_code.sh`, the zone tests, `phase6-9/regression.sh`, round
+  2's mutations, the differential, `check`, the baseline and the probe, all as
+  logged, found that no record of the player's disc has a name of length 0, and
+  relied on `phase6-9/r3/checks-p6-9-r3.log` for the route tests, the gates,
+  the pins, the submodules and the listeners. Report:
+  `phase6-9/r3/review-r3.md` (session message 1401). Commit `287cd6a`, pushed.
+  Its one nonblocking suggestion, to split the observation's sentence with two
+  "whose" clauses in a row, lapsed when Phase 6 change 10 condensed change 9.
+- Phase 6 change 10, round 1: NEEDS CHANGES on tree `c2e6a50` (staged diff
+  `12fb3e6d…`), from a fresh read-only reviewer, with one Medium and two Low
+  findings. Medium: `disc.py` had `little_endian()` ahead of
+  `directory_record_problem()` and `Disc`, which the old file had first,
+  against the invariant that the moved definitions keep their order, and
+  `moved_defs.py`'s check of the order could not fail, since it listed each
+  file's statements in the old file's order. Low: `ZoneError`'s docstring said
+  that every such error stops the tool with status 1, while `list` and `check`
+  take a zone file's error as that file's result and go on; and the next action
+  would prove each step of the tool with `phase6-5/differential.py`, which
+  cannot load the split tool by path. The reviewer re-ran the move by syntax
+  tree and at runtime, the tests, the help texts, the baseline, `check`,
+  `elsewhere.sh` on a scratch copy, the differential and the mutations,
+  recounted the disc's difficulty loads, and relied on
+  `phase6-10/checks-p6-10.log` for the route tests, the gates, the pins, the
+  submodules and the listeners. Report: `phase6-10/review-r1.md` (session
+  message 1054). Round 2 puts `little_endian()` back after `Disc`, corrects the
+  check (`phase6-10/r2/moved_defs.py`, which `phase6-10/r2/order_check.py`
+  shows failing where it should) and both texts, and takes up the five
+  suggestions: `mips.py`'s docstring says that `control()` finds the jumps and
+  branches (1); the old file's 130 definitions and assignments are counted
+  apart from its main guard (2); the checks script runs `elsewhere.sh` on a
+  copy of `scripts/zones` in scratch (3); the next action says that the bug in
+  `loaded()` that the tests miss also leaves the baseline as it is, and names a
+  test that would catch it (4); and the draft of the commit message follows the
+  corrections, its count of definitions among them (5).
+- Phase 6 change 10, round 2: NEEDS CHANGES on tree `c375264` (staged diff
+  `74f57836…`), from the same reviewer, with one new Low, to which its own
+  round 1 fix led: the next action's way of running the differential, through
+  `phase6-10/split_tool.py`, holds only while the old tool is a single file;
+  once HEAD's tool is split too, a second load of that wrapper in one process
+  gets the first tree's modules, so the differential would compare a tree with
+  itself, as the reviewer showed by loading the wrapper on two trees, one of
+  them with the bug in `loaded()` planted. Round 1's three findings are
+  resolved. The reviewer ran `phase6-10/r2/moved_defs.py` on the staged files,
+  on round 1's and on two reorders of its own, re-ran
+  `phase6-10/r2/order_check.py`, the tests, the help texts, the baseline,
+  `check`, `elsewhere.sh` on a scratch copy and `phase6-10/r2/loaded_gap.py`,
+  checked the move at runtime, rebuilt the delta from round 1's blobs, and
+  relied on `phase6-10/r2/checks-p6-10-r2.log` for the route tests, the gates,
+  the pins, the submodules, the listeners, the differential,
+  `phase6-10/mutations.py` and `phase6-10/difficulty_loads.py`. Report:
+  `phase6-10/r2/review-r2.md` (session message 1566). Round 3 checks the
+  finding with `phase6-10/r3/split_twice.py` (the checks), says in the next
+  action that the wrapper cannot compare two split trees, and takes up the two
+  suggestions: "ahead of its users" in the changes section (1), and "take a
+  zone file's error as that file's result" in the draft of the commit message,
+  outside the snapshot (2).
+- Phase 6 change 10, round 3: NEEDS CHANGES on tree `35365b8` (staged diff
+  `c2a5b146…`), from the same reviewer, with one new Low, in a remedy that
+  round 3 took from the reviewer's own round 2 suggestion: the next action said
+  that each tree's modules need names of their own, which is neither needed nor
+  enough. Dropping `disc`, `mips` and `zone_data` from `sys.modules` before the
+  second tree's import gives that tree its own modules under the same names,
+  while with names of their own alone the second tree's `zone_data.py`, which
+  imports `disc` and `mips` by those names, still runs the first tree's. The
+  differential would then check the new tree's `mips.py` directly but run its
+  `zone_data.py` on the old tree's `disc` and `mips`, and a check of the
+  wrapper's own functions and module files would not see it. Round 2's finding
+  is resolved. The reviewer rebuilt the delta from round 2's blobs, re-ran
+  `phase6-10/r3/split_twice.py`, which with the cached modules cleared fails as
+  it should, and loaded two trees in one process through the wrapper, through
+  it after dropping the cached modules, and under new names. It relied on
+  `phase6-10/r3/checks-p6-10-r3.log` for the route tests, the gates, the pins,
+  the submodules and the listeners, on its round 2 runs for the tests, the help
+  texts, the baseline and `elsewhere.sh`, the code being round 2's, and on
+  `phase6-10/r2/checks-p6-10-r2.log` and `phase6-10/r3/checks-p6-10-r3.log` for
+  the differential. Report: `phase6-10/r3/review-r3.md` (session message 1852).
+  Round 4 checks the finding with `phase6-10/r4/two_trees.py` (the checks),
+  says in the next action what a loader needs instead, and takes up the two
+  suggestions: that such a loader be proven through a function of
+  `zone_data.py`, in the next action (1); and Engram's record of the remedy is
+  corrected, outside the repository (2).
+- Phase 6 change 10, round 4: NEEDS CHANGES on tree `61a3f35` (staged diff
+  `ed0bca91…`), from the same reviewer, with one new Low, from a sentence of
+  its own round 3 report: the round 3 entry said that the reviewer relied on
+  its round 2 runs for the differential, while its round 2 report says that it
+  did not re-run the differential but relied on
+  `phase6-10/r2/checks-p6-10-r2.log`, as the round 2 entry says, so the two
+  entries disagreed. Round 3's finding is resolved. The reviewer rebuilt the
+  delta from round 3's blobs, checked the callback of
+  `phase6-10/r4/two_trees.py` by hand, re-ran the script and two variants of it
+  that report a problem and exit 1 as they should, ran `gate()` itself on a
+  callback of its own in each tree alone and in each of the three ways, one
+  process per case, and re-ran the differential on the final modules: no
+  difference in 635,161 inputs. It relied on `phase6-10/r4/checks-p6-10-r4.log`
+  for the route tests, the gates, the pins, the submodules and the listeners,
+  and on its round 2 runs for the tests, the help texts, the baseline and
+  `elsewhere.sh`, the code being round 2's. Report: `phase6-10/r4/review-r4.md`
+  (session message 2116). Round 5 corrects the round 3 entry and takes up the
+  one suggestion: round 4's checks bullet now says "the second tool's
+  `zone_data.py`", as the log does, where it said the copy's, which
+  `split_tool.py` loaded again does not load.
+- Phase 6 change 10, round 5: pending delta re-review.
 
 ## Next action
 
@@ -2288,10 +2477,25 @@ Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
 each `zone_data.py` step proven against the baseline in
-`code-quality/zone-baseline/` and with `phase6-5/differential.py`: with
-the zone tool's fixes done, modules for the disc reader and
-the MIPS analysis, as the user chose; the route-script hang
-(below), which the user placed just before the next step; one module
+`code-quality/zone-baseline/` and with change 8's differential,
+`phase6-8/differential.py`, which reaches the split tool only through
+`phase6-10/split_tool.py`, as `phase6-10/differential.sh` runs it with commit
+`287cd6a`'s tool, a single file, as the old one. Once HEAD's tool is split
+too, the two trees cannot both load that way: `split_tool.py` imports `disc`,
+`mips` and `zone_data` by those names, so in one process a second load gets
+the first tree's modules, and the differential compares a tree with itself
+(`phase6-10/r3/split_twice.py` / `.log`). Each tree then needs modules of its
+own: while one tree's `zone_data.py` is imported, `disc` and `mips` must name
+that tree's modules, for example after dropping the other tree's `disc`, `mips`
+and `zone_data` from `sys.modules`, since `zone_data.py` imports them by those
+names; names of their own alone leave the second tree's `zone_data.py` on the
+first tree's modules (`phase6-10/r4/two_trees.py` / `.log`). No script does
+this yet, and one that does should be proven through a function of
+`zone_data.py`, such as `gate()` with the bug in `loaded()` planted in one
+tree, since a check of the trees' `mips.py` or of the modules' files would pass
+a loader that leaves `zone_data.py` on the other tree's code. The steps, with
+the zone tool's fixes done and the tool split into modules: the route-script
+hang (below), which the user placed just before the next step; one module
 for what the two route scripts share, with smaller `main()` functions and
 with `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1),
 then every route in the three runtime modes and the two Beetle modes; test
@@ -2314,7 +2518,13 @@ edit without an address, which `expect_keys` then refuses with another
 message, and a recipe address beyond 32 bits, which the parser accepts; the
 14 that change 5 planted in a package manifest's text, which no test reads;
 and `write_formations()`'s refusal "it has none", which no test reaches;
-`differential.py` reports the first three bugs and the last 17); names for
+`phase6-5/differential.py` reports the first three bugs and the last 17; and
+one that change 10 planted, `loaded()` tracing an lw's destination register
+in place of its base, since in the tests every lw of the difficulty word
+loads into its own base register (`phase6-10/mutations.log`); with it the
+142 baseline outputs stay the same too, and it would fail a test whose
+wave loads the word through another register, such as `lui $v1, 0x800A`
+then `lw $v0, 0x7C34($v1)` (`phase6-10/r2/loaded_gap.log`)); names for
 the C plugins' registers (the same object code). For new zones (the doc's
 section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
