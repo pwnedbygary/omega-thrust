@@ -378,7 +378,7 @@ calls `psx_mod_instruction` before that instruction, which returns at once
 while no active plugin hooks an instruction. Changing the list changes the
 hash of `game.toml` that the static overlay audit records, so `generate`
 rebuilds the shard and rewrites `AOT_STATIC_AUDIT.json`; with the sites
-listed now, all three in the EXE, the rebuilt shard's C stayed the same.
+listed now, all four in the EXE, the rebuilt shard's C stayed the same.
 
 `omega.cheat.unlock-all` ("Unlock All Zones and Boost Levels", group Cheats,
 off by default) runs the plugin `omega.unlock-all`
@@ -426,20 +426,41 @@ captures the mouse only while the left button is held and moves only the
 right stick, so the plugin puts the game window in SDL's relative mouse mode
 itself and drives player 1 through a controller source: the mouse on the
 left stick, and the stick keys on the right stick, which the game ignores in
-flight. An instruction hook in the player's movement (0x80033044, listed in
-`game.toml`) reads the right stick from the pad record and adds a force
-along the screen's right and down axes; the game's own drag ends the
-sideways motion when the keys come up. The hook adds the same force to the
-player's words +0xBC to +0xC4, which the game clears every step, as the game's
-other movement (0x800334D8) does with the stick's force. The camera
-(0x800630B4) hangs behind the mech on a spring pushed against those words, so
-it falls behind a strafe, the mech slides across the screen, and the
-camera catches up when the keys come up. The hook acts only in flight and on
-the live pad, so a saved replay is not expected to play the strafe back
-(derived, not tested). A source's sticks replace player 1's own, so a gamepad's
-sticks neither steer nor strafe in flight while the feature is on, though its
-buttons do. The cursor is free while the game is paused, out of flight or not
-in the focused window. The plugin presents player 1 as an analog pad, so in
+flight. Instruction hooks in two of the player's three movements (0x80033044
+and 0x800337CC, listed in `game.toml`) read the right stick from the pad record
+and add a force along the screen's right and down axes; the game's own drag
+ends the sideways motion when the keys come up. While SCAN is held (L1, Q in
+`controls/keybinds.ini`), the game runs SCAN's movement, 0x800334D8, which
+keeps the view on the enemy and slides the mech with the left stick, so there
+the mouse slides the mech instead of steering it. The hook in that movement
+moves the mech along the axes of that slide: those of the rotation that the
+game builds from the view's angles at player +0x40, which includes the view's
+roll, as the camera does. The slide also does two things the strafe does not:
+where the stage names a target and does not move the player along z, it pulls
+the mech along the direction the view turns toward (0x8003A0E0), and where the
+stage moves the player along z, it keeps the z part of its sideways force,
+which the strafe drops. The force, and the code after the hooks, drag included,
+are the same in both movements, but in a headless run right after zone 1's
+fly-by, where the view turned to keep the enemy ahead, a full strafe at the
+default moved the mech sideways at about 98 units a frame against 80, and the
+game's own slide sped up in the same proportion; in the windowed checks, where
+the view held still, the strafe ran as fast as outside SCAN. What causes the
+difference is not traced. After a press of a boost key (Triangle or Circle in
+the game's default setup), in SCAN or not, the game runs its third movement,
+0x80032414, which has no hook, so the keys do not strafe while it runs: 18
+steps, or 6 if the boost is a sideways dash, as it is while the word at
+0x800A7EF4 is set and the left stick is pushed more than half way along either
+axis (0x80032144). Both hooks also add their force to the player's words +0xBC
+to +0xC4, which the game clears every step, as the game's own slide does with
+its sideways force. The camera (0x800630B4) hangs behind the mech on a spring
+pushed against those words, so it falls behind a strafe, the mech slides across
+the screen, and the camera catches up when the keys come up. The hooks act only
+in flight and on the live pad, so a saved replay is not expected to play the
+strafe back (derived, not tested).
+A source's sticks replace player 1's own, so a gamepad's sticks neither steer
+nor strafe in flight while the feature is on, though its buttons do. The
+cursor is free while the game is paused, out of flight or not in the focused
+window. The plugin presents player 1 as an analog pad, so in
 flight the game steers by the stick, not the d-pad, and keeps the game's TYPE
 setting (CONTROL SETUPS) at B, so that up flies the mech up, or at A with its
 option Invert vertical. The game saves TYPE with its environment data and reads
@@ -451,15 +472,19 @@ it again. The runtime discards a controller source's input in headless runs
 and under a debug-server input override
 (`psxrecomp/runtime/include/mod_plugins.h:825-827`), so the routes cannot
 check the plugin: check a change to it in a windowed run (so far, the 1ST
-ZONE of CAMPAIGN PLAY). The strafe hook reads the pad record, which the debug
-server's `set_input` axes also reach, so a headless run can drive it. Check
-the strafe's directions against the game's own steering, from one save state:
-strafing right must move the mech to the side that turning right takes it,
-and strafing up to the side that climbing takes it, since a check along the
-hook's own axes would share any sign error in them. `controls/keybinds.ini`
-is the keyboard layout made for it: copy it beside the executable as
-`keybinds.ini`, where windowed runs read it, or set the same keys on the
-launcher's Controls page.
+ZONE of CAMPAIGN PLAY). The strafe hooks read the pad record, which the debug
+server's `set_input` axes also reach, so a headless run can drive them. Check
+the strafe's directions against the game's own movement, from one save state:
+outside SCAN, strafing right must move the mech to the side that turning
+right takes it, and strafing up to the side that climbing takes it; in SCAN,
+each strafe to the side that the game's slide in the same direction takes it,
+with Invert vertical off (TYPE B): the slide's vertical direction follows TYPE
+(0x800306C4), and under TYPE A pushing the stick up slides the mech down, while
+W still strafes up. A check along the hooks' own axes would share any sign
+error in them.
+`controls/keybinds.ini` is the keyboard layout made for it: copy it beside
+the executable as `keybinds.ini`, where windowed runs read it, or set the
+same keys on the launcher's Controls page.
 
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every

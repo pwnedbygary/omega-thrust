@@ -11,12 +11,12 @@
  * is a weapon here. So the plugin puts the game window in SDL's relative mouse
  * mode itself and drives player 1 through a controller source: the mouse
  * moves the left stick, and the stick keys move the right stick, which the
- * game ignores and an instruction hook in the player's movement turns into a
- * sideways force. For that it relies on more than mod_plugins.h: on psx_sdl.h
- * (SDL3) and on psx_keybinds.h (the keyboard's stick keys), which a framework
- * update must re-check. All its callbacks run on the main thread, which owns
- * the SDL window: the activation callback at session start, before the window
- * exists, and the others in the emulation loop. */
+ * game ignores and instruction hooks in two of the player's three movements
+ * turn into a sideways force. For that it relies on more than mod_plugins.h:
+ * on psx_sdl.h (SDL3) and on psx_keybinds.h (the keyboard's stick keys), which
+ * a framework update must re-check. All its callbacks run on the main thread,
+ * which owns the SDL window: the activation callback at session start, before
+ * the window exists, and the others in the emulation loop. */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,19 +57,39 @@
  * Where the stage itself moves the player along z, the game drops the z part
  * of the thrust, and the strafe does the same.
  *
+ * While SCAN is held (L1 in the game's setup, Q in controls/keybinds.ini),
+ * the game runs another movement, 0x800334D8, which ends as that one does:
+ * the same instruction, at 0x800337CC, comes at the same point. It thrusts
+ * along the view, which the camera follows, rather than the heading, and it
+ * slides the mech with the left stick, which the mouse moves, along a
+ * rotation that 0x80031ABC builds earlier in the step from the view's angles.
+ * The strafe there moves the mech along the same rotation. Where the stage
+ * names a target and does not move the player along z, the slide also pulls
+ * the mech along the direction the view turns toward (0x8003A0E0), which the
+ * strafe does not.
+ *
+ * After a press of a boost key, in SCAN or not, the game runs a third
+ * movement, 0x80032414, which has no hook, so the keys do not strafe while it
+ * runs: 18 steps, or 6 if the boost is a sideways dash, as it is while the
+ * word at 0x800A7EF4 is set and the left stick is past half way (0x80032144).
+ *
  * The camera (0x800630B4) hangs behind the mech on a spring, pushed against
  * the step's thrust and the forces in the player's words +0xBC, +0xC0 and
  * +0xC4, which the game clears at the start of each step (0x80030580): it
  * falls behind as the mech speeds up and catches up when the push ends. The
- * game's other movement (0x800334D8) adds the stick's force across the screen
- * to those words as well as to the sums (0x80031CCC), and the strafe does the
- * same, so the mech slides across the screen as it strafes. */
+ * game's SCAN slide adds its sideways force to those words as well as to the
+ * sums (0x80031CCC), and the strafe does the same, so the mech slides across
+ * the screen as it strafes. */
 #define FORCE_SUM 0x80033044u
-#define FORCE_SUM_WORD 0x8E020024u      /* lw $v0, 0x24($s0) */
+#define SCAN_FORCE_SUM 0x800337CCu
+#define FORCE_SUM_WORD 0x8E020024u      /* lw $v0, 0x24($s0), at both */
 #define REG_S0 16
 #define PLAYER_FORCE 0x1Cu              /* offset of its force words: x, y, z */
 #define PLAYER_CAMERA_FORCE 0xBCu       /* offset of the force words the
                                            camera is pushed against */
+#define PLAYER_VIEW_ROTATION 0x40u      /* offset of the rotation built from
+                                           the view's angles */
+#define ROTATION_ONE 4096.0             /* 1.0 in its 4.12 fixed point */
 #define PLAYER_PITCH 0x8Cu              /* binary angles: 2^32 to a turn */
 #define PLAYER_YAW 0x90u
 #define CRUISE_FORCE 0x238E3
@@ -257,28 +277,67 @@ static void add_to_word(uint32_t address, uint32_t value) {
     psx_mod_write_word(address, psx_mod_read_word(address) + value);
 }
 
-/* The instruction hook at FORCE_SUM: while the source drives player 1 and
- * the player is in play, add a force along the screen's right and down axes
- * from the right stick. The game's y axis points up: climbing raises y,
- * turning right lowers the yaw and a positive pitch points the nose down, so
- * for pitch p and yaw y the mech heads along (cos p sin y, -sin p,
- * cos p cos y). The camera follows the heading but not the mech's roll, so
- * screen right is the way the heading turns as the yaw falls,
- * (-cos y, 0, sin y), and screen down the way it turns as the pitch rises,
- * (-sin p sin y, -cos p, -sin p cos y). */
-static void strafe_at_force_sum(struct CPUState* cpu, uint32_t address) {
-    (void)address;
+/* A function that gives the screen's right and down axes in one of the
+ * player's movements. */
+typedef void ScreenAxes(uint32_t player, double right[3], double down[3]);
+
+/* The screen's right and down axes in the player's usual movement. The game's
+ * y axis points up: climbing raises y, turning right lowers the yaw and a
+ * positive pitch points the nose down, so for pitch p and yaw y the mech heads
+ * along (cos p sin y, -sin p, cos p cos y). The camera follows the heading but
+ * not the mech's roll, so screen right is the way the heading turns as the yaw
+ * falls, (-cos y, 0, sin y), and screen down the way it turns as the pitch
+ * rises, (-sin p sin y, -cos p, -sin p cos y). */
+static void heading_axes(uint32_t player, double right[3], double down[3]) {
+    const double pitch = radians(psx_mod_read_word(player + PLAYER_PITCH));
+    const double yaw = radians(psx_mod_read_word(player + PLAYER_YAW));
+    right[0] = -cos(yaw);
+    right[1] = 0.0;
+    right[2] = sin(yaw);
+    down[0] = -sin(pitch) * sin(yaw);
+    down[1] = -cos(pitch);
+    down[2] = -sin(pitch) * cos(yaw);
+}
+
+/* A halfword of the game's RAM as the signed value it holds. */
+static int signed_half(uint16_t half) {
+    return half < 0x8000 ? half : half - 0x10000;
+}
+
+/* One entry of the rotation at PLAYER_VIEW_ROTATION, which holds three rows
+ * of three signed halfwords. */
+static double view_rotation_entry(uint32_t player, uint32_t row,
+                                  uint32_t column) {
+    const uint32_t entry = player + PLAYER_VIEW_ROTATION +
+                           2u * (3u * row + column);
+    return signed_half(psx_mod_read_half(entry)) / ROTATION_ONE;
+}
+
+/* The screen's right and down axes in SCAN's movement: minus the first and
+ * minus the second column of the rotation built from the view's angles. It
+ * includes the view's roll, which the camera follows, and the game's own
+ * slide moves the mech along the same axes. */
+static void view_axes(uint32_t player, double right[3], double down[3]) {
+    for (uint32_t row = 0; row < 3; row++) {
+        right[row] = -view_rotation_entry(player, row, 0);
+        down[row] = -view_rotation_entry(player, row, 1);
+    }
+}
+
+/* The strafe, at either force sum: while the source drives player 1 and the
+ * player is in play, add a force along the screen's right and down axes from
+ * the right stick, to the step's sums and to the forces the camera is pushed
+ * against, and count the step. */
+static void strafe(const struct CPUState* cpu, ScreenAxes* screen_axes,
+                   const char* counter) {
     const uint32_t player = psx_mod_read_word(PLAYER_POINTER);
     double right, down;
     if (!aim.attached || player == 0 || cpu->gpr[REG_S0] != player ||
             psx_mod_read_word(player + PLAYER_STATE) != PLAYER_IN_PLAY ||
             !right_stick(&right, &down))
         return;
-    const double pitch = radians(psx_mod_read_word(player + PLAYER_PITCH));
-    const double yaw = radians(psx_mod_read_word(player + PLAYER_YAW));
-    const double screen_right[3] = {-cos(yaw), 0.0, sin(yaw)};
-    const double screen_down[3] = {-sin(pitch) * sin(yaw), -cos(pitch),
-                                   -sin(pitch) * cos(yaw)};
+    double screen_right[3], screen_down[3];
+    screen_axes(player, screen_right, screen_down);
     double force[3];
     for (uint32_t axis = 0; axis < 3; axis++)
         force[axis] = right * screen_right[axis] + down * screen_down[axis];
@@ -288,7 +347,18 @@ static void strafe_at_force_sum(struct CPUState* cpu, uint32_t address) {
         add_to_word(player + PLAYER_FORCE + 4u * axis, added);
         add_to_word(player + PLAYER_CAMERA_FORCE + 4u * axis, added);
     }
-    psx_mod_counter_add("omega.mouse-aim.strafed-steps", 1);
+    psx_mod_counter_add(counter, 1);
+}
+
+/* The instruction hooks at FORCE_SUM and SCAN_FORCE_SUM. */
+static void strafe_at_force_sum(struct CPUState* cpu, uint32_t address) {
+    (void)address;
+    strafe(cpu, heading_axes, "omega.mouse-aim.strafed-steps");
+}
+
+static void strafe_at_scan_force_sum(struct CPUState* cpu, uint32_t address) {
+    (void)address;
+    strafe(cpu, view_axes, "omega.mouse-aim.scan-strafed-steps");
 }
 
 static void release_mouse(void) {
@@ -385,4 +455,7 @@ PSX_MOD_CONSTRUCTOR(omega_register_mouse_aim) {
     (void)psx_mod_register_instruction_plugin("omega.mouse-aim", FORCE_SUM,
                                               FORCE_SUM_WORD,
                                               strafe_at_force_sum);
+    (void)psx_mod_register_instruction_plugin("omega.mouse-aim", SCAN_FORCE_SUM,
+                                              FORCE_SUM_WORD,
+                                              strafe_at_scan_force_sum);
 }
