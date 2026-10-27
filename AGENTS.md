@@ -466,6 +466,7 @@ setting (CONTROL SETUPS) at B, so that up flies the mech up, or at A with its
 option Invert vertical. The game saves TYPE with its environment data and reads
 it back from the card at the title screen, so a save made while the feature is
 on keeps that TYPE with the feature off too, until CONTROL SETUPS changes it.
+The strafe itself is in `src/mods/omega_strafe.c`, which Gamepad Strafe shares.
 The plugin counts its work as `omega.mouse-aim.*`. Beyond `mod_plugins.h` it
 relies on `psx_sdl.h` and `psx_keybinds_sticks()`, so a pin bump must check
 it again. The runtime discards a controller source's input in headless runs
@@ -485,6 +486,29 @@ error in them.
 `controls/keybinds.ini` is the keyboard layout made for it: copy it beside
 the executable as `keybinds.ini`, where windowed runs read it, or set the
 same keys on the launcher's Controls page.
+
+`omega.enhancement.gamepad-strafe` ("Gamepad Strafe", group Quality of Life,
+off by default) runs `omega.gamepad-strafe`
+(`src/mods/omega_gamepad_strafe.c`), for play with a gamepad. While it is on
+and the main loop runs CAMPAIGN PLAY, ZONE PLAY or TRAINING, player 1's right
+stick, which the game ignores in flight, strafes the mech through the strafe
+that Mouse Aim's keys use (`src/mods/omega_strafe.c`), from hooks of its own
+at the same two sites: along the same axes in both movements, with the same
+camera lag, and not in the third movement, at the option Strafe speed (default
+50) for a full push and less for a lighter one, with no strafe within the
+game's deadzone. The left stick steers as in the game. The plugin presents
+player 1 as an analog pad and leaves the TYPE setting alone, so the right
+stick strafes up when pushed up whatever TYPE says. A DEMONSTRATION replay
+runs in another state of the main loop, so a pushed stick does not change it,
+though the live stick reaches the pad record there; whether the replay that
+ZONE PLAY's results screen offers runs in a flight state is untested. While
+Mouse Aim drives player 1, its source replaces the gamepad's sticks and its
+keys strafe, so this plugin then does nothing
+(`omega_mouse_aim_drives_player_1()` in `src/mods/omega_mouse_aim.h`) and no
+step is strafed twice. It counts its work as `omega.gamepad-strafe.*`. Its
+hooks read the pad record, which the debug server's `set_input` axes also
+reach, so headless runs can drive it. Check its strafe's directions as Mouse
+Aim's are checked: against the game's own movement, from one save state.
 
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every

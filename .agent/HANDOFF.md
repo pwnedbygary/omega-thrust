@@ -18,30 +18,37 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 6 change 11, round 2: the hang in both route scripts
-that Phase 6 change 1's checks found, which the user placed just before the
-route-scripts refactor ("Its own change just before the route-scripts refactor,
-so the refactor starts from fixed scripts (Recommended)"). Invariant: a
-SIGTERM, SIGHUP or SIGINT that reaches `scripts/routes/run_route.py` or
-`scripts/routes/beetle_route.py` while it runs a route never starts an
-exception inside `Popen`: the handler only notes it, and the script's loops
-then stop the run, which stops the runtime or psx-beetle, records the run as
-failed with "stopped by <signal>" and exits with status 1, or by SIGINT for
-SIGINT. The same holds when the signal is sent to the script's whole process
-group, as a terminal sends Ctrl-C and a hang-up, so that it reaches the runtime
-or psx-beetle too. A signal that arrives as the route ends fails the run as
-well, none of these signals can interrupt the cleanup, a signal that the script
-started with ignored stays ignored, and a run that no signal reaches plays and
-records as before. Review round 1 found that a signal sent to the whole process
-group made the driver record psx-beetle's exit in its place and exit with
-status 1, also for SIGINT; that the observations' bound on how long a noted
-signal waits did not hold for the runner; and that the next action left out
-three items that the approved plan gives the route scripts. So round 2 lets a
-noted signal take precedence over a failure that comes after it, corrects both
-texts, and takes up the review's six suggestions. This file also records Phase
-6 change 10's round 5 PASS and its commit `27468b2`, and condenses change 10.
-Baseline: `27468b2`. Out of scope: the route-scripts refactor and the rest of
-the code-quality work (the next action), Mouse Aim and the framework.
+Current iteration, Phase 7 change 6, round 2: a strafe for gamepads, which the
+user chose as its own change before the route-script cleanup, after asking
+whether the strafe works with a controller ("Yes, as the next change, before
+the route-script cleanup (Recommended)"). Invariant: a new feature, Gamepad
+Strafe (`mods/preloaded/packages/omega.enhancement.gamepad-strafe/`, off by
+default, with its own Strafe speed), whose plugin
+(`src/mods/omega_gamepad_strafe.c`) strafes the mech with player 1's right
+stick, which a gamepad fills, while the main loop runs CAMPAIGN PLAY, ZONE PLAY
+or TRAINING. It strafes through the strafe that Mouse Aim's keys use, now in
+`src/mods/omega_strafe.c`, from its own hooks at the same two sites, so along
+the same axes in both movements and with the same camera lag; it presents
+player 1 as an analog pad, leaves the TYPE setting alone, and does nothing
+while Mouse Aim drives player 1, so that no step is strafed twice. Mouse Aim
+does as it did: its strafe moves to `omega_strafe.c` without a change in what
+it does. `game.toml`, `generated/` and the static shard's audit stay as they
+are. This file also records Phase 6 change 11's round 2 PASS and its commit
+`2d6f242`, condenses change 11, and records the user's trial of Phase 7
+change 5. Review round 1 found six places where the texts said more than the
+evidence, or other than it: how the replay probe read the pad record, a claim
+about every replay, the reason given for standing down, Gamepad Strafe's
+unknowns, missing from the hypotheses, an upstream issue's state, and
+`game.toml`'s comment on the hook sites, which names Mouse Aim alone. So round
+2 corrects the first five, the plugin's comment and the manifest's text among
+them, leaves the comment in `game.toml` to the next change, which regenerates
+anyway, and takes up the review's suggestions, one of which removes an include
+that `omega_strafe.h` does not use; both binaries stay as they were. Baseline:
+`2d6f242`. Out of scope: a strafe in the third movement, or one that pulls in
+SCAN as the game's slide does; any TYPE handling for the right stick; the
+widescreen mod, the CI release setup and the release, and the route-script
+cleanup and the rest of the code-quality work (the next action); and the
+framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1123,12 +1130,16 @@ and the nine with Mouse Aim on. Rounds 2 and 3 corrected texts and comments;
 round 2 also gave the plugin a type and a new name, and through `game.toml`'s
 comment changed three values of the static shard's audit. Both binaries stayed
 the same through the three rounds (build-dev `7c234043`, build-release
-`3781e02a`), so the runs hold for the final tree. Review: round 1 NEEDS CHANGES
-(four Lows in the texts: the slide's pull, the third movement, the speed in
-SCAN worded as caused by the view's turn, and a direction check that needs
-Invert vertical off), round 2 NEEDS CHANGES (one Low: the third movement lasts
-18 steps or 6), round 3 PASS on tree `f850389` (staged diff `59c6f9ba…`).
-Reports: `phase7-5/review-r1.md`, `phase7-5/r2/review-r2.md` and
+`3781e02a`), so the runs hold for the final tree. The user then flew it on the
+desktop through the 5TH ZONE, LLE on the SCPH-1001 dump, at Strafe speed 80
+(`phase7-5/play-01/`, its mod selection in `phase7-5/play-01/mods-state.toml`;
+no unknown dispatch or segment miss), and reported: "I tested it out through
+zone 5, and it feels pretty good." Review: round 1 NEEDS CHANGES (four Lows in
+the texts: the slide's pull, the third movement, the speed in SCAN worded as
+caused by the view's turn, and a direction check that needs Invert vertical
+off), round 2 NEEDS CHANGES (one Low: the third movement lasts 18 steps or 6),
+round 3 PASS on tree `f850389` (staged diff `59c6f9ba…`). Reports:
+`phase7-5/review-r1.md`, `phase7-5/r2/review-r2.md` and
 `phase7-5/r3/review-r3.md`; full record: `git show cd5273e:.agent/HANDOFF.md`.
 
 ## Phase 6 change 9 (commit `287cd6a`)
@@ -1214,325 +1225,328 @@ Low each, in this file's next action and review state), round 5 PASS on tree
 `phase6-10/r4/review-r4.md` and `phase6-10/r5/review-r5.md`; full record:
 `git show 27468b2:.agent/HANDOFF.md`.
 
-## Phase 6 change 11 observations (`.cache/evidence/phase6-11/`)
+## Phase 6 change 11 (commit `2d6f242`)
 
-- The hang that Phase 6 change 1's checks found (`phase6-1/lock_leak.py`,
-  `.log`): both route scripts' SIGTERM and SIGHUP handler raised `SystemExit`
-  wherever the main thread was. CPython 3.14.8's `Popen.poll()` takes the
-  child's waitpid lock before the try whose `finally` releases it
-  (`subprocess.py`, `Popen._internal_poll()`, lines 2014 to 2035), so an
-  exception that a handler raised in between left the lock taken, and the last
-  wait for the child in the scripts' `stop()`, which takes the lock
-  (`Popen._wait()`, line 2081), then blocked forever. Ctrl-C's
-  `KeyboardInterrupt` could do the same (change 1 derived it from the source).
-- `scripts/routes/signal_in_poll.py` runs a route script with a signal sent
-  from inside the child's first `poll()`, right after the lock is taken,
-  through a wrapper around that lock. On commit `27468b2`'s scripts, the runner
-  and the driver were still running at the tests' 20 s timeout after each of
-  SIGTERM, SIGHUP and SIGINT came there (`tests-red.log`).
-- The agent's shell starts programs with SIGHUP, SIGINT and SIGQUIT ignored
-  (`SigIgn` 7 in `/proc/self/status`), and the scripts leave a signal that they
-  start with ignored as it is, as `nohup` leaves SIGHUP. So `signal_in_poll.py`
-  and `shell_loop.py` first set the handlers that a terminal leaves, and the
-  tests that round 2 adds start the scripts with them (`inherited_signals()`).
-- A handler that only notes the signal lets a blocking call go on after it (PEP
-  475): `time.sleep()`, and a socket's `recv()`, which times out after 5 s in
-  the runner's queries (`run_route.ask()`) and after 10 s on the driver's
-  connection. So a noted signal waits for the calls in flight before the next
-  check. The driver waits for one reply at a time, so a psx-beetle that stops
-  answering fails the run with "debug connection failed" within 10 s, and since
-  round 2 the noted signal is then recorded in that failure's place. The
-  runner, between two checks, asks for the route's status and then makes up to
-  five queries for each shot that has fallen due (`evidence()`), and four more
-  for the route's last record once it has ended, each on a new connection with
-  its own timeout. So a runtime that stops answering can hold a stop for 5 s a
-  query, 25 s for each such shot: review round 1 measured 25.1 s from a SIGTERM
-  that came at a shot's first query, with a fake runtime that left the shot's
-  queries unanswered, where round 1 had given a socket's timeout as the most a
-  stop waits. With a runtime that answers, the queries take milliseconds
-  (derived from the source).
-- A terminal sends Ctrl-C and a hang-up to its whole foreground process group,
-  and the runtime and psx-beetle run in the script's process group, as a child
-  does by default, so they get the signal too (review round 1). psx-runtime
-  exits with status 0 on SIGINT and SIGTERM
-  (`psxrecomp/runtime/src/crash_trace.c:905-916`, `:955-956`), and SIGHUP's
-  default action ends it. psx-beetle's SDL, by its default, turns SIGINT and
-  SIGTERM into a quit, which psx-beetle's frame loop takes before it serves the
-  debug connection (`psxrecomp/runtime/src/beetle_main.cpp:103`, `:208-226`),
-  and SIGHUP ends it. The driver, which waits for a ping's reply, then finds
-  the connection closed before its next check, and round 1 recorded "psx-beetle
-  exited during the route" and exited with status 1, also for SIGINT, so that a
-  shell loop around it ran on. The runner checks at the top of its loops,
-  before it asks the runtime anything, so the same could happen to it only with
-  a request in flight. So round 2 lets the signal take precedence: a
-  `RouteError` raised once a signal has been noted gives way to the signal's
-  own exception (`StopSignals.checked()`). Starting the child in a session or
-  process group of its own would also keep the terminal's signals from it, but
-  then a signal sent to the whole job, such as Ctrl-Z, Ctrl-\ or a `kill -9` to
-  the group, would no longer reach it either, and the runtime or psx-beetle
-  could outlive its script.
-- Python ends by SIGINT when a `KeyboardInterrupt` reaches the top, and a shell
-  that runs the script in a loop then leaves the loop, while a script that
-  exits with status 1 lets it run on. `shell_loop.py` / `.log` shows both with
-  bash: with a `check()` that raises `KeyboardInterrupt` for SIGINT, as the
-  scripts' now does, bash ended by SIGINT after the first pass; with one that
-  raises `SystemExit`, it ran the second pass. So, where the approved plan has
-  the loops raise `SystemExit`, they raise `KeyboardInterrupt` for SIGINT. Its
-  waiter has no child, though; the tests of a signal to the process group show
-  both scripts ending by SIGINT when the signal reaches their child as well.
-- The audit asks to keep ignoring SIGTERM and SIGHUP during the cleanup, so
-  that a second signal cannot interrupt it and orphan the runtime
-  (`code-quality/audit-r1.md`, line 221). A handler that only notes cannot
-  interrupt the cleanup, so the scripts no longer change their handlers there.
-  A signal that comes during the cleanup, after the last check, has no effect:
-  the script records the run and exits as it would have without it. Before the
-  fix, the cleanup ignored SIGTERM and SIGHUP in the same way, while SIGINT
-  could interrupt it (derived from the source, not run).
+The hang in both route scripts that Phase 6 change 1's checks found
+(`phase6-1/lock_leak.py`, `.log`), fixed as its own change just before the
+route-scripts refactor, where the user placed it ("Its own change just before
+the route-scripts refactor, so the refactor starts from fixed scripts
+(Recommended)"). Both scripts' SIGTERM and SIGHUP handler raised `SystemExit`
+wherever the main thread was. CPython 3.14.8's `Popen.poll()` takes the child's
+waitpid lock before the try whose `finally` releases it (`subprocess.py`, lines
+2014 to 2035), so an exception raised in between left the lock taken, and the
+cleanup's last wait for the child, which takes the lock (line 2081), blocked
+forever; Ctrl-C's `KeyboardInterrupt` could do the same. Now `run_route.py`'s
+`StopSignals`, whose one instance `stop_signals` `beetle_route.py` imports,
+gives SIGTERM, SIGHUP and SIGINT, where they keep Python's default handling, a
+handler that only notes the first. Both scripts check at the top of their wait
+loops and run the route inside `checked()`, which checks at the block's end and
+before a `RouteError` leaves the block, so that a noted signal takes precedence
+over a failure that comes after it: review round 1 found that a terminal's
+Ctrl-C or hang-up, which goes to the whole process group, also reaches the
+runtime or psx-beetle, which then exits, and the driver recorded psx-beetle's
+exit in the signal's place (derived from both programs' source and SDL's
+documented default, and reproduced with the tests' fakes). Starting the child
+in a process group of its own was not chosen, since a signal sent to the whole
+job would then miss it. A check raises `SystemExit("stopped by <signal>")`, or
+`KeyboardInterrupt` for SIGINT, where the approved plan had `SystemExit` for
+all three, so that a script still ends by SIGINT and a shell loop around it
+stops (`phase6-11/shell_loop.py` / `.log`). A signal that the script started
+with ignored, as `nohup` leaves SIGHUP, stays ignored. The audit asked the
+cleanup to keep ignoring SIGTERM and SIGHUP, so that a second signal cannot
+interrupt it (`code-quality/audit-r1.md`, line 221); a handler that only notes
+cannot interrupt it, so the scripts no longer switch the signals there. A noted
+signal waits for the calls in flight (PEP 475): a psx-beetle that stops
+answering fails the run within the connection's 10 s, while a runtime that
+stops answering can hold a stop for 5 s a query and 25 s for each shot that
+falls due (review round 1 measured 25.1 s with a fake runtime). The tests'
+helper `scripts/routes/signal_in_poll.py` sends a signal from inside the
+child's first `poll()`, right after the lock is taken; on commit `27468b2`'s
+scripts the six cases, three signals for each script, time out
+(`phase6-11/tests-red.log`, `phase6-11/regression.sh` / `.log`). With the fix
+`test_run_route.py` (21 tests), `test_beetle_route.py` (22) and
+`test_routes.py` (5) pass, among them round 2's tests of a signal to the
+process group, which round 1's scripts fail (`phase6-11/r2/red.sh`,
+`phase6-11/r2/group_records.sh` / `.log`), and of a signal ignored at start;
+each of 13 bugs planted in the fix fails a test (`phase6-11/r2/mutations.log`).
 
-## Phase 6 change 11 changes
+With round 2's scripts all 22 routes pass in the three runtime modes, each
+run's probe the same as in round 1's batch but for four counters of how far the
+run had got when the probe sampled it, and the memcard route's cards byte for
+byte (`phase6-11/r2/routes.sh`, `phase6-11/r2/probe_fields.log`); the lists of
+results shots differ from round 1's in 9 of 57, eight by one shot as the screen
+comes or goes and one by an early shot of the kind that change 5's batch took
+(`phase6-11/r2/clear_time_check.log`). In the two Beetle modes, four of the
+first 15 attempts landed a shot one frame late, while ananicy held the batch at
+nice -4 and then a watcher held it at 5, on a host whose load, 10 to 13 as read
+during the run, no log records. The resource coordinator then had the Beetle
+runs held at exactly 0 (`phase6-11/r2/nicewatch2.py` / `.log`): all 32 later
+attempts passed at their first try, and no driver or psx-beetle was off 0 after
+its first quarter second. With the run that had failed twice passing when run
+again at the batch's end (`phase6-11/r2/beetle_reruns.log`), the 1,368
+screenshots, 88 cards and 44 result files match round 1's batch byte for byte.
+Round 1's batches compared the same way with change 5's runtime batch and Phase
+6 change 1's Beetle batch, every Beetle run passing at its first attempt. A run
+of the checks during the host fault of 12:09 does not count
+(`phase6-11/checks-p6-11-crashed.log`, `phase6-11/host-fault.log`). Review:
+round 1 NEEDS CHANGES on tree `bc7a151` (staged diff `0756cc70…`), with one
+Medium (a signal to the whole process group recorded as psx-beetle's exit, with
+status 1 also for SIGINT) and two Lows (the runner's bound on a stop's wait,
+and three items of the approved plan missing from the next action); round 2
+PASS on tree `7e11d2f` (staged diff `b0b85a73…`). Reports:
+`phase6-11/review-r1.md` and `phase6-11/r2/review-r2.md`; full record:
+`git show 2d6f242:.agent/HANDOFF.md`.
 
-- `scripts/routes/run_route.py`: `StopSignals`, with one instance,
-  `stop_signals`. `install()` gives SIGTERM, SIGHUP and SIGINT, where they keep
-  Python's default handling, the handler `note()`, which records the first;
-  `check()` raises `SystemExit("stopped by <signal>")`, or `KeyboardInterrupt`
-  for SIGINT; and the context manager `checked()` runs `check()` at its block's
-  end, and before a `RouteError` leaves the block (round 2). `wait_for_boot()`
-  and `play()` call `check()` at the top of their loops, and `main()` runs the
-  route inside `checked()`, where round 1 called `check()` after the route;
-  `stop_on_signal()` is gone, and so is the switch to ignoring the signals in
-  the cleanup. Round 2 also corrects two phrases of the class's docstring: a
-  wait for the child blocks forever only without a timeout, and it is these
-  signals that cannot interrupt the cleanup.
-- `scripts/routes/beetle_route.py`: it imports `stop_signals` from `run_route`,
-  as it imports `RouteError`; `wait_for_boot()` and `play()`'s `advance()` call
-  `check()` at the top of their loops, and `main()` runs the route inside
-  `checked()`, where round 1 called `check()` after the route; its
-  `stop_on_signal()` and its switch to ignoring are gone.
-- `scripts/routes/signal_in_poll.py` (new), executable since round 2, like the
-  other scripts with a shebang: the tests' helper of the observations.
-- `scripts/routes/test_run_route.py` (21 tests):
-  `test_a_signal_inside_poll_stops_the_runtime` runs the runner through the
-  helper for each of the three signals, the fake runtime starting slowly (its
-  new behaviour `slowstart`, no LISTENING line for 2 s): the runner stops the
-  fake before the route starts, records "stopped by <signal>" and exits 1, or
-  by SIGINT for SIGINT. In `test_a_signal_as_the_route_ends_fails_the_run`, the
-  fake sends the runner SIGTERM as it records the route's end (the behaviour
-  `signalatend`, which since round 2 sends the signal that `FAKE_SIGNAL` names,
-  if any). Round 2 adds `test_a_signal_to_the_process_group_stops_the_runtime`,
-  in which the runner runs, for each signal, in a session of its own with a
-  terminal's handlers (`TERMINAL`, through `inherited_signals()`), and the
-  fake, asked to start the route, signals that group and exits without a reply
-  (the behaviour `groupsignal`): the runner records the signal, not the failed
-  request. And `test_a_signal_ignored_at_start_stays_ignored`, in which the
-  runner, started with SIGHUP ignored, passes although the fake sends it SIGHUP
-  as the route ends.
-- `scripts/routes/test_beetle_route.py` (22 tests):
-  `test_a_signal_inside_poll_stops_beetle` does the same with the driver, which
-  stops the fake psx-beetle before it connects; in
-  `test_a_signal_as_the_route_ends_fails_the_run`, the fake sends the driver
-  SIGTERM with the ping that reports frame 520, where `SHORT` ends.
-  `test_sigterm_stops_beetle` now kills a driver that outlives its wait, as the
-  runner's test does, and checks that no shot was taken. Round 2 adds the same
-  two tests for the driver, its fake signalling the group with the first ping
-  from frame 350, in `SHORT`'s first step, and then quitting as psx-beetle
-  does. The fake now quits on SIGINT as on SIGTERM, saving its cards, as
-  psx-beetle's SDL makes it, and `env()` builds the fake's environment, as in
-  the runner's tests, where three tests built it by hand.
-- `.agent/HANDOFF.md`: the scope; change 10 condensed; these sections; the
-  review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase6-11/`, with round 2's evidence in
-  its `r2/`, and change 10's round 5 report `phase6-10/r5/review-r5.md` with
-  its header and its commit message `phase6-10/commit-msg.txt`.
+## Phase 7 change 6 observations (`.cache/evidence/phase7-6/`)
 
-## Phase 6 change 11 checks
+- The user asked whether the strafe works with a controller. It did not: Mouse
+  Aim's controller source replaces player 1's sticks while it is attached in
+  flight (`mouse_source()` in `src/mods/omega_mouse_aim.c`; the runtime takes a
+  source's sticks and merges only its buttons with the pad's,
+  `psxrecomp/runtime/src/pad_external_input.c:22-27`), and its hooks strafe
+  only while the source is attached, so a gamepad's right stick never strafed,
+  with Mouse Aim on or off. The play copy's settings
+  (`.cache/play/build/settings.toml`) put player 1 on an Xbox 360-type
+  controller (USB ids 045e:028e) in analog mode.
+- Without a source, the runtime fills the pad's right stick from a controller's
+  right stick (`pad_sticks_for()`, `psxrecomp/runtime/src/main.cpp:5300`),
+  which reaches bytes 4 and 5 of the pad record that the strafe reads; the game
+  ignores the right stick in flight (Phase 7 change 3). Both hook sites are
+  already in `game.toml`, and the static shard's audit hashes only the mod
+  packages that `aot/overlays.json` names, which are none
+  (`psxrecomp/tools/aot_overlay_pipeline.py:956`), so a new package and plugin
+  need no regenerate.
+- Several plugins may hook one instruction, each under its own plugin id (Phase
+  7 change 5), but the mod API cannot tell a plugin whether another plugin's
+  source or feature is active (`psxrecomp/runtime/include/mod_plugins.h`). With
+  both features on, both plugins' hooks run, and the pad record's right stick
+  then holds Mouse Aim's keys, which would be strafed twice. A package could
+  declare that it conflicts with the other, and the runtime would then refuse
+  to launch while a feature of each is enabled
+  (`psxrecomp/runtime/src/mod_packages.cpp`, lines 1774 to 1777, 3498 and 3514
+  to 3516). Standing down at run time lets both be on: Gamepad Strafe asks
+  Mouse Aim (`omega_mouse_aim_drives_player_1()`) and leaves the strafe to it
+  while Mouse Aim's source drives player 1. Review round 1 found that this
+  bullet first said that a package cannot declare a conflict.
+- Phase 7 change 3's feature-on runs of demo_zone1 found that Mouse Aim never
+  attached in a DEMONSTRATION replay, so such a replay runs in a state of the
+  main loop other than CAMPAIGN PLAY, ZONE PLAY and TRAINING (8, 9 and 11), the
+  states in which Mouse Aim drives player 1; this change's replay probe found
+  state 5. Without a check of its own, Gamepad Strafe would strafe such a
+  replay while the stick was pushed, so it strafes only in those three states.
+  Whether other replays run in another state too is not known. ZONE PLAY's
+  handler (0x8002FD44), like the DEMONSTRATION's (0x8002F7BC), calls
+  0x8002D1E8, which calls the replay player's step (0x80077228) at 0x8002D698,
+  so the replay that ZONE PLAY's results screen offers (START REPLAY) may run
+  in state 9, where both plugins would strafe it; or ZONE PLAY may call
+  0x8002D1E8 only to fly its zone live (review round 1; read from the code, not
+  run).
 
-- `tests-red.log`: the new tests and helper against commit `27468b2`'s scripts.
-  The two tests of a signal inside `poll()` time out in all six cases, the
-  three signals for each script; the other tests pass, among them the two of a
-  signal as the route ends, which failed the run before as well, and
-  `test_sigterm_stops_beetle` as changed.
-- `regression.sh` / `.log` repeats that run in a scratch copy, with commit
-  `27468b2`'s scripts beside the working tree's tests and helper, so that the
-  checks can repeat it: the same six cases time out, each with a
-  `subprocess.TimeoutExpired`, and every other test passes.
-- `tests-green.log`: with the fix, `test_run_route.py` (19),
-  `test_beetle_route.py` (20) and `test_routes.py` (5) pass, with nothing left
-  in `TMPDIR` and no `__pycache__`; pyflakes finds nothing in
-  `scripts/routes/`.
-- `shell_loop.py` / `.log`: the observations' shell loop.
-- `mutations.py` / `.log` plants ten bugs in a copy of `scripts/routes`, one at
-  a time, and runs the test files that cover each: the handler raising at once,
-  as before the fix; SIGINT left to Python's handler; SIGHUP not handled;
-  SIGINT raising `SystemExit`; and each of the six checks removed. Each fails
-  the tests meant for it: the first four the tests of a signal inside `poll()`;
-  a missing check in a wait for boot the same test of that script, which then
-  starts the route or connects; a missing check in the runner's route loop or
-  the driver's `advance()` the test of SIGTERM during the route; and a missing
-  check after the route the test of a signal as the route ends. With SIGHUP not
-  handled, the SIGHUP case kills the script outright, and its fake, which had
-  not yet written its pid when the SIGINT case cleared the state, is counted as
-  left by that case as well. The copy as it is passes both test files and
-  leaves nothing behind.
-- `routes.sh` / `.log` played all 22 routes in the three runtime modes with the
-  changed runner, on `build-dev`, whose binary is Phase 7 change 5's, every
-  feature off. All 66 runs pass, and the binary, the unlocked save and
-  `run_route.py` were the same before and after (`inputs-before-routes.sha256`,
-  `inputs-after-routes.sha256`). Against change 5's batch, now in
-  `routes-before/`, which ran the same binary with commit `27468b2`'s runner,
-  each run's probe differs only in four counters of how far the run had got
-  when the probe sampled it: the frame, and the instructions, blocks and native
-  handoffs run (`probe_fields.py` / `.log`). The memcard route's six cards
-  match change 5's byte for byte, and `card_check.log` finds no problem, the
-  unlocked save unchanged. The largest lag of a run's shots behind the ends of
-  their steps runs from 11 to 17 frames, with a median of 14 as in change 5's
-  batch, and is higher than there in 26 runs and lower in 26
-  (`routes_summary.log`). `clear_time_check.log` finds each demonstration's
-  results screen; its lists of the shots that show it differ from change 5's
-  batch in 8 of 57: in seven, those of the 8TH ZONE, U3 and U5, by one shot as
-  the screen comes or goes, and in the LAST ZONE's in lle-openbios by a shot at
-  t04800, long before the screen, that change 5's batch took for it. These are
-  the kinds of difference that change 5's batch showed against change 3's.
-- `beetle_routes.sh` / `.log` played all 22 routes in the two Beetle modes with
-  the changed driver: every run passed at its first attempt (`beetle-failed/`
-  is empty), with every press and shot on its frame. psx-beetle, the unlocked
-  save and both scripts were the same before and after
-  (`beetle-inputs-before.sha256`, `beetle-inputs-after.sha256`). Against
-  Phase 6 change 1's batch, now in `beetle-routes-before/`, which ran the same
-  psx-beetle with the driver as it stood when that batch ran, whose hash
-  differs from that of the driver change 1 committed
-  (`phase6-1/inputs-before.sha256`), every run holds the same files, and
-  `phase6-1/batch_compare.py` finds the 1,368 screenshots, 88 cards and 44
-  result files byte-identical, and the Beetle log of every run the same
-  (`batch_compare.log`).
-- `checks-p6-11.sh` / `.log` on the staged tree: the tree and the staged files,
-  and that nothing else changes; the scripts' changes, with nothing left of the
-  old handling, and where they install and check the signals; the handoff's
-  parts that must equal HEAD's, the words changed in its scope and next action,
-  and its text (placeholders, blank lines, headings, line lengths, reflow
-  leftovers, local paths, cited paths); the gates, the pins and the submodules;
-  change 10's round 5 report against session message 2327, and commit
-  `27468b2`'s message against `phase6-10/commit-msg.txt`; pyflakes; the four
-  test files, the Beetle driver's in up to three runs; `regression.sh`,
-  `mutations.py` and `shell_loop.py` against their logs; and both batches from
-  their logs and outputs, with the probes, the cards, the results shots and the
-  shots' lag compared with change 5's batch. All pass. Its first run
-  (`checks-p6-11-first.log`), on an earlier tree, passed as well, but the
-  Beetle driver's tests only at their second run: the first failed
-  `test_a_ping_reply_without_a_frame_fails_the_run`, and the script, which then
-  kept no message, now prints a failing run's assertions. A second run
-  (`checks-p6-11-crashed.log`), on an earlier tree, does not count: from
-  12:09:53 to 12:11:00, seven processes on the host crashed, `mutations.py`
-  among them, with a failed assertion in glibc's malloc, seconds after two
-  services had begun to report memory pressure and the kernel had warned 25
-  times in its DMA unmapping for an NVMe drive (`host-fault.log`). What crashed
-  them is not established. The run above came after a restart.
-- Between those two runs, `ping_flake.py` / `.log` ran the test that the first
-  run failed: 15 times on the staged scripts and 15 times on commit
-  `27468b2`'s, taking turns, at a load of about 5 on 16 cores. It failed in
-  none. In four of its six cases the run must fail on the reply without a frame
-  number to the ping that goes with the route's first press or shot, which the
-  driver sends on the frame before that event, following the fake psx-beetle's
-  free frame clock; if the host holds the driver back past that frame, the run
-  fails with a late event instead, as did the tests that
-  `phase6-1/r3/suite_probe.log` found failing on a busy host. In the other two
-  the run fails on its first ping, before any event can be late. The change
-  adds to the driver's loops only a check that returns at once while no signal
-  has come, and to the fake only behaviours that this test does not ask for
-  (derived). What failed the first run is not known; a late event is a
-  hypothesis.
-- Round 2's evidence is in `r2/`. `r2/tests-green.log`: with round 2's scripts,
-  `test_run_route.py` (21), `test_beetle_route.py` (22) and `test_routes.py`
-  (5) pass, with nothing left in `TMPDIR` and no `__pycache__`.
-- `r2/red.sh` / `r2/tests-red.log`: round 2's tests and helper against round
-  1's scripts, the blobs of round 1's frozen index
-  (`snapshot/index-entries.txt`): the two tests of a signal to the process
-  group fail in all six cases, and every other test passes.
-  `r2/group_records.sh` / `.log` prints those cases' records. For SIGTERM and
-  SIGHUP the runner recorded the request that the runtime's exit had failed
-  ("input_route_start failed: empty reply to input_route_start", with the
-  runtime's exit code), and the driver psx-beetle's exit ("psx-beetle exited
-  during the route"), as review round 1 found; for SIGINT both exited with
-  status 1 rather than by SIGINT.
-- `r2/regression.log`, from `regression.sh` with round 2's tests: against
-  commit `27468b2`'s scripts, the six cases of a signal inside `poll()` time
-  out as before, and of the tests of a signal to the process group only the
-  SIGINT case fails, in each script. There both scripts exited by SIGINT but
-  recorded a bare `KeyboardInterrupt` ("runner stopped: KeyboardInterrupt: ",
-  and the driver's alike), without the signal's name (`r2/group_records.log`).
-  So the records that review round 1 found came with round 1.
-- `r2/mutations.py` / `.log` plants 13 bugs. Round 1's two checks after the
-  route are gone, since `checked()` now makes that check, so it keeps round 1's
-  other eight and adds five: each script's route run outside `checked()`;
-  `checked()` letting a `RouteError` through after a signal, or making no check
-  at its block's end; and `install()` taking over a signal that the script
-  started with ignored. Each fails the tests meant for it, the five new ones
-  the tests of a signal to the process group, of a signal as the route ends and
-  of a signal ignored at start. With SIGHUP not handled, the SIGINT cases of a
-  signal inside `poll()` fail as well, as in round 1. Nothing is left behind,
-  and the copy as it is passes both test files.
-- `r2/step2.sh` / `.log` ran these four one at a time, from 22:19 to 22:37,
-  each under `nice -n 5` from the script's bash, which ananicy keeps at nice -4
-  or -3 (the watchers below found it there), so at +1 or +2 rather than the
-  nice 5 intended (derived, not measured).
-- `r2/routes.sh` / `r2/routes.log` played all 22 routes in the three runtime
-  modes with round 2's runner, on `build-dev`, whose binary is still Phase 7
-  change 5's, every feature off. All 66 runs pass, and the binary, the unlocked
-  save and `run_route.py` were the same before and after
-  (`r2/inputs-before-routes.sha256`, `r2/inputs-after-routes.sha256`). Against
-  round 1's batch, now in `r2/routes-before/`, each run's probe differs only in
-  the four counters of how far the run had got when the probe sampled it
-  (`r2/probe_fields.py` / `.log`), and the memcard route's six cards match byte
-  for byte; `r2/card_check.log` finds no problem, the unlocked save unchanged.
-  The largest lag of a run's shots behind the ends of their steps runs from 7
-  to 17 frames, with a median of 13 against round 1's 14, and is lower than
-  there in 34 runs and higher in 14 (`r2/routes_summary.log`).
-  `r2/clear_time_check.log` finds each demonstration's results screen. Its
-  lists of the shots that show it differ from round 1's in 9 of 57: in eight,
-  those of the 6TH ZONE, the 8TH ZONE and U3, by one shot as the screen comes
-  or goes, and in the LAST ZONE's in lle-scph1001 by a shot at t04800, long
-  before the screen, of the kind that change 5's batch took for it in
-  lle-openbios.
-- `r2/beetle_routes.sh` / `r2/beetle_routes.log` played all 22 routes in the
-  two Beetle modes with round 2's driver; psx-beetle, the unlocked save and
-  both scripts were the same before and after
-  (`r2/beetle-inputs-before.sha256`, `r2/beetle-inputs-after.sha256`). Four of
-  its 47 attempts failed because a shot landed one frame late, each now kept
-  with its log in `r2/beetle-failed/`: demo-zone2 in lle-scph1001 and
-  demo-zone4 in lle-openbios passed at their second attempt, and demo-zone3 in
-  lle-openbios failed at both, so `r2/batch_compare.log` found that run's files
-  differing from round 1's batch, now in `r2/beetle-routes-before/`, and
-  nothing else.
-- The two batches ran side by side from 22:45:21, as round 1's did: the runtime
-  batch until 00:29:33 and the Beetle batch until 23:35:59. Both were started
-  under `nice -n 5`, but ananicy holds bash at -4, so they and the programs
-  they started ran at -4 until 22:48:51: the first three runtime runs and the
-  first four Beetle attempts. From then, `r2/nicewatch.py` / `r2/nicewatch.log`
-  raised every thread of both batches below nice 5 to 5. The four Beetle
-  attempts started before 22:48:51 had one late shot, and the eleven started
-  from then at 5, on a host at a load of 10 to 13, had three. So the resource
-  coordinator had the Beetle runs held at exactly 0 from the batch's next run,
-  the runtime batch keeping its floor of 5; round 1's batches had run below
-  nice 0, since ananicy held their bash at -4 (derived, not measured).
-  `r2/nicewatch2.py` / `r2/nicewatch2.log` did that from 23:02:43, and all 32
-  attempts started from then on passed at their first try. In three of them the
-  driver began at -4, and in two of those psx-beetle too, inherited from the
-  batch's bash, which ananicy kept moving back to -4; the watcher set them to 0
-  within its quarter-second poll. It found no program off 0 later in its run,
-  and every value it set took.
-- At the batch's end, `r2/beetle_reruns.sh` / `r2/beetle_reruns.log` ran
-  demo-zone3 in lle-openbios once more, as the coordinator set: unpaced, with
-  the batch's command, at nice 0 (`r2/nicewatch2-reruns.log`), after keeping
-  its second failed attempt in `r2/beetle-failed/`. It passed with every event
-  on its frame, and with it in place `r2/batch_compare-after-reruns.log` finds
-  the 1,368 screenshots, 88 cards and 44 result files byte-identical to round
-  1's batch, and every run's Beetle log the same.
-- `r2/checks-p6-11-r2.sh` / `.log` repeats round 1's checks on the staged tree,
-  and also compares the index with round 1's frozen entries and each file with
-  its round 1 blob, matches round 1's report against session message 849, runs
-  `r2/red.sh`, `regression.sh`, `r2/group_records.sh` and `r2/mutations.py`
-  against their logs, and reads round 2's batches, the re-run and the watchers'
-  logs, comparing the probes, the cards, the results shots and the shots' lag
-  with round 1's batch. All pass.
+## Phase 7 change 6 changes
+
+- `src/mods/omega_strafe.h` and `src/mods/omega_strafe.c` (new): the strafe,
+  moved from `omega_mouse_aim.c` with its constants, four of which the header
+  now holds under the prefix `OMEGA_STRAFE_`, and with the comments above them,
+  word for word but for the long comment on the movements, the axes and the
+  camera, which no longer names the mouse or the keys, names the cruising force
+  by its new name and leaves the cruising speed to the header's comment
+  (`moved_code.py` / `.log`). `strafe()` becomes `omega_strafe()`, which takes
+  the movement (`OMEGA_STRAFE_USUAL` or `OMEGA_STRAFE_SCAN`), which chooses the
+  axes, and the force of a full push, and returns whether it strafed; the
+  header holds the hook sites, their instruction word and the cruising force.
+  Round 2 removes an include from the header, `<stdint.h>`, which nothing in it
+  uses.
+- `src/mods/omega_mouse_aim.c`: its hooks call `omega_strafe()` while the
+  source is attached and count as before; the new
+  `omega_mouse_aim_drives_player_1()`, which `src/mods/omega_mouse_aim.h` (new)
+  declares; the header comment names `omega_strafe.c`.
+- `src/mods/omega_gamepad_strafe.c` (new): the plugin `omega.gamepad-strafe`.
+  At session start it reads its Strafe speed and presents player 1 as an analog
+  pad; its hooks at the two sites call `omega_strafe()` while the main loop
+  runs CAMPAIGN PLAY, ZONE PLAY or TRAINING and Mouse Aim does not drive player
+  1, and count `omega.gamepad-strafe.strafed-steps` or `.scan-strafed-steps`.
+  Its comment on that check said that it kept the stick out of every replay; in
+  round 2 it names DEMONSTRATION replays and says that it is not known for the
+  replay that ZONE PLAY's results screen offers.
+- The package `omega.enhancement.gamepad-strafe` (new), whose manifest in
+  `mods/preloaded/packages/omega.enhancement.gamepad-strafe/1.0.0/` holds the
+  feature `gamepad-strafe` ("Gamepad Strafe", group Quality of Life, off by
+  default), its option Strafe speed (10 to 100 in steps of 10, default 50), and
+  the plugin. Round 2 narrows the feature's sentence on replays to the
+  demonstrations of the REPLAY menu.
+- `CMakeLists.txt`: `EXTRAS_SOURCES` adds `omega_gamepad_strafe.c` and
+  `omega_strafe.c`, and its comment names the shared file.
+- `AGENTS.md`: a sentence in Mouse Aim's paragraph on the shared strafe, and a
+  paragraph on Gamepad Strafe, whose sentence on replays round 2 narrows in the
+  same way.
+- `.agent/HANDOFF.md`: the scope; change 11 condensed, and change 5's trial;
+  these sections; the hypotheses; the review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase7-6/`, with round 2's evidence in
+  its `r2/` and round 1's report `review-r1.md` with its header, and change
+  11's round 2 report `phase6-11/r2/review-r2.md` with its header and its
+  commit message `phase6-11/commit-msg.txt`.
+
+## Phase 7 change 6 checks
+
+- `harness/harness.py` / `harness/harness.log`, on the host: `harness/driver.c`
+  and `harness/stubs.c`, which give the plugins the mod API as stubs on a fake
+  RAM, linked once with commit `2d6f242`'s `omega_mouse_aim.c` and once with
+  this change's three sources, both with `cc -O3`, as `build-dev` compiles the
+  plugins. On the same 200,000 random cases (the main loop's state, the
+  player's pointer, state, angles, view rotation and force words, the pad
+  record and the stage's scroll flag, at either site), the new Mouse Aim's
+  lines equal the old one's byte for byte; Gamepad Strafe alone adds the forces
+  that the old Mouse Aim added, which strafed in 64,553 of the cases; and with
+  both on, the lines equal the old Mouse Aim's, Gamepad Strafe adding nothing.
+  Six bugs planted one at a time each change exactly the comparisons expected:
+  the camera's force words left out, a stick on the deadzone's edge strafing,
+  SCAN's movement given the heading's axes, Mouse Aim strafing while detached,
+  and Gamepad Strafe strafing while Mouse Aim drives player 1 or outside
+  flight. Its first run (`harness/harness-first.log`) printed the previous
+  case's force words for a case without a player object, which inflated the
+  planted bugs' counts but changed no result. These are host runs of the
+  plugins' C against stubs, not runs of the runtime.
+- `build-dev.log` and `build-release.log`: the documented build commands re-ran
+  CMake, as the change to `CMakeLists.txt` requires, which rewrote the
+  generated `psx_bios_registry.c` in each build directory
+  (`psxrecomp/runtime/runtime.cmake:785`). They compiled it and the three
+  plugin sources with no warning, and staged a catalog of 11 packages, 5 of
+  them the game's. The binaries went from Phase 7 change 5's, `7c234043…` in
+  `build-dev` and `3781e02a…` in `build-release`, to `81643830…` and
+  `84f6af2c…` (`binaries-before.sha256`, `binaries-after.sha256`).
+- `strict_compile.py` / `.log`: each of the three plugin sources, compiled
+  alone with `build-dev`'s own command and strict warnings as errors, once with
+  GCC 16.2.1 and once with clang 23.1.3, gave no message.
+- `plugin-audit.log`: both builds pass, with 11 manifests, 11 declared ids and
+  9 registered ids; the list of registered ids leaves out the two plugins that
+  register only instruction hooks, `omega.branching` and `omega.zone-clear`.
+- `moved_code.py` / `.log` compares the moved code with commit `2d6f242`'s
+  `omega_mouse_aim.c`, which `git diff` shows only as lines deleted there and
+  added in a new file. The ten moved functions, and the comments above them,
+  are the same. `strafe()` and `omega_strafe()` differ only where
+  `omega_strafe()` takes the movement and the force and returns whether it
+  strafed, and where the test of Mouse Aim's source and the count went to Mouse
+  Aim's hooks. The 22 constants that left keep their values, four renamed with
+  the prefix `OMEGA_STRAFE_`, and the long comment on the movements differs
+  only where it named the mouse, the keys and the cruising speed.
+- `runs.sh` / `runs.log` ran step (2) on `build-dev` (`81643830…`) from 17:10
+  to 17:37, on the resource coordinator's booking: lane A, the headless probes
+  on port 4378 one at a time, beside lane B, the feature-on routes on port
+  4377; then lane C, the feature-off sample on port 4370, beside lane D, Mouse
+  Aim's windowed checks on a private Xvfb display (`lane-a.log` to
+  `lane-d.log`). `phase6-11/r2/nicewatch2.py` held every program of the batch
+  at nice 5, but for each runtime's own thread at 19, and failed to set none
+  (`nicewatch2.log`, and `nicewatch2-replay.log` for the replay probe's second
+  run).
+- `probe-gamepad.log` and `probe-gamepad/` (`gamepad_probe.py`, which sets the
+  phases of `phase7-5/scan_probe.py`; `probe-gamepad/analysis.log` from
+  `gamepad_analyze.py`), with Gamepad Strafe alone: a full push of the right
+  stick moved the mech 76.4 to 77.2 units a frame across the screen outside
+  SCAN, 79.6 to 81.0 over each phase's second half; a push of 64 of 112 moved
+  it 43.5 (45.3); a push of 32, inside the deadzone, did not move it and
+  counted no step. In SCAN a full push moved it 88.8 to 89.7 units a frame
+  along the rotation that the game's slide uses (97.2 to 98.5), counting only
+  SCAN steps. The camera fell 710 to 719 units behind a sideways strafe and 868
+  to 899 in SCAN. Over each phase's second half these speeds are within three
+  units a frame of Mouse Aim's for its keys, here (`probe-mouse/analysis.log`;
+  the SCAN phases vary most, as the view's turn does from run to run) and in
+  Phase 7 change 5 (`phase7-5/scan-after.log`), whose camera fell 719 units
+  behind and 867 to 890 in SCAN.
+- `probe-both.log` and `probe-both/`, with both features on: only Mouse Aim's
+  hooks counted steps, and the mech moved as fast as with either alone (76.7 to
+  the right, against 76.4), so no step was strafed twice. In a headless run the
+  runtime discards a controller source's input, so Mouse Aim's hooks read the
+  stick that the debug server sets, as Gamepad Strafe's do. `probe-mouse.log`
+  and `probe-mouse/`, with Mouse Aim alone: over each phase's second half its
+  speeds are within three units a frame of change 5's, and Gamepad Strafe
+  counted nothing.
+- `replay-first.log` / `replay-first/` and `replay.log` / `replay/`
+  (`replay_probe.py`): through the 1ST ZONE's DEMONSTRATION replay the main
+  loop stayed in state 5. The live stick, held fully right, reached the pad
+  record, whose right stick read `70 00` in 116 of the 117 samples: in the
+  record's encoding, signed and centred, a full push right (112) and none up or
+  down, as in `probe-gamepad/`'s phases to the right. Its left stick stayed
+  centred, though every recording steers with that stick
+  (`spike-replay/stick_use.log`), so the game does not fill the record from the
+  replay (`r2/replay_records.py` / `.log`). Gamepad Strafe counted no step,
+  since state 5 is not one in which it flies; without that check, the live push
+  would have strafed the mech right through the replay (derived). The first run
+  looked in the record for 0xFF, the value that `set_input` sends, and so
+  exited 1. The second read the record's bytes unsigned, about 0x80, so that
+  the centred byte 0 counted as a push, and passed with 91 samples in play, one
+  of them the one sample with a centred stick. Review round 1 found that this
+  bullet then read `70 00` in the same way. `replay_probe.py` now reads the
+  record signed, as `r2/replay_records.py` does, which counts 90 such samples;
+  the logs above come from its earlier text.
+- `screen-steering.log` / `screen-steering/` and `screen-scan.log` /
+  `screen-scan/` (`gamepad_screen_check.py`, from one save state with TYPE B):
+  outside SCAN each strafe moved the mech to the side that the game's own turn
+  or climb in the same direction takes it, without changing the pitch or the
+  yaw; in SCAN each moved it the way the game's own slide in the same direction
+  does (cosines +0.984, +0.978 and +0.978, and +0.805 for down), at 51.7 to
+  70.8 units a frame, counting only SCAN steps. All 17 checks pass in each.
+- `feature_on_routes.sh` / `feature_on_mouse.log` and `feature_on_gamepad.log`
+  (outputs in `feature-on-mouse/` and `feature-on-gamepad/`): with Mouse Aim
+  on, and with Gamepad Strafe on, all nine runs pass (title_to_zone1, memcard
+  and demo_zone1 in each mode). Against the feature-off batch in
+  `.cache/routes/`, Phase 6 change 11's (`feature_on_compare.py`;
+  `feature_on_compare_mouse.log`, `feature_on_compare_gamepad.log`), Mouse
+  Aim's card 1 differs only in the TYPE byte and the save's checksum, as in
+  changes 2 to 5, while Gamepad Strafe's cards, since it leaves TYPE alone,
+  match byte for byte. The probes saw one attach of Mouse Aim's source in each
+  title_to_zone1 run with Mouse Aim on, and no counter with Gamepad Strafe on,
+  as the routes leave the right stick centred. That script is this change's
+  copy of `phase7-2/feature_on_compare.py`, which read the plugin counters from
+  change 2's directory whatever set it compared, and so printed Mouse Aim's
+  attach for the Gamepad Strafe set too when `runs.sh` ran it first
+  (`feature_on_compare_mouse-first.log`,
+  `feature_on_compare_gamepad-first.log`); the copy reads each set's own probe
+  files, and changes nothing else.
+- `feature_off_sample.sh` / `feature_off_sample.log` (inputs in `off/`): with
+  every feature off, title_to_zone1, memcard and demo_zone1 pass in HLE mode,
+  each run's overlay counters and most-run PCs equal to those of Phase 6 change
+  11's batch (`phase6-11/r2/probe/`), with no `omega.*` counter, and the
+  memcard route's two cards equal to that batch's; `build-dev` was the same
+  before and after.
+- `mouse_checks.log` / `mouse/` (`phase7-5/run_mouse_checks.sh`, Phase 7 change
+  5's windowed checks of Mouse Aim): with the feature off, on, and on with
+  Invert vertical, no expectation fails, those with Q held among them, and each
+  run loaded its copy's `keybinds.ini`.
+- `checks-p7-6.sh` / `.log` on the staged tree: the tree and the staged paths,
+  and that nothing else changes, `game.toml`, `generated/` and Mouse Aim's
+  manifest among them; the pins and the submodules; `AGENTS.md`'s changed
+  words; the manifest and `CMakeLists.txt`; the handoff's parts that must equal
+  HEAD's, the words changed in the rest, and its text (placeholders, blank
+  lines, headings, line lengths, reflow leftovers, local paths, cited paths);
+  the gates and the documented generate, which finds nothing to do; the builds,
+  their staged catalogs and the plugin audit; the strict compiles and
+  `moved_code.py`; the host harness, run again; the probes' analyses,
+  recomputed; the replay, the direction checks, the windowed checks and the
+  feature-off sample from their logs; the feature-on runs, compared again, with
+  each run's probe and cards against change 5's feature-on runs for Mouse Aim
+  and the feature-off batch for Gamepad Strafe; the four test files, the Beetle
+  driver's in up to three runs; change 11's round 2 report against session
+  message 1459 and commit `2d6f242`'s message; and the upstream issues. All
+  pass.
+- Round 2 (`r2/`): `r2/replay_records.py` / `.log` tabulates the pad record of
+  both replay runs and of `probe-gamepad/`, each stick read signed and centred
+  as `omega_strafe.c` reads it, by the main loop's and the player's states, or
+  by phase: see the replay bullet above. `r2/build-dev.log` and
+  `r2/build-release.log`: after the edits to `omega_strafe.h` and to the
+  gamepad plugin's comment, each build compiled the three plugin sources with
+  no warning and staged the edited manifest, and both binaries stayed the same,
+  byte for byte (`r2/binaries-before.sha256`, `r2/binaries-after.sha256`), so
+  every run above holds for round 2's tree. `r2/checks-p7-6-r2.sh` / `.log`
+  repeats round 1's checks on the staged tree, with `moved_code.py` and the
+  host harness compared with their round 1 logs but for the lines that give the
+  sources' hashes, and also compares the index with round 1's and each file
+  with its round 1 blob, runs `r2/replay_records.py` and matches round 1's
+  report against session message 1235. All pass. Its first run
+  (`r2/checks-p7-6-r2-first.log`), on an earlier tree, found two faults in the
+  script itself: it ran `r2/replay_records.py` without its sample files, and
+  compared the harness's log without masking the line number of a compiler
+  warning in planted bug 6's build, which moved down a line with the gamepad
+  plugin's longer comment; the script now passes the files and masks it.
 
 ## Hypotheses and unknowns
 
@@ -1605,15 +1619,17 @@ Low each, in this file's next action and review state), round 5 PASS on tree
   the second binding's syntax). Upstream's own fix for #752 may differ from
   the fork's, so the update that drops the fork's commit must re-run
   `keybinds_check.py`.
-- Mouse Aim (Phase 7 changes 2 to 5) was checked on a private Xvfb display
-  with input from xdotool, in the 1ST ZONE of CAMPAIGN PLAY, booted HLE with
+- Mouse Aim (Phase 7 changes 2 to 5) was checked on a private Xvfb display with
+  input from xdotool, in the 1ST ZONE of CAMPAIGN PLAY, booted HLE with
   OpenBIOS; the strafe and the camera's lag also headless, through the debug
   server's stick axes, in the same zone. The user flew change 2's build,
-  without the strafe, on the desktop with a real mouse through the 1ST and
-  2ND ZONE, and change 4's, with the strafe and the camera's lag at Strafe
-  speed 80, in the 1ST ZONE (`phase7-4/play-01/`, its mod selection in
-  `phase7-4/play-01/mods-state.toml`), and reported "Strafe works great!"
-  Change 5's strafe while SCAN is held has not been flown on the desktop.
+  without the strafe, on the desktop with a real mouse through the 1ST and 2ND
+  ZONE; change 4's, with the strafe and the camera's lag at Strafe speed 80, in
+  the 1ST ZONE (`phase7-4/play-01/`, its mod selection in
+  `phase7-4/play-01/mods-state.toml`), and reported "Strafe works great!"; and
+  change 5's, with the strafe while SCAN is held, through the 5TH ZONE at
+  Strafe speed 80 (`phase7-5/play-01/`), and reported "I tested it out through
+  zone 5, and it feels pretty good."
   In play the game runs SCAN's movement while the player's word +0x168 is
   not zero, and the per-step routine sets that word to the held buttons in
   the mask at 0x800A7970 (0x800307B0 to 0x800307E0), which was L1 in zone 1
@@ -1647,7 +1663,23 @@ Low each, in this file's next action and review state), round 5 PASS on tree
   read from 0x800A7C40); and the d-pad in directions other than up. That a
   saved replay cannot play a strafe back is Derived. While the feature is on
   it also overrides a TYPE chosen in CONTROL SETUPS, and a gamepad's sticks
-  neither steer nor strafe in flight, so a gamepad player turns it off.
+  neither steer nor strafe in flight, so a gamepad player turns it off, and
+  turns Gamepad Strafe (Phase 7 change 6) on for a strafe.
+- Gamepad Strafe (Phase 7 change 6) has run only headless, in the 1ST ZONE of
+  CAMPAIGN PLAY, with its stick moved by the debug server's axes: not with a
+  real gamepad, not windowed, and not in ZONE PLAY, TRAINING or other zones.
+  With Mouse Aim on too it ran only headless, where the runtime discards Mouse
+  Aim's source input, so its standing down was tested with the debug server's
+  axes in the pad record rather than with Mouse Aim's source replacing a
+  gamepad's sticks. It does not strafe a DEMONSTRATION replay; whether the
+  replay that ZONE PLAY's results screen offers runs in a flight state, where
+  the stick, and Mouse Aim's keys, would strafe it, is not known (change 6's
+  observations). For the user's trial (review round 1's suggestion 3): the
+  deadzone is a square, so a stick pushed fully along one axis and a step of 16
+  off centre along the other also strafes along the other at 14% of a full
+  push, or at 28% two steps off, and the push goes from nothing to 43% of a
+  full one at the deadzone's edge. A deadzone per axis, or a push scaled from
+  the edge, would change either, if he notices them.
 - With bilinear filtering, psxrecomp's OpenGL and Vulkan shaders wrap
   neighbour texels across 256-texel page edges (#719), and the filter also
   smooths the 2D UI (#720); the user plays with Nearest for now. The route
@@ -2667,26 +2699,100 @@ Low each, in this file's next action and review state), round 5 PASS on tree
   docstring, and the scope's like them (3); the batches' running side by side,
   in the checks (4); the draft of the commit message, outside the snapshot (5);
   and `env()` in the driver's tests (6).
-- Phase 6 change 11, round 2: pending delta re-review.
+- Phase 6 change 11, round 2: PASS on tree `7e11d2f` (staged diff `b0b85a73…`),
+  no findings, from the same reviewer. Round 1's Medium and both Lows are
+  resolved: each script runs its route inside `checked()`, the new tests of a
+  signal to the process group reach the paths that round 1 found and fail on
+  round 1's scripts, and its own loop of each script, in a session with a
+  terminal's handlers and SIGINT sent to the group, ended by SIGINT with the
+  staged scripts and ran on with round 1's. The reviewer ran the three route
+  test files, the Beetle driver's passing at its first run; reproduced
+  `phase6-11/r2/red.sh`, `phase6-11/regression.sh`,
+  `phase6-11/r2/group_records.sh`, `phase6-11/r2/mutations.py`,
+  `phase6-11/r2/probe_fields.py` and `phase3-5/clear_time_check.py` byte for
+  byte; recomputed both batches from their outputs; and relied on
+  `phase6-11/r2/checks-p6-11-r2.log` for the gates, the pins, the submodules,
+  the handoff's unchanged parts, the cited paths, change 10's report and commit
+  message, and round 1's report against session message 849. Report:
+  `phase6-11/r2/review-r2.md` (session message 1459). Commit `2d6f242`, pushed.
+  Of its four nonblocking suggestions, the two on this file's wording, that the
+  watcher found no driver or psx-beetle, rather than no program, off 0 later,
+  and that the load of 10 to 13 was read during the run and is in no log, are
+  taken up in change 11's condensed record. The runtime fake's `groupsignal`
+  comment, which says that psx-runtime exits on SIGINT and SIGTERM while the
+  fake dies by SIGTERM and SIGHUP, goes to change 12, the next change to the
+  route tests, and one copy of `TERMINAL` and `inherited_signals()` to change
+  14's shared harness.
+- Phase 7 change 6, round 1: NEEDS CHANGES on tree `560e621` (staged diff
+  `2d3ec40c…`), from a fresh read-only reviewer, with six Lows, all in texts;
+  it found the code sound, the strafe moved without a change in what it does,
+  and Gamepad Strafe standing down as it should. (1) The replay bullet read the
+  pad record's `70 00` as a recorded push up, while the record holds the stick
+  signed, so it was the live push right, and it gave the wrong reason for the
+  first run's failure; (2) Gamepad Strafe was said not to strafe in replays,
+  while only a DEMONSTRATION replay was run, and ZONE PLAY's handler also steps
+  the replay player; (3) the observations said that a package cannot declare a
+  conflict, while the format has a `conflicts` list; (4) the hypotheses lacked
+  Gamepad Strafe's unknowns; (5) the next action called psxrecomp #752 open,
+  while it was closed on 2026-10-27 (UTC); (6) `game.toml`'s comment credits
+  the two hook sites to Mouse Aim alone. The reviewer re-ran the host harness,
+  the strict compiles, whose objects it found byte-identical to both builds',
+  `moved_code.py`, the probes' analyses, the plugin audit and the four test
+  files; tabulated the pad record in both replay runs, in `probe-gamepad/` and
+  in change 5's runs; disassembled the main loop's handlers; read the
+  framework's code for options, the analog mode, hooks and sources; and relied
+  on `phase7-6/checks-p7-6.log` for the gates, the documented generate, the pin
+  records, the cited paths, and change 11's report and commit message. Report:
+  `phase7-6/review-r1.md` (session message 1235). Round 2 corrects (1) to (5)
+  and leaves (6) to change 7, which edits `game.toml` and regenerates (the next
+  action). Of the review's five suggestions, round 2 removes the unused include
+  from `omega_strafe.h` (1), gives a shared header and flight check to the
+  code-quality work (2), records the deadzone's square and its edge for the
+  user's trial in the hypotheses (3), makes `replay_probe.py` read the record
+  signed (4), and narrows the draft of the commit message (5).
+- Phase 7 change 6, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Phase 7 change 5, the strafe while Q is
-held, waits for the user's trial. The play copy (`play/play.sh <session
-dir> <SCPH-1001 dump>` in `.cache/evidence/phase4-2/`) refreshes from
-`build-dev/`; its `mods/state.toml` enabled Mouse Aim at Strafe speed 80
-for the user's trial of change 4 (`phase7-4/play-01/mods-state.toml`),
-and its `keybinds.ini` is change 3's `controls/keybinds.ini`, as
-`phase7-3/playcopy-keybinds.sha256` records.
-Mouse Aim then waits on the user's choices: the camera's lag at other Strafe
-speeds (at 100 the push is twice the default's, and the lag there is not
-measured); in SCAN, whether the strafe should also pull the mech along the
-view's turn, as the game's slide does, and whether it should keep the higher
-speed it showed in the headless run, whose cause is not traced; and whether the
-keys should strafe in the third movement too, for the 18 steps after a boost
-key's press, or the 6 of a dash. With Mouse Aim on, a gamepad's sticks neither
-steer nor strafe in flight, while a gamepad's buttons and the keyboard's work
-(`pad_external_input.c:25-26`, `main.cpp:5417-5435`).
+After a PASS: commit and push. Then the user's trial of Gamepad Strafe with his
+gamepad, in the play copy (`play/play.sh <session dir> <SCPH-1001 dump>` in
+`.cache/evidence/phase4-2/`, which refreshes from `build-dev/`), with Mouse Aim
+off and Gamepad Strafe on in the launcher's Mods page; tell the resource
+coordinator before handing him the command. A session records no mod options,
+so afterwards save the play copy's `mods/state.toml` into the session folder,
+as `phase7-4/play-01/mods-state.toml` and `phase7-5/play-01/mods-state.toml`
+were. The play copy's `keybinds.ini` is change 3's `controls/keybinds.ini`, as
+`phase7-3/playcopy-keybinds.sha256` records. Mouse Aim and Gamepad Strafe then
+wait on the user's choices: the camera's lag at other Strafe speeds (at 100 the
+push is twice the default's, and the lag there is not measured); in SCAN,
+whether the strafe should also pull the mech along the view's turn, as the
+game's slide does, and whether it should keep the higher speed it showed in the
+headless run, whose cause is not traced; and whether the keys or the stick
+should strafe in the third movement too, for the 18 steps after a boost key's
+press, or the 6 of a dash. With Mouse Aim on, a gamepad's sticks neither steer
+nor strafe in flight, while a gamepad's buttons and the keyboard's work
+(`psxrecomp/runtime/src/pad_external_input.c:25-26`,
+`psxrecomp/runtime/src/main.cpp:5417-5435`), and Gamepad Strafe stands down.
+
+Then the release that the user asked for: "Please finish up whatever is
+remaining. Also, please implement a widescreen mod for this game. After that,
+and everything is finished, cut a release build so I can test out the appimage
+after CI finishes its build." He chose the order "After Gamepad Strafe (change
+6), the widescreen mod and the CI release setup; changes 12 to 15 follow the
+release (Recommended)". So a widescreen mod comes next, as Phase 7 change 7,
+through the framework's native-wide view (`psxrecomp/docs/WIDESCREEN.md`), with
+a package of the game's own that chooses the aspect, as Tomba's does. It edits
+`game.toml` and regenerates, so it also makes the comment there on the two
+force-sum sites name Gamepad Strafe beside Mouse Aim, since both hook them
+(change 6's review round 1, finding 6). Then the CI release setup, as its own
+change: a workflow from the framework's template
+(`psxrecomp/docs/ci/templates/game-release.yml`) that builds the ZIPs for
+Linux, Windows and macOS and an AppImage, which the framework does not package,
+so with a packager of the game's own after Tomba 2's ("The AppImage plus ZIPs
+for Linux, Windows and macOS"). Then the release, v1.0.0, which that workflow
+builds and publishes, for the user to try its AppImage. Each heavy step of
+these is booked with the resource coordinator.
+
 Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
 and section 5 what must not change), each step its own reviewed change, and
@@ -2712,14 +2818,19 @@ the zone tool's fixes done, the tool split into modules and the route scripts'
 hang fixed, as the approved plan gives them: change 12, the route scripts'
 other error paths, with the result file that marks a run's output directory
 written right after `prepare_out()`, a clean failure when a reply lacks a key,
-and `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1);
+and `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1),
+and the runtime fake's `groupsignal` comment, which says that psx-runtime
+exits on SIGINT and SIGTERM while the fake dies by SIGTERM and SIGHUP
+(change 11's round 2 suggestion 1);
 change 13, one module for what the two route scripts share, among it
 `stop_signals`, which `beetle_route.py` now imports from `run_route.py`, with
 smaller `main()` functions and `load_route` raising its own exception (the
 audit's findings 3, 4 and 10); each with every route in the three runtime modes
 and the two Beetle modes, as for any change to those scripts; test
-helpers (the driver tests' fake psx-beetle runs its frames on a free 300 Hz
-clock, so while the host is busy a test now and then fails with a late
+helpers (one copy of `TERMINAL` and `inherited_signals()`, which both route
+test files now hold, change 11's round 2 suggestion 2; the driver tests' fake
+psx-beetle runs its frames on a free 300 Hz clock, so while the host is busy
+a test now and then fails with a late
 event, see change 1; the fake could wait for the driver except in the tests
 about lateness, `test_output_directory_rules` should print the driver's
 output when a run fails, `mutation_compare.py` could match catches by
@@ -2744,7 +2855,9 @@ loads into its own base register (`phase6-10/mutations.log`); with it the
 142 baseline outputs stay the same too, and it would fail a test whose
 wave loads the word through another register, such as `lui $v1, 0x800A`
 then `lw $v0, 0x7C34($v1)` (`phase6-10/r2/loaded_gap.log`)); names for
-the C plugins' registers (the same object code). For new zones (the doc's
+the C plugins' registers (the same object code), and one header for the game's
+RAM addresses and one flight check that the plugins share (change 6's review
+round 1, suggestion 2). For new zones (the doc's
 section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
 nothing, a results screen and music; or a new zone in an existing zone's
@@ -2794,10 +2907,11 @@ Nearest, is set in the launcher. Still unreached: CAMPAIGN PLAY zones 5 to 8
 and LAST, the ending and credits (the spike reached the ending and credits
 only by rewriting the campaign script, and its post-credits halt is
 unexplained), TRAINING lessons, ZONE PLAY's zones other than the four change
-7 started, SAVE REPLAY and LOAD REPLAY. psxrecomp #719, #720, #721 and #752
-are open upstream; any fix arrives through a reviewed pin bump, and the
-update that brings upstream's own fix for #752 drops the fork's commit
-(`AGENTS.md`, "Pins"). Independent changes: harvesting misses with
+7 started, SAVE REPLAY and LOAD REPLAY. psxrecomp #719, #720 and #721 are
+open upstream; any fix arrives through a reviewed pin bump. #752 was closed on
+2026-10-27 (UTC), fixed by PR #772, so a pin bump to an upstream commit with
+that fix drops the fork's commit (`AGENTS.md`, "Pins"), once a check shows
+that it covers our case. Independent changes: harvesting misses with
 `psxrecomp/tools/collect_game_misses.py` (none so far); finding why Beetle
 reaches screens later than psx-runtime (for example by comparing when each
 CD read completes).

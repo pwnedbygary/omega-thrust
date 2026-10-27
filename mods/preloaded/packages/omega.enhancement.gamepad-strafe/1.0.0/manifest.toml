@@ -1,0 +1,35 @@
+format_version = 7
+id = "omega.enhancement.gamepad-strafe"
+version = "1.0.0"
+name = "Gamepad Strafe"
+author = "Omega Thrust"
+description = "Strafe with a gamepad's right stick: move the mech up, down and sideways without turning it, while the left stick steers."
+resolver = "declarative"
+save_compatibility = "shared"
+
+# The plugin reads and writes this EXE's game state, and the build is compiled
+# for this EXE alone.
+[[target]]
+game_id = "SCUS-94449"
+
+[[feature]]
+id = "gamepad-strafe"
+name = "Gamepad Strafe"
+description = "Off by default. While on, a gamepad's right stick strafes the mech in flight: push it to move the mech up, left, down or right relative to the view without turning it, faster the further you push. The left stick steers as in the game. The right stick also strafes while you hold SCAN (L1), and the camera falls behind a strafe and catches up, as with Mouse Aim's keys. Pushing the right stick up always moves the mech up, whatever the game's TYPE setting. It strafes only while you fly, in CAMPAIGN PLAY, ZONE PLAY and TRAINING, and not in the demonstrations of the REPLAY menu. For a moment after you press a boost button, the stick does not strafe. Player 1 is presented as an analog pad, so in flight the game reads the sticks, not the d-pad. While Mouse Aim is on, it drives player 1 in flight and its keys strafe, so this does nothing then. Strafing is probably not recorded in the game's replays, so a saved replay of a flight in which you strafed may not play back the same."
+group = "Quality of Life"
+default_enabled = false
+
+[[option]]
+feature = "gamepad-strafe"
+id = "strafe-speed"
+label = "Strafe speed"
+description = "How fast a full push of the right stick moves the mech sideways, up and down, in percent of its cruising speed."
+type = "integer"
+min = 10
+max = 100
+step = 10
+default = 50
+
+[[plugin]]
+feature = "gamepad-strafe"
+id = "omega.gamepad-strafe"
