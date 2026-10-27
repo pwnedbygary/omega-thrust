@@ -3,6 +3,7 @@
 
 Linux only (reads /proc). Run: python3 -B scripts/routes/test_beetle_route.py
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -19,16 +20,37 @@ from operator import xor
 from pathlib import Path
 
 DRIVER = Path(__file__).resolve().with_name("beetle_route.py")
+SIGNAL_IN_POLL = DRIVER.with_name("signal_in_poll.py")
 NEUTRAL, START, CROSS = 65535, 65527, 49151
 # Beetle's card files for the disc "Omega Boost (USA).cue": its base name, then ".<slot>.mcr"
 CARDS = ["Omega Boost (USA).0.mcr", "Omega Boost (USA).1.mcr"]
 # Step 0 starts on frame 300 (--start 300): the shot "a" and the Start press both
-# fall on frame 420, the shot "b" and the Cross press on 486, the shot "c" on 490.
+# fall on frame 420, the shot "b" and the Cross press on 486, the shot "c" on 490,
+# and the route ends on 520.
 SHORT = [{"frames": 120, "buttons": NEUTRAL, "shot": "a"},
          {"frames": 6, "buttons": START},
          {"frames": 60, "buttons": NEUTRAL, "shot": "b"},
          {"frames": 4, "buttons": CROSS, "shot": "c"},
          {"frames": 30, "buttons": NEUTRAL}]
+# The signal actions that a terminal leaves a program with. An agent's shell may
+# start the tests with SIGINT and SIGHUP ignored, and a script keeps an ignored
+# signal ignored.
+TERMINAL = {signal.SIGINT: signal.default_int_handler, signal.SIGTERM: signal.SIG_DFL,
+            signal.SIGHUP: signal.SIG_DFL}
+
+
+@contextlib.contextmanager
+def inherited_signals(actions):
+    """Takes these signal actions in the test process for the block, so that the
+    processes it starts begin with them: SIG_IGN stays, and a handler becomes the
+    default action."""
+    previous = {sig: signal.signal(sig, action) for sig, action in actions.items()}
+    try:
+        yield
+    finally:
+        for sig, action in previous.items():
+            signal.signal(sig, action)
+
 
 # A frame loop in psx-beetle's order (psxrecomp/runtime/src/beetle_main.cpp:226-233):
 # read the debug connection and handle every complete request line, take the pad
@@ -108,8 +130,13 @@ def save_and_exit(*_):
     os._exit(2 if behavior == "badexit" else 0)
 
 
-signal.signal(signal.SIGTERM, save_and_exit)
+# psx-beetle quits on SIGINT and SIGTERM: SDL turns them into SDL_QUIT, which its
+# frame loop takes first (psxrecomp/runtime/src/beetle_main.cpp:208-221).
+for sig in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(sig, save_and_exit)
 
+if behavior == "slowstart":  # no listening line for 2 s
+    time.sleep(2)
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind(("127.0.0.1", port))
@@ -139,6 +166,14 @@ def handle(req, with_event):
             del reply["frame"]
         elif behavior == ("nullframe" if with_event else "lonenullframe"):
             reply["frame"] = None
+        elif behavior == "signalatend" and frame >= 520:  # SHORT's end with --start 300
+            os.kill(parent, getattr(signal, os.environ.get("FAKE_SIGNAL", "SIGTERM")))
+        elif behavior == "groupsignal" and frame >= 350:  # in SHORT's first step
+            # As a terminal signals its foreground process group: the driver and this
+            # fake. psx-beetle's frame loop takes SDL's quit before it answers the ping,
+            # and SIGHUP kills it.
+            os.killpg(0, getattr(signal, os.environ["FAKE_SIGNAL"]))
+            save_and_exit()
     elif cmd == "press":
         override, remaining = req["buttons"], req.get("frames", 2)
     elif cmd == "screenshot" and behavior == "noshot":
@@ -274,11 +309,12 @@ class BeetleRouteTest(unittest.TestCase):
                 "--binary", str(self.fake), "--port", str(self.port), "--start", "300",
                 "--out", str(self.out), *extra]
 
+    def env(self, extra=None):
+        base = {k: v for k, v in os.environ.items() if not k.startswith("FAKE_")}
+        return {**base, "FAKE_STATE": str(self.state), **(extra or {})}
+
     def run_driver(self, route, *extra, behavior=None):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("FAKE_")}
-        env["FAKE_STATE"] = str(self.state)
-        if behavior:
-            env["FAKE_BEHAVIOR"] = behavior
+        env = self.env({"FAKE_BEHAVIOR": behavior} if behavior else None)
         return subprocess.run(self.command(route, *extra), env=env, capture_output=True,
                               text=True, timeout=60)
 
@@ -493,19 +529,74 @@ class BeetleRouteTest(unittest.TestCase):
         self.assertFalse((self.out / "100-stale.png").exists())
 
     def test_sigterm_stops_beetle(self):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("FAKE_")}
-        env["FAKE_STATE"] = str(self.state)
         steps = [{"frames": 6000, "buttons": NEUTRAL, "shot": "a"}]
-        proc = subprocess.Popen(self.command(self.route(steps)), env=env,
+        proc = subprocess.Popen(self.command(self.route(steps)), env=self.env(),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        deadline = time.monotonic() + 20
-        while "ping" not in self.log("requests.log") and time.monotonic() < deadline:
-            time.sleep(0.05)
-        proc.send_signal(signal.SIGTERM)
-        proc.communicate(timeout=30)
+        try:
+            deadline = time.monotonic() + 20
+            while "ping" not in self.log("requests.log") and time.monotonic() < deadline:
+                time.sleep(0.05)
+            proc.send_signal(signal.SIGTERM)
+            proc.communicate(timeout=30)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
         self.assertEqual(proc.returncode, 1)
         self.assertIn("driver stopped: SystemExit: stopped by SIGTERM", self.failures())
+        self.assertEqual(self.result()["records"], [])
         self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_inside_poll_stops_beetle(self):
+        # signal_in_poll.py sends the signal right after Popen.poll() has taken
+        # psx-beetle's waitpid lock; the driver must still stop it, before it connects.
+        route = self.route()
+        env = self.env({"FAKE_BEHAVIOR": "slowstart"})
+        for name, returncode in (("SIGTERM", 1), ("SIGHUP", 1), ("SIGINT", -signal.SIGINT)):
+            with self.subTest(name):
+                self.reset()
+                # python3 -B signal_in_poll.py <name> beetle_route.py <the driver's arguments>
+                cmd = self.command(route)
+                cmd[2:2] = [str(SIGNAL_IN_POLL), name]
+                run = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=20)
+                self.assertEqual(run.returncode, returncode, run.stderr)
+                self.assertIn(f"stopped by {name}", self.failures())
+                self.assertNotIn("ping", self.log("requests.log"))
+                self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_as_the_route_ends_fails_the_run(self):
+        proc = self.run_driver(self.route(), behavior="signalatend")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("stopped by SIGTERM", self.failures())
+        self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_to_the_process_group_stops_beetle(self):
+        # A terminal sends Ctrl-C and a hang-up to its whole foreground process group,
+        # so psx-beetle gets them too, and its exit fails the ping that the driver is
+        # waiting for. The driver runs in a session of its own, and the fake signals
+        # that group on frame 350 and exits as psx-beetle would: the driver must record
+        # the signal, not psx-beetle's exit.
+        route = self.route()
+        for name, returncode in (("SIGTERM", 1), ("SIGHUP", 1), ("SIGINT", -signal.SIGINT)):
+            with self.subTest(name):
+                self.reset()
+                env = self.env({"FAKE_BEHAVIOR": "groupsignal", "FAKE_SIGNAL": name})
+                with inherited_signals(TERMINAL):
+                    run = subprocess.run(self.command(route), env=env, start_new_session=True,
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(run.returncode, returncode, run.stdout + run.stderr)
+                self.assertRegex(self.failures(), rf"^driver stopped: \w+: stopped by {name}")
+                self.assertNotIn("exited during the route", self.failures())
+                self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_ignored_at_start_stays_ignored(self):
+        # nohup starts a program with SIGHUP ignored; the driver must leave it so.
+        env = self.env({"FAKE_BEHAVIOR": "signalatend", "FAKE_SIGNAL": "SIGHUP"})
+        with inherited_signals({signal.SIGHUP: signal.SIG_IGN}):
+            run = subprocess.run(self.command(self.route()), env=env, capture_output=True,
+                                 text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.result()["status"], "PASS")
 
 
 if __name__ == "__main__":

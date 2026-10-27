@@ -59,7 +59,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing run_route must not add __pycache__ to the repository
 from run_route import (CARD_SIZE, DISC, SHOT_FILE, RouteError, load_route,  # noqa: E402
-                       port_answers, reason)
+                       port_answers, reason, stop_signals)
 
 MODES = {  # BIOS image (lle-scph1001 takes --bios), then the profile with its sha256
     "lle-openbios": ("psxrecomp/bios/openbios.bin", "psxrecomp/bios/OpenBIOS.toml"),
@@ -197,6 +197,7 @@ def ping_frame(reply):
 def wait_for_boot(proc, port, log_path, link, sha1):
     deadline = time.monotonic() + 60
     while True:
+        stop_signals.check()
         if proc.poll() is not None:
             raise RouteError(f"psx-beetle exited during startup ({proc.returncode}); see beetle.log")
         text = log_path.read_text(errors="replace")
@@ -238,6 +239,7 @@ def play(beetle, proc, steps, start, out, result, timeout):
     def advance(target):
         nonlocal frame
         while frame < target:
+            stop_signals.check()
             if proc.poll() is not None:
                 raise RouteError(f"psx-beetle exited during the route ({proc.returncode}); "
                                  "see beetle.log")
@@ -307,10 +309,6 @@ def finish(out, result, failures):
           f"exit {result['exit_code']} {result['status']}")
     for f in failures:
         print(f"  FAIL: {f}")
-
-
-def stop_on_signal(signum, _frame):
-    raise SystemExit(f"stopped by {signal.Signals(signum).name}")
 
 
 def main():
@@ -391,33 +389,30 @@ def main():
     else:
         env["PSX_BEETLE_UNPACED"] = "1"
     cmd = [str(binary), str(link), "--disc", str(repo / DISC), "--port", str(args.port)]
-    handled = [s for s in (signal.SIGTERM, signal.SIGHUP) if signal.getsignal(s) == signal.SIG_DFL]
-    for sig in handled:
-        signal.signal(sig, stop_on_signal)
+    stop_signals.install()
 
     log_path = out / "beetle.log"
     failures, proc, beetle = [], None, None
     try:
-        with open(log_path, "wb") as log:
+        with stop_signals.checked():
+            with open(log_path, "wb") as log:
+                try:
+                    proc = subprocess.Popen(cmd, cwd=out / "cwd", env=env, stdout=log,
+                                            stderr=subprocess.STDOUT)
+                except OSError as exc:
+                    raise RouteError(f"cannot start {binary}: {exc}")
+            wait_for_boot(proc, args.port, log_path, link, hashlib.sha1(bios_bytes).hexdigest())
             try:
-                proc = subprocess.Popen(cmd, cwd=out / "cwd", env=env, stdout=log,
-                                        stderr=subprocess.STDOUT)
-            except OSError as exc:
-                raise RouteError(f"cannot start {binary}: {exc}")
-        wait_for_boot(proc, args.port, log_path, link, hashlib.sha1(bios_bytes).hexdigest())
-        try:
-            beetle = Beetle(args.port, proc)
-            play(beetle, proc, steps, args.start, out, result, args.timeout)
-        except (OSError, ValueError) as exc:
-            raise RouteError(f"debug connection failed: {type(exc).__name__}: {exc}")
+                beetle = Beetle(args.port, proc)
+                play(beetle, proc, steps, args.start, out, result, args.timeout)
+            except (OSError, ValueError) as exc:
+                raise RouteError(f"debug connection failed: {type(exc).__name__}: {exc}")
     except RouteError as exc:
         failures.append(str(exc))
     except BaseException as exc:
         failures.append(f"driver stopped: {type(exc).__name__}: {exc}")
         raise
     finally:
-        for sig in handled:
-            signal.signal(sig, signal.SIG_IGN)
         if beetle is not None:
             beetle.close()
         result["exit_code"] = stop(proc, failures)

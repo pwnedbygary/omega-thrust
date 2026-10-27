@@ -18,44 +18,30 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 6 change 10, round 5: the split of the zone tool into
-modules, which the user chose to follow its last fix ("Yes: split them into
-their own modules after the fix (Recommended)"). Invariant:
-`scripts/zones/disc.py` holds the cue and ISO 9660 reader, `Disc` with
-`directory_record_problem()` and their constants, and `ZoneError`, which `Disc`
-raises; `scripts/zones/mips.py` holds the analysis of the zone files' MIPS
-code: `BASE`, the encodings, the decoders, `control()`, `destination()`,
-`join_points()`, `trace()`, `argument()`, `flow()` and `loaded()`; and
-`zone_data.py` keeps the zone format, the difficulty gating, the notes, the
-dumps, builds, recipes and packages and the command line, and imports what it
-uses from the two only after setting `sys.dont_write_bytecode`, so that a run
-without `-B` adds no `__pycache__` to the repository. Each definition keeps its
-code, and the moved ones their order; only `ZoneError` changes, gaining a
-docstring. The tests stay as they are and pass, and no output from the player's
-disc changes. This file also records Phase 6 change 9's round 3 PASS and its
-commit `287cd6a`, and condenses change 9. Review round 1 found that `disc.py`
-had `little_endian()` ahead of its users, against that invariant, and that the
-check of the order passed it, since it compared the old file's order with
-itself; that `ZoneError`'s docstring said every such error stops the tool; and
-that the next action would prove each step of the tool with a differential that
-cannot load the split tool. So round 2 puts `little_endian()` back after
-`Disc`, corrects the check and both texts, and takes up the review's five
-suggestions. Review round 2 found that the way the next action now gives for
-running the differential would, once HEAD's tool is split too, compare a tree
-with itself, so round 3 says so there, after a run that shows it, and takes up
-the review's two suggestions. Review round 3 found that the remedy round 3 gave
-there, names of their own for each tree's modules, is neither needed nor
-enough, since `zone_data.py` imports `disc` and `mips` by those names, so round
-4 says what a loader needs instead, after a run that shows both, and takes up
-the review's two suggestions. Review round 4 found that the review state's
-round 3 entry credited the reviewer's round 2 with a run of the differential
-that it had left to that round's checks log, so round 5 corrects that entry and
-takes up the review's one suggestion, a wording in round 4's checks bullet.
-Baseline: `287cd6a`. Out of scope: any change to what the tool does or to its
-tests, the gap in the tests that this change's planted bugs found among them
-and a way for the differential to compare two split trees (both in the next
-action); the route scripts, which come next; the rest of the code-quality work,
-Mouse Aim and the framework.
+Current iteration, Phase 6 change 11, round 2: the hang in both route scripts
+that Phase 6 change 1's checks found, which the user placed just before the
+route-scripts refactor ("Its own change just before the route-scripts refactor,
+so the refactor starts from fixed scripts (Recommended)"). Invariant: a
+SIGTERM, SIGHUP or SIGINT that reaches `scripts/routes/run_route.py` or
+`scripts/routes/beetle_route.py` while it runs a route never starts an
+exception inside `Popen`: the handler only notes it, and the script's loops
+then stop the run, which stops the runtime or psx-beetle, records the run as
+failed with "stopped by <signal>" and exits with status 1, or by SIGINT for
+SIGINT. The same holds when the signal is sent to the script's whole process
+group, as a terminal sends Ctrl-C and a hang-up, so that it reaches the runtime
+or psx-beetle too. A signal that arrives as the route ends fails the run as
+well, none of these signals can interrupt the cleanup, a signal that the script
+started with ignored stays ignored, and a run that no signal reaches plays and
+records as before. Review round 1 found that a signal sent to the whole process
+group made the driver record psx-beetle's exit in its place and exit with
+status 1, also for SIGINT; that the observations' bound on how long a noted
+signal waits did not hold for the runner; and that the next action left out
+three items that the approved plan gives the route scripts. So round 2 lets a
+noted signal take precedence over a failure that comes after it, corrects both
+texts, and takes up the review's six suggestions. This file also records Phase
+6 change 10's round 5 PASS and its commit `27468b2`, and condenses change 10.
+Baseline: `27468b2`. Out of scope: the route-scripts refactor and the rest of
+the code-quality work (the next action), Mouse Aim and the framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1185,188 +1171,368 @@ length says 43, which it read correctly), round 3 PASS on tree `ac32f6c`
 `phase6-9/r2/review-r2.md` and `phase6-9/r3/review-r3.md`; full record:
 `git show 287cd6a:.agent/HANDOFF.md`.
 
-## Phase 6 change 10 observations (`.cache/evidence/phase6-10/`)
+## Phase 6 change 10 (commit `27468b2`)
 
-- The user chose the split when asked how to go on with the zone tool: "Yes:
-  split them into their own modules after the fix (Recommended)". The plan the
-  user then approved put the cue and ISO 9660 reader in `scripts/zones/disc.py`
-  and the MIPS analysis in `scripts/zones/mips.py`, with `zone_data.py` keeping
-  the command line and the zone format, and the tests unchanged.
-- Commit `287cd6a`'s `zone_data.py` has 1,497 lines and 145 top-level
-  statements: its docstring, 13 imports, 130 definitions and assignments, and
-  the main guard (`r2/moved_defs.log`). The MIPS analysis turns a zone file's
-  word indices into addresses and back (`address_of()`, `index_of()`), so it
-  needs `BASE`, the address where every zone file loads, which moves with it;
-  `zone_data.py` imports it for the zone format. `Disc` raises `ZoneError`, the
-  tool's one error type, which `main()` reports in one line and the tests
-  expect from `Disc`, so it moves with the reader; `NoTimeline`, a `ZoneError`
-  that only `read_table()` raises, stays. `loaded()` reads an lw's address back
-  through `trace()` and knows nothing of the game, so it moves;
-  `difficulty_branches()`, `reach()` and `gate()` test the game's difficulty
-  word, and `describe()` notes 0x80057F0C's arguments, so they stay.
-- The tests take the tool's names only from `zone_data` and replace none: they
-  use 18 of them, among them `Disc`, `ZoneError`, `words()`, `join_points()`
-  and `describe()`, all names that `zone_data.py` uses itself, so its imports
-  keep them there and the tests need no change. Their command-line tests run
-  the tool with `-B` from a temporary directory; the zone baseline runs it from
-  the repository root.
-- Python writes the bytecode of each module it imports to `__pycache__` beside
-  it, unless `sys.dont_write_bytecode` is set, as `-B` and
-  `PYTHONDONTWRITEBYTECODE` set it; a script it runs is not cached. So a run of
-  the split tool without `-B` would leave `__pycache__` in `scripts/zones/` for
-  `disc.py` and `mips.py` (`mutations.log`, with the flag removed), unless the
-  tool sets the flag before importing them, as `scripts/routes/beetle_route.py`
-  does before importing `run_route`.
-- Bugs planted in the moved code found a gap in the tests, which this change
-  leaves as they are: `loaded()` tracing an lw's destination register in place
-  of its base passes them, since every lw of the difficulty word in them loads
-  into its own base register (`lw $v0, 0x7C34($v0)`), as 80 of the 82 lw at
-  offset 0x7C34 in the player's zone files do (`difficulty_loads.py` / `.log`;
-  S4's at 0x80125378 and S8's at 0x801306F8 load into another register). With
-  that bug the 142 baseline outputs stay the same as well, while `loaded()`
-  then misses the difficulty word loaded into `$v0` through `$v1`
-  (`r2/loaded_gap.py` / `.log`).
+The split of the zone tool into modules, which the user chose to follow its
+last fix ("Yes: split them into their own modules after the fix
+(Recommended)"). `scripts/zones/disc.py` (123 lines) holds the cue and ISO 9660
+reader: the constants of the sectors, the volume descriptor and the directory
+records, `ZoneError`, `directory_record_problem()`, `Disc` and
+`little_endian()`. `scripts/zones/mips.py` (219 lines) holds the MIPS analysis:
+`BASE`, which it needs to turn a zone file's word indices into addresses and
+back, the encodings and decoders, `control()`, `destination()`,
+`join_points()`, `trace()`, `argument()`, `flow()` and `loaded()`.
+`zone_data.py` (1,181 lines, from 1,497) keeps the zone format, the difficulty
+gating, `describe()`, the dumps, builds, recipes and packages and the command
+line, and imports what it uses from the two only after setting
+`sys.dont_write_bytecode`, since a run without `-B` would otherwise leave
+`__pycache__` beside the tool (`phase6-10/mutations.log`). By syntax tree, each
+of commit `287cd6a`'s 130 definitions and assignments and its main guard is in
+exactly one of the three files, the same and in the old order, but `ZoneError`,
+which gains a docstring: `main()` prints such an error and exits with status 1,
+while `list` and `check` take a zone file's error as that file's result and go
+on (`phase6-10/r2/moved_defs.py`, whose check of the order
+`phase6-10/r2/order_check.py` shows failing on round 1's `disc.py`). The tests,
+unchanged, pass (71); the 142 baseline outputs stay byte-identical, run from
+the repository and, without `-B`, from a directory outside it
+(`phase6-10/elsewhere.sh`); `check` rebuilds the 14 timeline zones identically;
+and change 8's differential, through `phase6-10/split_tool.py`, finds no
+difference in 635,161 inputs between `287cd6a`'s tool and the split one. That
+way cannot compare two split trees in one process, since `zone_data.py` imports
+`disc` and `mips` by those names (`phase6-10/r3/split_twice.py`,
+`phase6-10/r4/two_trees.py`; the next action says what a loader needs). Five
+bugs planted in the moved code fail the tests; a sixth, `loaded()` tracing an
+lw's destination register in place of its base, passes them and leaves the
+baseline's outputs unchanged, since every lw of the difficulty word in the
+tests loads into its own base register (the next action). Review: round 1 NEEDS
+CHANGES (one Medium: `disc.py` had `little_endian()` ahead of its users while
+the check of the order compared the old file's order with itself; two Lows, in
+`ZoneError`'s docstring and the next action), rounds 2 to 4 NEEDS CHANGES (one
+Low each, in this file's next action and review state), round 5 PASS on tree
+`e2b896d` (staged diff `88c778bd…`). Reports: `phase6-10/review-r1.md`,
+`phase6-10/r2/review-r2.md`, `phase6-10/r3/review-r3.md`,
+`phase6-10/r4/review-r4.md` and `phase6-10/r5/review-r5.md`; full record:
+`git show 27468b2:.agent/HANDOFF.md`.
 
-## Phase 6 change 10 changes
+## Phase 6 change 11 observations (`.cache/evidence/phase6-11/`)
 
-- `scripts/zones/disc.py` (new, 123 lines): from `zone_data.py`, the constants
-  of the sectors (`SECTOR`, `HEADER`, `USER`), the volume descriptor and the
-  directory records, `ZoneError`, `directory_record_problem()`, `Disc` and
-  `little_endian()`, in their old order, which round 1 had changed by putting
-  `little_endian()` ahead of its users. `ZoneError` gains a docstring: an error
-  that `zone_data.py` reports in one line, in this module for a disc image it
-  cannot read; `main()` prints it and exits with status 1, but `list` and
-  `check` take a zone file's error as that file's result and go on. Round 1's
-  docstring said that every such error stops the tool.
-- `scripts/zones/mips.py` (new, 219 lines): from `zone_data.py`, `BASE`, the
-  MIPS I encodings, `words()`, `jal()`, the sign extensions and the field
-  decoders, `address_of()`, `index_of()`, `jump_target()`, `branch_target()`,
-  `is_call()`, `is_move()`, `control()`, `destination()`, `join_points()`,
-  `trace()`, `argument()`, `flow()` and `loaded()`. Round 2 corrects its
-  docstring, which counted `control()` among the functions that find where
-  control can go, while it tells whether a word is a jump or a branch.
-- `scripts/zones/zone_data.py` (1,181 lines): without them; it sets
-  `sys.dont_write_bytecode` and then imports the three names it uses from
-  `disc` and the 22 it uses from `mips` (`# noqa: E402`, as in
-  `scripts/routes/beetle_route.py`), and its docstring ends with a paragraph
-  naming the two modules.
-- `AGENTS.md`, "Zone data": a sentence on the two modules and the flag, and the
-  rule to verify every change to the tool or its modules with its tests and
-  `check`.
-- `.agent/HANDOFF.md`: the scope; change 9 condensed; these sections; the
+- The hang that Phase 6 change 1's checks found (`phase6-1/lock_leak.py`,
+  `.log`): both route scripts' SIGTERM and SIGHUP handler raised `SystemExit`
+  wherever the main thread was. CPython 3.14.8's `Popen.poll()` takes the
+  child's waitpid lock before the try whose `finally` releases it
+  (`subprocess.py`, `Popen._internal_poll()`, lines 2014 to 2035), so an
+  exception that a handler raised in between left the lock taken, and the last
+  wait for the child in the scripts' `stop()`, which takes the lock
+  (`Popen._wait()`, line 2081), then blocked forever. Ctrl-C's
+  `KeyboardInterrupt` could do the same (change 1 derived it from the source).
+- `scripts/routes/signal_in_poll.py` runs a route script with a signal sent
+  from inside the child's first `poll()`, right after the lock is taken,
+  through a wrapper around that lock. On commit `27468b2`'s scripts, the runner
+  and the driver were still running at the tests' 20 s timeout after each of
+  SIGTERM, SIGHUP and SIGINT came there (`tests-red.log`).
+- The agent's shell starts programs with SIGHUP, SIGINT and SIGQUIT ignored
+  (`SigIgn` 7 in `/proc/self/status`), and the scripts leave a signal that they
+  start with ignored as it is, as `nohup` leaves SIGHUP. So `signal_in_poll.py`
+  and `shell_loop.py` first set the handlers that a terminal leaves, and the
+  tests that round 2 adds start the scripts with them (`inherited_signals()`).
+- A handler that only notes the signal lets a blocking call go on after it (PEP
+  475): `time.sleep()`, and a socket's `recv()`, which times out after 5 s in
+  the runner's queries (`run_route.ask()`) and after 10 s on the driver's
+  connection. So a noted signal waits for the calls in flight before the next
+  check. The driver waits for one reply at a time, so a psx-beetle that stops
+  answering fails the run with "debug connection failed" within 10 s, and since
+  round 2 the noted signal is then recorded in that failure's place. The
+  runner, between two checks, asks for the route's status and then makes up to
+  five queries for each shot that has fallen due (`evidence()`), and four more
+  for the route's last record once it has ended, each on a new connection with
+  its own timeout. So a runtime that stops answering can hold a stop for 5 s a
+  query, 25 s for each such shot: review round 1 measured 25.1 s from a SIGTERM
+  that came at a shot's first query, with a fake runtime that left the shot's
+  queries unanswered, where round 1 had given a socket's timeout as the most a
+  stop waits. With a runtime that answers, the queries take milliseconds
+  (derived from the source).
+- A terminal sends Ctrl-C and a hang-up to its whole foreground process group,
+  and the runtime and psx-beetle run in the script's process group, as a child
+  does by default, so they get the signal too (review round 1). psx-runtime
+  exits with status 0 on SIGINT and SIGTERM
+  (`psxrecomp/runtime/src/crash_trace.c:905-916`, `:955-956`), and SIGHUP's
+  default action ends it. psx-beetle's SDL, by its default, turns SIGINT and
+  SIGTERM into a quit, which psx-beetle's frame loop takes before it serves the
+  debug connection (`psxrecomp/runtime/src/beetle_main.cpp:103`, `:208-226`),
+  and SIGHUP ends it. The driver, which waits for a ping's reply, then finds
+  the connection closed before its next check, and round 1 recorded "psx-beetle
+  exited during the route" and exited with status 1, also for SIGINT, so that a
+  shell loop around it ran on. The runner checks at the top of its loops,
+  before it asks the runtime anything, so the same could happen to it only with
+  a request in flight. So round 2 lets the signal take precedence: a
+  `RouteError` raised once a signal has been noted gives way to the signal's
+  own exception (`StopSignals.checked()`). Starting the child in a session or
+  process group of its own would also keep the terminal's signals from it, but
+  then a signal sent to the whole job, such as Ctrl-Z, Ctrl-\ or a `kill -9` to
+  the group, would no longer reach it either, and the runtime or psx-beetle
+  could outlive its script.
+- Python ends by SIGINT when a `KeyboardInterrupt` reaches the top, and a shell
+  that runs the script in a loop then leaves the loop, while a script that
+  exits with status 1 lets it run on. `shell_loop.py` / `.log` shows both with
+  bash: with a `check()` that raises `KeyboardInterrupt` for SIGINT, as the
+  scripts' now does, bash ended by SIGINT after the first pass; with one that
+  raises `SystemExit`, it ran the second pass. So, where the approved plan has
+  the loops raise `SystemExit`, they raise `KeyboardInterrupt` for SIGINT. Its
+  waiter has no child, though; the tests of a signal to the process group show
+  both scripts ending by SIGINT when the signal reaches their child as well.
+- The audit asks to keep ignoring SIGTERM and SIGHUP during the cleanup, so
+  that a second signal cannot interrupt it and orphan the runtime
+  (`code-quality/audit-r1.md`, line 221). A handler that only notes cannot
+  interrupt the cleanup, so the scripts no longer change their handlers there.
+  A signal that comes during the cleanup, after the last check, has no effect:
+  the script records the run and exits as it would have without it. Before the
+  fix, the cleanup ignored SIGTERM and SIGHUP in the same way, while SIGINT
+  could interrupt it (derived from the source, not run).
+
+## Phase 6 change 11 changes
+
+- `scripts/routes/run_route.py`: `StopSignals`, with one instance,
+  `stop_signals`. `install()` gives SIGTERM, SIGHUP and SIGINT, where they keep
+  Python's default handling, the handler `note()`, which records the first;
+  `check()` raises `SystemExit("stopped by <signal>")`, or `KeyboardInterrupt`
+  for SIGINT; and the context manager `checked()` runs `check()` at its block's
+  end, and before a `RouteError` leaves the block (round 2). `wait_for_boot()`
+  and `play()` call `check()` at the top of their loops, and `main()` runs the
+  route inside `checked()`, where round 1 called `check()` after the route;
+  `stop_on_signal()` is gone, and so is the switch to ignoring the signals in
+  the cleanup. Round 2 also corrects two phrases of the class's docstring: a
+  wait for the child blocks forever only without a timeout, and it is these
+  signals that cannot interrupt the cleanup.
+- `scripts/routes/beetle_route.py`: it imports `stop_signals` from `run_route`,
+  as it imports `RouteError`; `wait_for_boot()` and `play()`'s `advance()` call
+  `check()` at the top of their loops, and `main()` runs the route inside
+  `checked()`, where round 1 called `check()` after the route; its
+  `stop_on_signal()` and its switch to ignoring are gone.
+- `scripts/routes/signal_in_poll.py` (new), executable since round 2, like the
+  other scripts with a shebang: the tests' helper of the observations.
+- `scripts/routes/test_run_route.py` (21 tests):
+  `test_a_signal_inside_poll_stops_the_runtime` runs the runner through the
+  helper for each of the three signals, the fake runtime starting slowly (its
+  new behaviour `slowstart`, no LISTENING line for 2 s): the runner stops the
+  fake before the route starts, records "stopped by <signal>" and exits 1, or
+  by SIGINT for SIGINT. In `test_a_signal_as_the_route_ends_fails_the_run`, the
+  fake sends the runner SIGTERM as it records the route's end (the behaviour
+  `signalatend`, which since round 2 sends the signal that `FAKE_SIGNAL` names,
+  if any). Round 2 adds `test_a_signal_to_the_process_group_stops_the_runtime`,
+  in which the runner runs, for each signal, in a session of its own with a
+  terminal's handlers (`TERMINAL`, through `inherited_signals()`), and the
+  fake, asked to start the route, signals that group and exits without a reply
+  (the behaviour `groupsignal`): the runner records the signal, not the failed
+  request. And `test_a_signal_ignored_at_start_stays_ignored`, in which the
+  runner, started with SIGHUP ignored, passes although the fake sends it SIGHUP
+  as the route ends.
+- `scripts/routes/test_beetle_route.py` (22 tests):
+  `test_a_signal_inside_poll_stops_beetle` does the same with the driver, which
+  stops the fake psx-beetle before it connects; in
+  `test_a_signal_as_the_route_ends_fails_the_run`, the fake sends the driver
+  SIGTERM with the ping that reports frame 520, where `SHORT` ends.
+  `test_sigterm_stops_beetle` now kills a driver that outlives its wait, as the
+  runner's test does, and checks that no shot was taken. Round 2 adds the same
+  two tests for the driver, its fake signalling the group with the first ping
+  from frame 350, in `SHORT`'s first step, and then quitting as psx-beetle
+  does. The fake now quits on SIGINT as on SIGTERM, saving its cards, as
+  psx-beetle's SDL makes it, and `env()` builds the fake's environment, as in
+  the runner's tests, where three tests built it by hand.
+- `.agent/HANDOFF.md`: the scope; change 10 condensed; these sections; the
   review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase6-10/`, with the evidence of
-  rounds 2 to 5 in its `r2/` to `r5/`, and change 9's round 3 report
-  `phase6-9/r3/review-r3.md` with its header and its commit message
-  `phase6-9/commit-msg.txt`.
+- Untracked (ignored): `.cache/evidence/phase6-11/`, with round 2's evidence in
+  its `r2/`, and change 10's round 5 report `phase6-10/r5/review-r5.md` with
+  its header and its commit message `phase6-10/commit-msg.txt`.
 
-## Phase 6 change 10 checks
+## Phase 6 change 11 checks
 
-- `r2/moved_defs.py` / `.log`, round 1's `moved_defs.py` with its check of the
-  order corrected (the round 2 bullet below), compares commit `287cd6a`'s
-  `zone_data.py` with the three files by syntax tree: of its 130 definitions
-  and assignments and its main guard, 86 stay in `zone_data.py`, the guard
-  among them, 10 move to `disc.py` and 35 to `mips.py`, each in exactly one
-  file, the same, and in the old order; only `ZoneError` changed, a docstring
-  in place of `pass`. The new files add only their imports, the flag and the
-  two modules' docstrings, and `zone_data.py`'s docstring gains its last
-  paragraph; of the old file's 56 comments none is lost, and three are added:
-  the flag's and two `# noqa: E402`.
-- `tests-green.log`: `scripts/zones/test_zone_data.py`, unchanged, passes: 71
-  tests, the player's disc's among them, with nothing left in `TMPDIR`, and
-  again with round 2's modules (`r2/tests-green.log`). pyflakes finds nothing
-  in the three modules, the tests or the evidence scripts, so no name is
-  undefined and no import unused.
-- `baseline.log` (`phase6-7/baseline.sh`): all 142 outputs are byte-identical
-  to commit `0761991`'s; `check.log`: the 14 timeline zones rebuild
-  identically. `elsewhere.sh` / `.log` runs every subcommand as the baseline
-  does, but from a working directory outside the repository, with absolute
-  paths, without `-B` and without `PYTHONDONTWRITEBYTECODE`: the same 142
-  outputs, no `__pycache__` beside the tool and nothing left in the working
-  directory.
-- `mutations.py` / `.log` plants changes in a copy of `scripts/zones`, one at a
-  time, the player's disc linked in. Five bugs in the moved code, two in
-  `disc.py` and three in `mips.py`, each fail the tests; a sixth, in `mips.py`,
-  `loaded()` tracing an lw's destination in place of its base, passes them (the
-  observations); removing the flag leaves the tests passing, as they run with
-  `-B`, and a run without `-B` then leaves `__pycache__` beside the tool. The
-  copy as it is passes the tests and leaves none.
-- `differential.sh` / `.log`: change 8's differential
-  (`phase6-8/differential.py`) with commit `287cd6a`'s tool as the old one and
-  the split tool as the new, through `split_tool.py`, which binds the names of
-  the three modules in one module, since the differential takes every function
-  it compares from the module it loads: no difference in 635,161 inputs, and
-  nothing left in `TMPDIR`.
-- `checks-p6-10.sh` / `.log` (the staged tree; it writes only in a scratch
-  directory, with `TMPDIR` there too): only the five files change, the tests
-  not among them, and the working tree holds the staged files; `moved_defs.py`
-  gives its log again; each name that the tests take from `zone_data` is in the
-  staged tool; the help texts equal HEAD's; `AGENTS.md`'s changed words are the
-  two edits; this file's header, overall paragraph, Phase 0 to Phase 7 change
-  5, hypotheses and review entries up to Phase 6 change 9's round 2 equal
-  HEAD's, and it prints the changed words of the scope and the next action; no
-  placeholder, doubled blank line, long added line, new reflow leftover or
-  local path; every evidence path that the added lines cite exists; the gates
-  and pins pass and the submodules are clean; change 9's round 3 report matches
-  session message 1401, and its commit's message `phase6-9/commit-msg.txt`;
-  pyflakes finds nothing; the four test files pass, the Beetle driver's within
-  three runs; the evidence scripts reproduce their logs; no listener; and no
-  whitespace error. All pass. Its first run (`checks-p6-10-first.log`), on an
-  earlier tree, found the help texts differing only in the default disc path,
-  which the tool takes from its own location, since it ran the two tools from
-  two directories; it now runs both from one, as change 9's did.
-- Round 2 (`r2/`): `r2/order_check.py` / `.log` runs round 1's and round 2's
-  `moved_defs.py` on round 1's files, on the working tree's with `loaded()`
-  moved ahead of `mips.py`'s other functions, and on the working tree's: round
-  1's script finds all three in order; round 2's finds the first two out of
-  order, naming `little_endian()` and `loaded()`, and the third in order.
-  `r2/loaded_gap.py` / `.log` plants the bug that the tests miss in a copy of
-  `scripts/zones`: `elsewhere.sh` on the copy gives the 142 baseline outputs
-  unchanged, and `loaded()` with the bug finds the difficulty word through
-  `lui $v0, 0x800A` and `lw $v0, 0x7C34($v0)`, the tests' form, but not through
-  `lui $v1, 0x800A` and `lw $v0, 0x7C34($v1)`, where `loaded()` without it
-  finds it. Its first run (`r2/loaded_gap-first.log`) put the copy one folder
-  down, where the tool took the scratch folder for the repository and refused
-  to write a dump in it. `r2/checks-p6-10-r2.sh` / `.log` repeats round 1's
-  checks on the staged tree, with `elsewhere.sh` now on a copy of
-  `scripts/zones` in scratch, and also compares the index with round 1's and
-  each file with its round 1 blob, runs both scripts above and matches round
-  1's report against session message 1054. All pass.
-- Round 3 (`r3/`): `r3/split_twice.py` / `.log` copies the three modules into
-  scratch, plants in the copy the bug in `loaded()` that the tests miss, and
-  loads `split_tool.py` twice in one process with the differential's loader,
-  first on `scripts/zones` and then on the copy: the second load gets the
-  modules of `scripts/zones`, its `loaded()` is the first load's, and it finds
-  the difficulty word through `$v1`, which the copy alone, in a process of its
-  own, does not find; a run from another scratch folder gives the same log.
-  `r3/checks-p6-10-r3.sh` / `.log` repeats round 2's checks on the staged tree,
-  and also compares the index with round 2's and each file with its round 2
-  blob, runs `r3/split_twice.py` and matches round 2's report against session
-  message 1566. All pass.
-- Round 4 (`r4/`): `r4/two_trees.py` / `.log` copies the three modules into
-  scratch, plants the same bug in the copy, and asks each tree's `gate()`, a
-  function of its `zone_data.py`, about a callback that loads the difficulty
-  word through `$v1` and skips a call while the word is zero. Alone, in
-  processes of their own, the trees answer differently: the call runs only
-  while the word is non-zero, and with the bug only on some paths. In one
-  process, after a tool on `scripts/zones`, the second tool's `zone_data.py`
-  runs the first tree's `loaded()` and gives the first tree's answer when the
-  copy is loaded through `split_tool.py` again, and also when the copy's
-  modules get names of their own, though the copy's `mips.py` then misses the
-  word by itself; after `disc`, `mips` and `zone_data` are dropped from
-  `sys.modules`, `split_tool.py` gives the copy its own modules and its own
-  answer, while the first tree keeps its own. A run from another scratch folder
-  gives the same log. `r4/checks-p6-10-r4.sh` / `.log` repeats round 3's checks
-  on the staged tree, and also compares the index with round 3's and each file
-  with its round 3 blob, runs `r4/two_trees.py` and matches round 3's report
-  against session message 1852. All pass.
-- Round 5 (`r5/`): `r5/checks-p6-10-r5.sh` / `.log` repeats round 4's checks on
-  the staged tree, and also compares the index with round 4's and each file
-  with its round 4 blob, prints what the reviewer's four reports and the review
-  state's entries say of its runs of the differential, and matches round 4's
-  report against session message 2116. All pass. Its first run
-  (`r5/checks-p6-10-r5-first.log`), on an earlier tree, passed as well; this
-  bullet then named only two of the reports that the script prints.
+- `tests-red.log`: the new tests and helper against commit `27468b2`'s scripts.
+  The two tests of a signal inside `poll()` time out in all six cases, the
+  three signals for each script; the other tests pass, among them the two of a
+  signal as the route ends, which failed the run before as well, and
+  `test_sigterm_stops_beetle` as changed.
+- `regression.sh` / `.log` repeats that run in a scratch copy, with commit
+  `27468b2`'s scripts beside the working tree's tests and helper, so that the
+  checks can repeat it: the same six cases time out, each with a
+  `subprocess.TimeoutExpired`, and every other test passes.
+- `tests-green.log`: with the fix, `test_run_route.py` (19),
+  `test_beetle_route.py` (20) and `test_routes.py` (5) pass, with nothing left
+  in `TMPDIR` and no `__pycache__`; pyflakes finds nothing in
+  `scripts/routes/`.
+- `shell_loop.py` / `.log`: the observations' shell loop.
+- `mutations.py` / `.log` plants ten bugs in a copy of `scripts/routes`, one at
+  a time, and runs the test files that cover each: the handler raising at once,
+  as before the fix; SIGINT left to Python's handler; SIGHUP not handled;
+  SIGINT raising `SystemExit`; and each of the six checks removed. Each fails
+  the tests meant for it: the first four the tests of a signal inside `poll()`;
+  a missing check in a wait for boot the same test of that script, which then
+  starts the route or connects; a missing check in the runner's route loop or
+  the driver's `advance()` the test of SIGTERM during the route; and a missing
+  check after the route the test of a signal as the route ends. With SIGHUP not
+  handled, the SIGHUP case kills the script outright, and its fake, which had
+  not yet written its pid when the SIGINT case cleared the state, is counted as
+  left by that case as well. The copy as it is passes both test files and
+  leaves nothing behind.
+- `routes.sh` / `.log` played all 22 routes in the three runtime modes with the
+  changed runner, on `build-dev`, whose binary is Phase 7 change 5's, every
+  feature off. All 66 runs pass, and the binary, the unlocked save and
+  `run_route.py` were the same before and after (`inputs-before-routes.sha256`,
+  `inputs-after-routes.sha256`). Against change 5's batch, now in
+  `routes-before/`, which ran the same binary with commit `27468b2`'s runner,
+  each run's probe differs only in four counters of how far the run had got
+  when the probe sampled it: the frame, and the instructions, blocks and native
+  handoffs run (`probe_fields.py` / `.log`). The memcard route's six cards
+  match change 5's byte for byte, and `card_check.log` finds no problem, the
+  unlocked save unchanged. The largest lag of a run's shots behind the ends of
+  their steps runs from 11 to 17 frames, with a median of 14 as in change 5's
+  batch, and is higher than there in 26 runs and lower in 26
+  (`routes_summary.log`). `clear_time_check.log` finds each demonstration's
+  results screen; its lists of the shots that show it differ from change 5's
+  batch in 8 of 57: in seven, those of the 8TH ZONE, U3 and U5, by one shot as
+  the screen comes or goes, and in the LAST ZONE's in lle-openbios by a shot at
+  t04800, long before the screen, that change 5's batch took for it. These are
+  the kinds of difference that change 5's batch showed against change 3's.
+- `beetle_routes.sh` / `.log` played all 22 routes in the two Beetle modes with
+  the changed driver: every run passed at its first attempt (`beetle-failed/`
+  is empty), with every press and shot on its frame. psx-beetle, the unlocked
+  save and both scripts were the same before and after
+  (`beetle-inputs-before.sha256`, `beetle-inputs-after.sha256`). Against
+  Phase 6 change 1's batch, now in `beetle-routes-before/`, which ran the same
+  psx-beetle with the driver as it stood when that batch ran, whose hash
+  differs from that of the driver change 1 committed
+  (`phase6-1/inputs-before.sha256`), every run holds the same files, and
+  `phase6-1/batch_compare.py` finds the 1,368 screenshots, 88 cards and 44
+  result files byte-identical, and the Beetle log of every run the same
+  (`batch_compare.log`).
+- `checks-p6-11.sh` / `.log` on the staged tree: the tree and the staged files,
+  and that nothing else changes; the scripts' changes, with nothing left of the
+  old handling, and where they install and check the signals; the handoff's
+  parts that must equal HEAD's, the words changed in its scope and next action,
+  and its text (placeholders, blank lines, headings, line lengths, reflow
+  leftovers, local paths, cited paths); the gates, the pins and the submodules;
+  change 10's round 5 report against session message 2327, and commit
+  `27468b2`'s message against `phase6-10/commit-msg.txt`; pyflakes; the four
+  test files, the Beetle driver's in up to three runs; `regression.sh`,
+  `mutations.py` and `shell_loop.py` against their logs; and both batches from
+  their logs and outputs, with the probes, the cards, the results shots and the
+  shots' lag compared with change 5's batch. All pass. Its first run
+  (`checks-p6-11-first.log`), on an earlier tree, passed as well, but the
+  Beetle driver's tests only at their second run: the first failed
+  `test_a_ping_reply_without_a_frame_fails_the_run`, and the script, which then
+  kept no message, now prints a failing run's assertions. A second run
+  (`checks-p6-11-crashed.log`), on an earlier tree, does not count: from
+  12:09:53 to 12:11:00, seven processes on the host crashed, `mutations.py`
+  among them, with a failed assertion in glibc's malloc, seconds after two
+  services had begun to report memory pressure and the kernel had warned 25
+  times in its DMA unmapping for an NVMe drive (`host-fault.log`). What crashed
+  them is not established. The run above came after a restart.
+- Between those two runs, `ping_flake.py` / `.log` ran the test that the first
+  run failed: 15 times on the staged scripts and 15 times on commit
+  `27468b2`'s, taking turns, at a load of about 5 on 16 cores. It failed in
+  none. In four of its six cases the run must fail on the reply without a frame
+  number to the ping that goes with the route's first press or shot, which the
+  driver sends on the frame before that event, following the fake psx-beetle's
+  free frame clock; if the host holds the driver back past that frame, the run
+  fails with a late event instead, as did the tests that
+  `phase6-1/r3/suite_probe.log` found failing on a busy host. In the other two
+  the run fails on its first ping, before any event can be late. The change
+  adds to the driver's loops only a check that returns at once while no signal
+  has come, and to the fake only behaviours that this test does not ask for
+  (derived). What failed the first run is not known; a late event is a
+  hypothesis.
+- Round 2's evidence is in `r2/`. `r2/tests-green.log`: with round 2's scripts,
+  `test_run_route.py` (21), `test_beetle_route.py` (22) and `test_routes.py`
+  (5) pass, with nothing left in `TMPDIR` and no `__pycache__`.
+- `r2/red.sh` / `r2/tests-red.log`: round 2's tests and helper against round
+  1's scripts, the blobs of round 1's frozen index
+  (`snapshot/index-entries.txt`): the two tests of a signal to the process
+  group fail in all six cases, and every other test passes.
+  `r2/group_records.sh` / `.log` prints those cases' records. For SIGTERM and
+  SIGHUP the runner recorded the request that the runtime's exit had failed
+  ("input_route_start failed: empty reply to input_route_start", with the
+  runtime's exit code), and the driver psx-beetle's exit ("psx-beetle exited
+  during the route"), as review round 1 found; for SIGINT both exited with
+  status 1 rather than by SIGINT.
+- `r2/regression.log`, from `regression.sh` with round 2's tests: against
+  commit `27468b2`'s scripts, the six cases of a signal inside `poll()` time
+  out as before, and of the tests of a signal to the process group only the
+  SIGINT case fails, in each script. There both scripts exited by SIGINT but
+  recorded a bare `KeyboardInterrupt` ("runner stopped: KeyboardInterrupt: ",
+  and the driver's alike), without the signal's name (`r2/group_records.log`).
+  So the records that review round 1 found came with round 1.
+- `r2/mutations.py` / `.log` plants 13 bugs. Round 1's two checks after the
+  route are gone, since `checked()` now makes that check, so it keeps round 1's
+  other eight and adds five: each script's route run outside `checked()`;
+  `checked()` letting a `RouteError` through after a signal, or making no check
+  at its block's end; and `install()` taking over a signal that the script
+  started with ignored. Each fails the tests meant for it, the five new ones
+  the tests of a signal to the process group, of a signal as the route ends and
+  of a signal ignored at start. With SIGHUP not handled, the SIGINT cases of a
+  signal inside `poll()` fail as well, as in round 1. Nothing is left behind,
+  and the copy as it is passes both test files.
+- `r2/step2.sh` / `.log` ran these four one at a time, from 22:19 to 22:37,
+  each under `nice -n 5` from the script's bash, which ananicy keeps at nice -4
+  or -3 (the watchers below found it there), so at +1 or +2 rather than the
+  nice 5 intended (derived, not measured).
+- `r2/routes.sh` / `r2/routes.log` played all 22 routes in the three runtime
+  modes with round 2's runner, on `build-dev`, whose binary is still Phase 7
+  change 5's, every feature off. All 66 runs pass, and the binary, the unlocked
+  save and `run_route.py` were the same before and after
+  (`r2/inputs-before-routes.sha256`, `r2/inputs-after-routes.sha256`). Against
+  round 1's batch, now in `r2/routes-before/`, each run's probe differs only in
+  the four counters of how far the run had got when the probe sampled it
+  (`r2/probe_fields.py` / `.log`), and the memcard route's six cards match byte
+  for byte; `r2/card_check.log` finds no problem, the unlocked save unchanged.
+  The largest lag of a run's shots behind the ends of their steps runs from 7
+  to 17 frames, with a median of 13 against round 1's 14, and is lower than
+  there in 34 runs and higher in 14 (`r2/routes_summary.log`).
+  `r2/clear_time_check.log` finds each demonstration's results screen. Its
+  lists of the shots that show it differ from round 1's in 9 of 57: in eight,
+  those of the 6TH ZONE, the 8TH ZONE and U3, by one shot as the screen comes
+  or goes, and in the LAST ZONE's in lle-scph1001 by a shot at t04800, long
+  before the screen, of the kind that change 5's batch took for it in
+  lle-openbios.
+- `r2/beetle_routes.sh` / `r2/beetle_routes.log` played all 22 routes in the
+  two Beetle modes with round 2's driver; psx-beetle, the unlocked save and
+  both scripts were the same before and after
+  (`r2/beetle-inputs-before.sha256`, `r2/beetle-inputs-after.sha256`). Four of
+  its 47 attempts failed because a shot landed one frame late, each now kept
+  with its log in `r2/beetle-failed/`: demo-zone2 in lle-scph1001 and
+  demo-zone4 in lle-openbios passed at their second attempt, and demo-zone3 in
+  lle-openbios failed at both, so `r2/batch_compare.log` found that run's files
+  differing from round 1's batch, now in `r2/beetle-routes-before/`, and
+  nothing else.
+- The two batches ran side by side from 22:45:21, as round 1's did: the runtime
+  batch until 00:29:33 and the Beetle batch until 23:35:59. Both were started
+  under `nice -n 5`, but ananicy holds bash at -4, so they and the programs
+  they started ran at -4 until 22:48:51: the first three runtime runs and the
+  first four Beetle attempts. From then, `r2/nicewatch.py` / `r2/nicewatch.log`
+  raised every thread of both batches below nice 5 to 5. The four Beetle
+  attempts started before 22:48:51 had one late shot, and the eleven started
+  from then at 5, on a host at a load of 10 to 13, had three. So the resource
+  coordinator had the Beetle runs held at exactly 0 from the batch's next run,
+  the runtime batch keeping its floor of 5; round 1's batches had run below
+  nice 0, since ananicy held their bash at -4 (derived, not measured).
+  `r2/nicewatch2.py` / `r2/nicewatch2.log` did that from 23:02:43, and all 32
+  attempts started from then on passed at their first try. In three of them the
+  driver began at -4, and in two of those psx-beetle too, inherited from the
+  batch's bash, which ananicy kept moving back to -4; the watcher set them to 0
+  within its quarter-second poll. It found no program off 0 later in its run,
+  and every value it set took.
+- At the batch's end, `r2/beetle_reruns.sh` / `r2/beetle_reruns.log` ran
+  demo-zone3 in lle-openbios once more, as the coordinator set: unpaced, with
+  the batch's command, at nice 0 (`r2/nicewatch2-reruns.log`), after keeping
+  its second failed attempt in `r2/beetle-failed/`. It passed with every event
+  on its frame, and with it in place `r2/batch_compare-after-reruns.log` finds
+  the 1,368 screenshots, 88 cards and 44 result files byte-identical to round
+  1's batch, and every run's Beetle log the same.
+- `r2/checks-p6-11-r2.sh` / `.log` repeats round 1's checks on the staged tree,
+  and also compares the index with round 1's frozen entries and each file with
+  its round 1 blob, matches round 1's report against session message 849, runs
+  `r2/red.sh`, `regression.sh`, `r2/group_records.sh` and `r2/mutations.py`
+  against their logs, and reads round 2's batches, the re-run and the watchers'
+  logs, comparing the probes, the cards, the results shots and the shots' lag
+  with round 1's batch. All pass.
 
 ## Hypotheses and unknowns
 
@@ -2453,7 +2619,55 @@ length says 43, which it read correctly), round 3 PASS on tree `ac32f6c`
   one suggestion: round 4's checks bullet now says "the second tool's
   `zone_data.py`", as the log does, where it said the copy's, which
   `split_tool.py` loaded again does not load.
-- Phase 6 change 10, round 5: pending delta re-review.
+- Phase 6 change 10, round 5: PASS on tree `e2b896d` (staged diff `88c778bd…`),
+  no findings and no suggestions, from the same reviewer: round 4's finding is
+  resolved, each entry's sentence on the differential now matching what that
+  round's report records, and round 4's suggestion is taken up. The reviewer
+  rebuilt the delta from round 4's blob, compared every sentence of the four
+  entries on the differential with its reports, checked the new statements and
+  `phase6-10/r5/checks-p6-10-r5.sh` with its first log, and relied on
+  `phase6-10/r5/checks-p6-10-r5.log` for the route tests, the gates, the pins,
+  the submodules and the listeners, and on its own earlier runs for the
+  behaviour checks, the code being round 2's: the tests, the help texts, the
+  baseline and `phase6-10/elsewhere.sh` in round 2, the differential in
+  round 4. Report: `phase6-10/r5/review-r5.md` (session message 2327). Commit
+  `27468b2`, pushed.
+- Phase 6 change 11, round 1: NEEDS CHANGES on tree `bc7a151` (staged diff
+  `0756cc70…`), from a fresh read-only reviewer, with one Medium finding and
+  two Lows. Medium: a signal sent to the whole process group, as a terminal
+  sends Ctrl-C and a hang-up, also reached psx-beetle, whose exit the driver
+  then recorded in the signal's place, exiting with status 1, also for SIGINT,
+  so that a shell loop around it ran on: a regression from commit `27468b2`,
+  whose handler raised at once, and a break of the invariant, which the
+  docstring, the observations and the draft of the commit message repeated. The
+  runner could take the same path only with a request in flight. Low: the
+  observations' bound on how long a noted signal waits, a socket's timeout,
+  does not hold for the runner, which makes up to five queries for each shot
+  that falls due between two checks (the reviewer measured 25.1 s); and the
+  next action left out the approved plan's change 12 and `load_route`'s own
+  exception. The reviewer reproduced the Medium with the tests' fakes, each
+  script in a session of its own and the signal sent to its group; ran the
+  three route test files, the Beetle driver's passing at its first run, and the
+  four new signal tests in five repetitions; reproduced `regression.sh`,
+  `mutations.py`, `shell_loop.py`, `probe_fields.py` and
+  `phase6-1/batch_compare.py` as logged; checked the helper and the CPython
+  lines it relies on, probed that `install()` leaves alone a signal that the
+  script started with ignored, and sent a signal during each script's cleanup
+  on both trees; recomputed both batches' results from their outputs; and
+  checked change 10's condensed record and round 5 entry against `27468b2`'s
+  handoff and the report, and `host-fault.log` against the journal. It relied
+  on `phase6-11/checks-p6-11.log` for the gates, the pins, the submodules,
+  change 10's report and commit message, the listeners and `test_zone_data.py`.
+  Report: `phase6-11/review-r1.md` (session message 849). Round 2 lets a noted
+  signal take precedence over a `RouteError` that comes after it
+  (`StopSignals.checked()`), corrects both texts, and takes up the six
+  suggestions: a test of each script that a signal it started with ignored
+  stays ignored, which a planted bug that installs regardless fails (1);
+  `signal_in_poll.py` made executable (2); two phrases of the class's
+  docstring, and the scope's like them (3); the batches' running side by side,
+  in the checks (4); the draft of the commit message, outside the snapshot (5);
+  and `env()` in the driver's tests (6).
+- Phase 6 change 11, round 2: pending delta re-review.
 
 ## Next action
 
@@ -2494,11 +2708,16 @@ this yet, and one that does should be proven through a function of
 `zone_data.py`, such as `gate()` with the bug in `loaded()` planted in one
 tree, since a check of the trees' `mips.py` or of the modules' files would pass
 a loader that leaves `zone_data.py` on the other tree's code. The steps, with
-the zone tool's fixes done and the tool split into modules: the route-script
-hang (below), which the user placed just before the next step; one module
-for what the two route scripts share, with smaller `main()` functions and
-with `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1),
-then every route in the three runtime modes and the two Beetle modes; test
+the zone tool's fixes done, the tool split into modules and the route scripts'
+hang fixed, as the approved plan gives them: change 12, the route scripts'
+other error paths, with the result file that marks a run's output directory
+written right after `prepare_out()`, a clean failure when a reply lacks a key,
+and `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1);
+change 13, one module for what the two route scripts share, among it
+`stop_signals`, which `beetle_route.py` now imports from `run_route.py`, with
+smaller `main()` functions and `load_route` raising its own exception (the
+audit's findings 3, 4 and 10); each with every route in the three runtime modes
+and the two Beetle modes, as for any change to those scripts; test
 helpers (the driver tests' fake psx-beetle runs its frames on a free 300 Hz
 clock, so while the host is busy a test now and then fails with a late
 event, see change 1; the fake could wait for the driver except in the tests
@@ -2553,15 +2772,6 @@ One of change 7's round 1 suggestions is still open: the trace could also
 stop at the word after an unconditional jump's delay slot (`j`, `jr`, `b`),
 which control cannot reach from the word before (suggestion 5; no window on
 the disc crosses one).
-
-The checks also found a hang outside the audit, in both route scripts (see
-change 1), and the user placed its fix just before the route-scripts
-refactor. One way to fix it: the signal handlers, SIGINT's too, only record
-the signal, and the scripts' loops raise SystemExit when they see it, so no
-exception starts inside `Popen.poll()`; `test_sigterm_stops_beetle` should
-also kill a driver that outlives its wait, as the runner's test does. Like
-any change to those scripts, it needs their tests and every route in the
-three runtime modes and the two Beetle modes.
 
 The user can play Crossfire: start a session with `play/play.sh <session
 dir> <SCPH-1001 dump>` (in `.cache/evidence/phase4-2/`), press "Install

@@ -3,6 +3,7 @@
 
 Linux only (reads /proc). Run: python3 -B scripts/routes/test_run_route.py
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -17,14 +18,34 @@ import unittest
 from pathlib import Path
 
 RUNNER = Path(__file__).resolve().with_name("run_route.py")
+SIGNAL_IN_POLL = RUNNER.with_name("signal_in_poll.py")
 SHORT = [{"frames": 60, "buttons": 65535, "shot": "a"},
          {"frames": 6, "buttons": 65527},
          {"frames": 60, "buttons": 65535, "shot": "b"}]
+# The signal actions that a terminal leaves a program with. An agent's shell may
+# start the tests with SIGINT and SIGHUP ignored, and a script keeps an ignored
+# signal ignored.
+TERMINAL = {signal.SIGINT: signal.default_int_handler, signal.SIGTERM: signal.SIG_DFL,
+            signal.SIGHUP: signal.SIG_DFL}
+
+
+@contextlib.contextmanager
+def inherited_signals(actions):
+    """Takes these signal actions in the test process for the block, so that the
+    processes it starts begin with them: SIG_IGN stays, and a handler becomes the
+    default action."""
+    previous = {sig: signal.signal(sig, action) for sig, action in actions.items()}
+    try:
+        yield
+    finally:
+        for sig, action in previous.items():
+            signal.signal(sig, action)
+
 
 # Replies use the shapes of psxrecomp/runtime/src/debug_server.c; the startup
 # lines copy the runtime's LISTENING / bind FAILED and bios_boot banner formats.
 FAKE = r'''
-import hashlib, json, os, socket, sys, threading, time
+import hashlib, json, os, signal, socket, sys, threading, time
 
 argv = sys.argv[1:]
 port = int(argv[argv.index("--debug-port") + 1])
@@ -64,6 +85,8 @@ def env_on(name, default):
 
 skip = env_on("PSX_BIOS_HLE", True) and not env_on("PSX_BIOS_HLE_KEEP_INTRO", False)
 image = "SCPH-1001" if "--bios" in argv and os.environ.get("FAKE_BIOS_VALID") == "1" else "OPENBIOS"
+if behavior == "slowstart":  # no LISTENING line for 2 s
+    time.sleep(2)
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind(("127.0.0.1", port))
@@ -108,6 +131,12 @@ def handle(conn):
         elif cmd == "input_route_append":
             steps.append(req)
             reply["steps"] = len(steps)
+        elif cmd == "input_route_start" and behavior == "groupsignal":
+            # As a terminal signals its foreground process group: the runner and this
+            # fake. psx-runtime exits on SIGINT and SIGTERM and SIGHUP kills it, so the
+            # request gets no reply.
+            os.killpg(0, getattr(signal, os.environ["FAKE_SIGNAL"]))
+            os._exit(0)
         elif cmd == "input_route_start":
             start = frame()
             reply.update(steps=len(steps), start_frame=start)
@@ -128,6 +157,9 @@ def handle(conn):
             reply.update(miss_total=misses, segment_miss_total=0)
         elif cmd == "unknown_dispatch_log":
             reply["total"] = misses
+            if behavior == "signalatend" and start is not None and not status()["active"]:
+                # As the runner records the route's end: SIGTERM, or FAKE_SIGNAL's signal.
+                os.kill(parent, getattr(signal, os.environ.get("FAKE_SIGNAL", "SIGTERM")))
         elif cmd == "segment_misses":
             reply["total"] = 0
         conn.sendall((json.dumps(reply) + "\n").encode())
@@ -436,6 +468,56 @@ class RunRouteTest(unittest.TestCase):
         self.assertEqual(runner.returncode, 1)
         self.assertEqual(self.fake_pids(), [])
         self.assertIn("SIGTERM", self.failures())
+
+    def test_a_signal_inside_poll_stops_the_runtime(self):
+        # signal_in_poll.py sends the signal right after Popen.poll() has taken the
+        # runtime's waitpid lock; the runner must still stop it, before the route starts.
+        route = self.route(SHORT)
+        for name, returncode in (("SIGTERM", 1), ("SIGHUP", 1), ("SIGINT", -signal.SIGINT)):
+            with self.subTest(name):
+                self.reset()
+                # python3 -B signal_in_poll.py <name> run_route.py <the runner's arguments>
+                cmd = self.command(route)
+                cmd[2:2] = [str(SIGNAL_IN_POLL), name]
+                run = subprocess.run(cmd, env=self.env({"FAKE_BEHAVIOR": "slowstart"}),
+                                     capture_output=True, text=True, timeout=20)
+                self.assertEqual(run.returncode, returncode, run.stderr)
+                self.assertIn(f"stopped by {name}", self.failures())
+                self.assertNotIn("input_route_start", self.requests())
+                self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_as_the_route_ends_fails_the_run(self):
+        run = self.run_runner(self.route(SHORT), env={"FAKE_BEHAVIOR": "signalatend"})
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("stopped by SIGTERM", self.failures())
+        self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_to_the_process_group_stops_the_runtime(self):
+        # A terminal sends Ctrl-C and a hang-up to its whole foreground process group,
+        # so the runtime gets them too, and its exit can fail a request before the
+        # runner's next check. The runner runs in a session of its own, and the fake
+        # signals that group when asked to start the route, then exits without a reply:
+        # the runner must record the signal, not the failed request.
+        route = self.route(SHORT)
+        for name, returncode in (("SIGTERM", 1), ("SIGHUP", 1), ("SIGINT", -signal.SIGINT)):
+            with self.subTest(name):
+                self.reset()
+                env = self.env({"FAKE_BEHAVIOR": "groupsignal", "FAKE_SIGNAL": name})
+                with inherited_signals(TERMINAL):
+                    run = subprocess.run(self.command(route), env=env, start_new_session=True,
+                                         capture_output=True, text=True, timeout=20)
+                self.assertEqual(run.returncode, returncode, run.stderr)
+                self.assertRegex(self.failures(), rf"^runner stopped: \w+: stopped by {name}")
+                self.assertNotIn("input_route_start failed", self.failures())
+                self.assertEqual(self.fake_pids(), [])
+
+    def test_a_signal_ignored_at_start_stays_ignored(self):
+        # nohup starts a program with SIGHUP ignored; the runner must leave it so.
+        with inherited_signals({signal.SIGHUP: signal.SIG_IGN}):
+            run = self.run_runner(self.route(SHORT),
+                                  env={"FAKE_BEHAVIOR": "signalatend", "FAKE_SIGNAL": "SIGHUP"})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.result()["status"], "PASS")
 
 
 if __name__ == "__main__":

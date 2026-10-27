@@ -20,6 +20,7 @@ The run fails unless the runtime boots in the requested mode, plays the whole
 route, reports no unknown-dispatch or segment miss, and exits 0 after `quit`.
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -50,6 +51,60 @@ BANNER = re.compile(r"bios_boot=(HLE|LLE) .*?image=(\S+)")
 
 class RouteError(Exception):
     pass
+
+
+class StopSignals:
+    """Makes SIGTERM, SIGHUP and SIGINT stop a run at its next check().
+
+    Python runs a signal's handler in the main thread at almost any point,
+    library code included, so an exception raised by the handler can start
+    inside Popen.poll() after it has taken the child's waitpid lock and before
+    the try that releases it, and every later wait for the child without a
+    timeout then blocks forever. So the handler only notes the signal, and the
+    run's loops call check(), which raises where no Popen call is running:
+    KeyboardInterrupt for SIGINT, as Ctrl-C does by default, so that the script
+    still ends by SIGINT and a shell loop that runs it stops too, and SystemExit
+    for the others. As the handler never raises, none of these signals can
+    interrupt the cleanup either. A signal that the script started with
+    ignored, as nohup leaves SIGHUP, stays ignored.
+    """
+
+    def __init__(self):
+        self.received = None
+
+    def install(self):
+        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            if signal.getsignal(sig) in (signal.SIG_DFL, signal.default_int_handler):
+                signal.signal(sig, self.note)
+
+    def note(self, signum, _frame):
+        if self.received is None:
+            self.received = signum
+
+    def check(self):
+        if self.received is None:
+            return
+        message = f"stopped by {signal.Signals(self.received).name}"
+        if self.received == signal.SIGINT:
+            raise KeyboardInterrupt(message)
+        raise SystemExit(message)
+
+    @contextlib.contextmanager
+    def checked(self):
+        """Runs the block, then check(). check() also runs before a RouteError
+        leaves the block: a signal sent to the whole process group, as a
+        terminal sends Ctrl-C and a hang-up, reaches the runtime or psx-beetle
+        too, and their exit can fail the route before the next check(). The
+        signal, not that failure, is then what the run records."""
+        try:
+            yield
+        except RouteError:
+            self.check()
+            raise
+        self.check()
+
+
+stop_signals = StopSignals()
 
 
 def ask(port, cmd, **params):
@@ -157,6 +212,7 @@ def own_server(log_path, port):
 def wait_for_boot(proc, port, log_path):
     deadline = time.monotonic() + 60
     while True:
+        stop_signals.check()
         if proc.poll() is not None:
             raise RouteError(f"runtime exited during startup ({proc.returncode}); see runtime.log")
         text = log_path.read_text(errors="replace")
@@ -196,6 +252,7 @@ def play(port, proc, steps, out, result, timeout):
     deadline = time.monotonic() + timeout
     status, last_err = None, None
     while True:
+        stop_signals.check()
         if proc.poll() is not None:
             raise RouteError(f"runtime exited during the route ({proc.returncode}); "
                              "see runtime.log and cwd/psx_last_run_report.json")
@@ -263,10 +320,6 @@ def finish(out, result, failures):
           f"exit {result['exit_code']} {result['status']}")
     for f in failures:
         print(f"  FAIL: {f}")
-
-
-def stop_on_signal(signum, _frame):
-    raise SystemExit(f"stopped by {signal.Signals(signum).name}")
 
 
 def main():
@@ -339,33 +392,30 @@ def main():
            "--debug-port", str(args.port)]
     if args.bios:
         cmd += ["--bios", str(args.bios.resolve())]
-    handled = [s for s in (signal.SIGTERM, signal.SIGHUP) if signal.getsignal(s) == signal.SIG_DFL]
-    for sig in handled:
-        signal.signal(sig, stop_on_signal)
+    stop_signals.install()
 
     log_path = out / "runtime.log"
     failures, proc = [], None
     try:
-        with open(log_path, "wb") as log:
-            try:
-                proc = subprocess.Popen(cmd, cwd=out / "cwd", env=env, stdout=log,
-                                        stderr=subprocess.STDOUT)
-            except OSError as exc:
-                raise RouteError(f"cannot start {binary}: {exc}")
-        boot, image = wait_for_boot(proc, args.port, log_path)
-        result["boot"] = {"bios_boot": boot, "image": image}
-        if (boot, image) != (want_boot, want_image):
-            raise RouteError(f"runtime booted bios_boot={boot} image={image}; --mode {args.mode} "
-                             f"needs bios_boot={want_boot} image={want_image}")
-        play(args.port, proc, steps, out, result, args.timeout)
+        with stop_signals.checked():
+            with open(log_path, "wb") as log:
+                try:
+                    proc = subprocess.Popen(cmd, cwd=out / "cwd", env=env, stdout=log,
+                                            stderr=subprocess.STDOUT)
+                except OSError as exc:
+                    raise RouteError(f"cannot start {binary}: {exc}")
+            boot, image = wait_for_boot(proc, args.port, log_path)
+            result["boot"] = {"bios_boot": boot, "image": image}
+            if (boot, image) != (want_boot, want_image):
+                raise RouteError(f"runtime booted bios_boot={boot} image={image}; --mode "
+                                 f"{args.mode} needs bios_boot={want_boot} image={want_image}")
+            play(args.port, proc, steps, out, result, args.timeout)
     except RouteError as exc:
         failures.append(str(exc))
     except BaseException as exc:
         failures.append(f"runner stopped: {type(exc).__name__}: {exc}")
         raise
     finally:
-        for sig in handled:
-            signal.signal(sig, signal.SIG_IGN)
         result["exit_code"] = stop(proc, args.port, log_path, failures)
         finish(out, result, failures)
     return 1 if failures else 0
