@@ -47,6 +47,9 @@ for _doc in DISC.md; do
     EXTRA+=(--doc "${_doc}")
   fi
 done
+# The keyboard layout made for Mouse Aim is the release's default: it ships at
+# the zip root, beside the executable, where the runtime reads keybinds.ini.
+EXTRA+=(--doc controls/keybinds.ini)
 
 cd "${ROOT}"
 exec bash "${PACKAGER}" \

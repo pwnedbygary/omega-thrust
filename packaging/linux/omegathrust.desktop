@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Omega Thrust
+Comment=Native PC recompilation of Omega Boost; requires your own disc
+Exec=Omega_Thrust
+Icon=omegathrust
+Categories=Game;
+Terminal=false

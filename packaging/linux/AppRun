@@ -1,0 +1,123 @@
+#!/bin/sh
+# Omega Thrust's AppImage entry point (scripts/package_appimage.sh).
+#
+# The runtime reads game.toml, the BIOS, its settings, the mod catalog and the
+# memory cards from the folder of the file it was started as, and writes
+# beside them, but an AppImage's own files are read-only. So the game's files
+# live in a data folder, and the game is started through a link there:
+# $OMEGA_THRUST_DATA_DIR, else $XDG_DATA_HOME/Omega_Thrust, else
+# ~/.local/share/Omega_Thrust.
+#
+# Files of the release are copied there when this AppImage's version differs
+# from the one in .appimage-version, which is written once they are all
+# copied; deleting it has the next start copy them again. Files of the
+# player's are never replaced or removed: settings.toml, the launcher's .ini
+# files, keybinds.ini once seeded, the memory cards and saves, mods/state.toml,
+# mods/installed/, and what the player adds to assets/ or bios/, such as a
+# BIOS dump.
+set -eu
+
+if [ -z "${APPDIR:-}" ]; then
+    echo "Omega Thrust: start this through its AppImage." >&2
+    exit 1
+fi
+
+# A relative XDG_DATA_HOME is ignored, as the XDG base directory spec says.
+case ${XDG_DATA_HOME:-} in
+    /*) xdg_data_home=$XDG_DATA_HOME ;;
+    *) xdg_data_home= ;;
+esac
+if [ -n "${OMEGA_THRUST_DATA_DIR:-}" ]; then
+    data=$OMEGA_THRUST_DATA_DIR
+elif [ -n "$xdg_data_home" ]; then
+    data=$xdg_data_home/Omega_Thrust
+elif [ -n "${HOME:-}" ]; then
+    data=$HOME/.local/share/Omega_Thrust
+else
+    echo "Omega Thrust: neither HOME nor OMEGA_THRUST_DATA_DIR is set." >&2
+    exit 1
+fi
+# The game is started after a cd into the data folder, so a relative path is
+# made absolute here, from the folder this was started in.
+case $data in
+    /*) ;;
+    *) data=$PWD/$data ;;
+esac
+
+payload=$APPDIR/usr/share/omegathrust
+runtime=$APPDIR/usr/bin/Omega_Thrust
+version=$(cat "$payload/psx_game_version.txt")
+marker=$data/.appimage-version
+
+if ! mkdir -p "$data/mods" "$data/saves"; then
+    echo "Omega Thrust: cannot make the data folder $data;" \
+        "set OMEGA_THRUST_DATA_DIR to a folder that can be written." >&2
+    exit 1
+fi
+
+if [ ! -f "$marker" ] || [ "$(cat "$marker")" != "$version" ]; then
+    # Folders that hold only the release's files: replaced whole, so that an
+    # update also drops what it no longer ships.
+    for tree in licenses mods/bundled; do
+        if [ -d "$payload/$tree" ]; then
+            rm -rf -- "${data:?}/$tree"
+            mkdir -p "$data/$tree"
+            cp -R "$payload/$tree/." "$data/$tree/"
+            chmod -R u+rwX "$data/$tree"
+        fi
+    done
+    # Folders that can also hold the player's files, such as a BIOS dump in
+    # bios/, where the runtime looks for one: the release's files are copied
+    # over those of the same name, and the player's stay.
+    for tree in assets bios; do
+        if [ -d "$payload/$tree" ]; then
+            mkdir -p "$data/$tree"
+            cp -Rf "$payload/$tree/." "$data/$tree/"
+            chmod -R u+rwX "$data/$tree"
+        fi
+    done
+    # Files that belong to the release, at the payload's top level and in its
+    # mods/, but for keybinds.ini, which is the player's once seeded (below).
+    for file in "$payload"/* "$payload"/mods/*; do
+        name=${file#"$payload"/}
+        if [ -f "$file" ] && [ "$name" != keybinds.ini ]; then
+            cp -f "$file" "$data/$name"
+            chmod u+rw "$data/$name"
+        fi
+    done
+    printf '%s\n' "$version" > "$marker"
+fi
+
+# The keyboard layout made for Mouse Aim, the release's default, seeded once;
+# after that it is the player's, and the launcher's Controls page edits it.
+if [ ! -e "$data/keybinds.ini" ] && [ -f "$payload/keybinds.ini" ]; then
+    cp "$payload/keybinds.ini" "$data/keybinds.ini"
+    chmod u+rw "$data/keybinds.ini"
+fi
+
+# The overlay toolchain is large and read-only, so it is linked, not copied.
+# The AppImage mounts at a new path each time, so the link is renewed. A real
+# folder in its place was put there on purpose and is left alone.
+if [ -d "$payload/overlay_toolchain" ] &&
+   { [ -L "$data/overlay_toolchain" ] || [ ! -e "$data/overlay_toolchain" ]; }; then
+    ln -sfn "$payload/overlay_toolchain" "$data/overlay_toolchain"
+fi
+
+launcher=$data/.Omega_Thrust-runtime
+ln -sfn "$runtime" "$launcher"
+
+# For checks: prepare the data folder, print it and stop.
+if [ "${OMEGA_THRUST_SEED_ONLY:-0}" = 1 ]; then
+    printf '%s\n' "$data"
+    exit 0
+fi
+
+# With APPIMAGE set, the runtime would look for its files beside the
+# .AppImage file instead of in the data folder. LD_LIBRARY_PATH is left as it
+# is: the executable finds the bundled libraries through its RUNPATH, and the
+# programs that the game starts, such as the host's compiler and file dialogs,
+# must not load them.
+unset APPIMAGE
+
+cd "$data"
+exec "$launcher" "$@"

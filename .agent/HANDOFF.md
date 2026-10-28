@@ -9,57 +9,44 @@ cycles through the whole game, 4 Beetle comparison. Phase 5, at the user's
 request, is modding: unlocks, branching, new levels, and later perhaps a fan
 sequel or remake that borrows Colony Wars' free-roaming structure. Phase 6,
 also the user's choice, works through an independent audit of the committed
-code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and
-readability cleanups, each its own small reviewed change. Phase 7, the
-user's request, is mouse and keyboard controls like those of modern space
-shooters: the mouse steers without a held button, W, A, S and D move, Q held
-keeps the mech facing the enemy (the game's SCAN), the left button held is
-the lock-on lasers, the right button the machine-gun lasers, and Enter
-pauses. It started with a framework fix, one commit on `8077e71` in a fork,
-since on Linux the runtime never read `keybinds.ini`.
+code (`.cache/evidence/code-quality/audit-r1.md`): its fixes and readability
+cleanups, each its own small reviewed change. Phase 7, the user's request, is
+mouse and keyboard controls like those of modern space shooters: the mouse
+steers without a held button, W, A, S and D move, Q held keeps the mech facing
+the enemy (the game's SCAN), the left button held is the lock-on lasers, the
+right button the machine-gun lasers, and Enter pauses. It started with a
+framework fix, one commit on `8077e71` in a fork, since on Linux the runtime
+never read `keybinds.ini`, and went on to a strafe for gamepads and a
+widescreen view. Phase 8, also at his request, is the release: a workflow that
+builds ZIPs for Linux, Windows and macOS and an AppImage, and the release
+v1.0.0.
 
-Current iteration, Phase 7 change 7, round 3: a widescreen mod, which the user
-asked for before the release ("Please finish up whatever is remaining. Also,
-please implement a widescreen mod for this game. After that, and everything is
-finished, cut a release build so I can test out the appimage after CI finishes
-its build.") and placed after Gamepad Strafe ("After Gamepad Strafe (change 6),
-the widescreen mod and the CI release setup; changes 12 to 15 follow the
-release (Recommended)"). Invariant: a new feature, Widescreen
-(`mods/preloaded/packages/omega.enhancement.widescreen/`, off by default, with
-a View of Fit to Window, 16:9 or 21:9), whose plugin
-(`src/mods/omega_widescreen.c`) chooses the view at session start and marks
-flight's frames, those drawn while the main loop's state word says CAMPAIGN
-PLAY, ZONE PLAY, TRAINING or a DEMONSTRATION replay and the display is 320
-pixels wide, as 3D scenes, which the framework then draws wide, while every
-other frame keeps its 4:3 picture; and a `[widescreen.cull]` block in
-`game.toml`, which lets the game's polygon culls pass what the wider view
-shows: `auto_screen_x` widens their right edges and their `bltz` left edges,
-and `branch_keep_sites` keeps twelve `blez` left edges from rejecting. While
-the view is 4:3, as it is with the feature off, each widened compare and kept
-branch acts as the game's own, so the game does and draws what it did;
-`generated/` changes only at those sites, and the static shard's audit records
-the new `game.toml`. The comment there on the two force-sum sites now names
-Gamepad Strafe beside Mouse Aim (change 6's review round 1, finding 6). This
-file also records Phase 7 change 6's round 2 PASS and its commit `0e65a35`,
-condenses change 6, and takes up three of that review's four suggestions.
-Review round 1 found that `AGENTS.md` named an evidence script, which no clone
-has, as the check to run on the cull list, that the plugin's comment and
-`AGENTS.md` gave a wrong reason for marking flight's frames, and that the next
-action said that the user made the repository public, which this session did at
-his word. So round 2 corrects those texts, the plugin's comments among them,
-which leaves both binaries the same, records in the next action the user's
-choice of keyboard layout for the release, and takes up the review's five
-suggestions. Review round 2 found that the check of the cull list that
-`AGENTS.md` then described defined a left edge in a form that only the `blez`
-edges take, so that it would miss the twelve `bltz` edges, and did not ask that
-each listed address be a left edge. So round 3 rewrites that check from a
-disassembly of every left edge and takes up the review's four suggestions; both
-binaries stay round 1's. Baseline: `0e65a35`. Out of scope: the left-edge culls
-of the 5TH and 8TH ZONE, at addresses that other zone files share; moving the
-HUD out to the edges of a wide view; objects that the game culls before they
-reach the polygon funnels; the CI release setup and the release, and then the
-route-script cleanup and the rest of the code-quality work (the next action);
-and the framework.
+Current iteration, Phase 8 change 1, round 2: the CI release setup, which the
+user asked for with the widescreen mod ("... cut a release build so I can test
+out the appimage after CI finishes its build.") and chose to have build "The
+AppImage plus ZIPs for Linux, Windows and macOS". Invariant: a workflow,
+`.github/workflows/release.yml`, from the framework's release template, which
+on a run from the Actions tab with a version, or on a pushed `vX.Y.Z` tag,
+builds and checks a zip for Linux, Windows and macOS (arm64 and x64) and an
+AppImage from the Linux zip, and publishes them as a GitHub release. Every zip
+ships `controls/keybinds.ini` at its root as `keybinds.ini`, as the user chose,
+and the AppImage's start script keeps the game's files in a writable data
+folder, seeds that layout once and never replaces or removes the player's own
+files. No file of the game changes: not `game.toml`, `generated/` or `src/`,
+and both builds stay as they are. This file also records Phase 7 change 7's
+round 3 PASS and its commit `9a0f8ed`, and condenses change 7. Review round 1
+found that the start script deleted what the player had put in the data
+folder's `bios/` and `assets/`, a BIOS dump among them, whenever the version
+changed, against that invariant; that it exported `LD_LIBRARY_PATH`, which the
+game does not need and the programs that it starts would inherit; and that a
+relative data folder broke the start. So round 2 copies the release's files
+over those two folders instead, drops the export and makes a relative data
+folder absolute, and takes up five of the review's suggestions, among them a
+check in the workflow of every file that the start script copies. Baseline:
+`9a0f8ed`. Out of scope: signing the Windows and macOS builds; cutting the
+release, v1.0.0, which this change's workflow does once it is committed and
+pushed (the next action); the user's trials; the route-script cleanup and the
+rest of the code-quality work; and the framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1373,351 +1360,324 @@ diff `9c119c77…`). Reports: `phase7-6/review-r1.md` and
 `phase7-6/r2/review-r2.md`. The full record:
 `git show 0e65a35:.agent/HANDOFF.md`.
 
-## Phase 7 change 7 observations (`.cache/evidence/phase7-7/`)
+## Phase 7 change 7 (commit `9a0f8ed`)
 
-- The user asked for a widescreen mod before the release: "Please finish up
-  whatever is remaining. Also, please implement a widescreen mod for this game.
-  After that, and everything is finished, cut a release build so I can test out
-  the appimage after CI finishes its build." The framework leaves widescreen to
-  each title's mod catalog: a trusted plugin chooses the view at session start
-  (`psx_mod_set_fixed_display_aspect()`, and for Fit to Window also
-  `psx_mod_set_adaptive_display_aspect()`), and the title's `game.toml` says
-  which culls widen (`psxrecomp/docs/WIDESCREEN.md`, lines 159 to 170 and 213
-  to 233). TombaRecomp's package is the framework's worked example.
-- Which frames are drawn wide. The runtime's classifier asks a plugin's
-  world-scene predicate first, then the gameplay-state gate, whose answer is
-  final once it is configured, then heuristics that this game does not
-  configure (`ws_game_mode()`, `psxrecomp/runtime/src/gpu.c:394-403`). The
-  first configuration used the gate (`psxrecomp/runtime/src/gpu.c:303-321`):
-  the main loop's state word, 0x8009C5B0, is 8 in CAMPAIGN PLAY, 9 in ZONE PLAY
-  and 11 in TRAINING, the states in which Mouse Aim and Gamepad Strafe fly, and
-  5 through a DEMONSTRATION replay (`phase7-6/replay.log`). Its headless runs,
-  now in `gate-config/`, drew the 1ST ZONE's flight and replay wide but kept
-  the 5TH ZONE's replay at 4:3 throughout (`gate-config/probe-demo1-16x9.log`,
-  `gate-config/probe-demo5-16x9.log`). A survey of the nine campaign zones'
-  replays at 16:9, which also read the runtime's draw census for the two frames
-  before each shot, then found 251 of 268 replay shots at 4:3, the 1ST ZONE's
-  20 among them, though the gate called every one of them flight's
-  (`gate-config/scripts/survey.sh`, `gate-config/survey_summary.log`). A frame
-  that the classifier calls flight's is still drawn at 4:3 while the runtime
-  takes its scene for a 2D one (`gpu_ws_present_native_43()` and
-  `ws_2d_only_scene()`, `psxrecomp/runtime/src/gpu.c:430-490`), as it does
-  until four or more polygons not tagged as sprites reach more than 24 pixels
-  past an edge of the screen in each of two frames running
-  (`ws_note_overhang()`, `psxrecomp/runtime/src/gpu.c:355-356` and
-  `6576-6599`): a test written for games that tag their sprites, which exempts
-  a plugin's world-scene predicate but not the gate. This game draws a new
-  picture every other frame: in each of the 268 shots, exactly one of the two
-  frames before it drew polygons (`gate-config/frame_pattern.log`), so the test
-  almost never passed, though in every zone the frames that drew had polygons
-  past the edges. The 7TH ZONE's 17 wide shots, and the first runs' wide 1ST
-  ZONE, came from chance pairs of frames.
-- So the plugin marks flight's frames itself, through the world-scene predicate
-  that the framework offers for that (`psx_mod_set_world_scene_predicate()`,
-  `psxrecomp/runtime/include/mod_plugins.h:298-307`): the classifier asks it
-  first, and the 2D-only test does not apply to a frame that it marks
-  (`psxrecomp/runtime/src/gpu.c:388-440`). `flight_frame()` marks a frame while
-  the state word is 5, 8, 9 or 11 and the display is 320 pixels wide
-  (`psx_mod_display_width()`): the mission briefings run in CAMPAIGN PLAY's
-  state too, but on a 640-pixel display (`probe-16x9/records.jsonl`), so they
-  keep 4:3, as the title, the menus and the BIOS do. The framework's rule for
-  movies, which keeps a frame from the MDEC or a 24-bit display at 4:3, still
-  applies (`psxrecomp/runtime/src/gpu.c:470-490`). The runtime clears the
-  predicate when a session starts, so the plugin registers it at each
-  activation (`psxrecomp/runtime/src/main.cpp:1620-1622`). `game.toml` no
-  longer sets the gate, which only the runtime reads
-  (`psxrecomp/runtime/src/gpu.c:303-321`,
-  `psxrecomp/runtime/src/main.cpp:14725-14728`), so a frame that the plugin
-  does not mark falls through to the heuristics and keeps 4:3; the generate
-  after that changed no C file, only the static shard's audit (`w1.log`). With
-  the predicate, every flight shot of the title runs and all 268 replay shots
-  of the survey came out wide (the checks).
-- The culls: the game draws at 320 by 224, and its polygon funnels drop a
-  polygon whose projected X lies wholly off the screen, or accept one that has
-  a vertex on it, with a `blez` or `bltz` on an X for the left edge and a
-  `slti` or `sltiu` against 0x140 or 0x141 for the right. `auto_screen_x`
-  widens the width compares, and a left edge only if it is a `bltz` with the
-  compare in its delay slot, in a function that also compares Y with a height
-  that `screen_h_imms` names (`psxrecomp/runtime/include/ws_cull_detect.h`);
-  its default heights, 0xE0 and 0xF1, miss this game's 0xE1
-  (`psxrecomp/recompiler/src/config_loader.cpp:1979-1983`). `branch_keep_sites`
-  keeps a listed left edge from rejecting while the view is wide
-  (`psxrecomp/recompiler/src/code_generator.cpp:809-814`). In the EXE the
-  recompiler refuses a listed address that holds no conditional branch; in a
-  zone file it checks nothing and keeps any conditional branch at a listed
-  address, whatever the file
-  (`psxrecomp/recompiler/src/code_generator.cpp:774-793`), and so does the
-  interpreter, which runs the zone files' code that the static shard does not
-  hold (`ws_branch_keep()`, `psxrecomp/runtime/src/dirty_ram_interp.c:645`).
-- `cull_sites.py` / `.log` lists every left edge, in the EXE and in the disc's
-  25 zone files, against `branch_keep_sites` and the generated C. The EXE has
-  23: 12 `bltz`, each with the compare in its delay slot, which `auto_screen_x`
-  widens, and 11 `blez`, all listed. In ten of those the compare sits in the
-  delay slot; in the eleventh, 0x80053828, the delay slot holds a `subu`, and
-  the compare follows it. The scan's first version looked only for a compare in
-  the delay slot and missed it (`cull_sites-first.log`), so the first
-  regenerate (`w1-first/`) left it as the game has it (`cull_sites-w1.log`).
-  The zone files have three, all `blez`: the LAST ZONE's (S10) is listed, since
-  no other zone file has a conditional branch at its address; the 5TH ZONE's
-  (S5) and the 8TH ZONE's (S9) are not, since S6's file has one at the 5TH
-  ZONE's address and S2's and S8's at the 8TH ZONE's.
-- `psx_ws_x_margin()`, by which the widened compares and the kept branches
-  move, is 0 at 4:3, so they then act as the game's own
-  (`psxrecomp/runtime/src/gpu.c:1420`). While the view is wide it holds in
-  every frame, menus included, not only in the frames drawn wide. Besides the
-  funnels above, `auto_screen_x` widened the right bound of a cull in the EXE
-  that skips a point whose X is not between -320 and 320 (0x80036C44), and, in
-  the 6TH and 8TH ZONE's files, the two vertex tests of a funnel that compare X
-  with both edges at once, with an unsigned `sltiu`, which it widens at both
-  edges (S6: 0x801262EC and 0x80126320; S9: 0x80129540 and 0x80129574). Each is
-  a cull that skips drawing; none is a clamp that a menu or a cursor could
-  reach. Every other compare it widened is a funnel's right edge (`ws_sites.py`
-  / `.log` lists them all).
-- In the wide pictures, stars fill the side bands, and scenery such as the
-  ground or a tunnel's walls can stop short of the edge, on the left and on the
-  right (the survey's contact sheets, `survey-zone1/sheet.png` to
-  `survey-zone-last/sheet.png`). Over the survey's 268 wide shots neither band
-  is the darker one on the whole: the left band is darker than the right, by a
-  lit share of 0.05 or more, in 56 shots, and the right in 59 (`bands.py` /
-  `.log`). In the 5TH ZONE, whose one left-edge cull stays as the game has it,
-  the left band is the darker one in 10 of its 32 shots and the right in 5; too
-  few shots to tell a lost polygon from the scene. The HUD keeps its 4:3 layout
-  in the middle.
-- Whether the window shows a frame wide, a run reads from the debug server's
-  `gpu_state`: `nw_extra` gives the columns added, 0 in a 4:3 view, and
-  `present_native_43` is 1 while a wide view shows a frame at 4:3 with bars.
-  The wide picture that `screenshot_wide_hires` saves does not say it: the
-  debug server saves the wide surface whenever one exists for the displayed
-  buffer (`psxrecomp/runtime/src/debug_server.c:9931-9954`), so it also saves
-  one for a frame shown at 4:3: a dark one for the briefing at 16:9
-  (`probe-16x9.log`), and, in a window resized from 21:9 to 4:3, the 21:9
-  picture's side bands around the current 4:3 one (`fit-window-first/`,
-  `fit_window-first.log`).
+Widescreen, which the user asked for before the release ("Please finish up
+whatever is remaining. Also, please implement a widescreen mod for this game.
+After that, and everything is finished, cut a release build so I can test out
+the appimage after CI finishes its build."). The framework leaves widescreen to
+each title's mod catalog (`psxrecomp/docs/WIDESCREEN.md`, lines 159 to 170 and
+213 to 233). The package `omega.enhancement.widescreen` (off by default, group
+Display, with a View of Fit to Window, 16:9 or 21:9) runs `omega.widescreen`
+(`src/mods/omega_widescreen.c`), which at session start asks the runtime for
+the view (`psx_mod_set_fixed_display_aspect()`; Fit to Window opens at 16:9 and
+follows the window up to 21:9, through `psx_mod_set_adaptive_display_aspect()`)
+and registers `flight_frame()` as the world-scene predicate
+(`psx_mod_set_world_scene_predicate()`,
+`psxrecomp/runtime/include/mod_plugins.h:298-307`). It marks as 3D scenes the
+frames drawn while the main loop's state word, 0x8009C5B0, is 5, 8, 9 or 11 (a
+DEMONSTRATION replay, CAMPAIGN PLAY, ZONE PLAY or TRAINING) and the display is
+320 pixels wide, which leaves out the briefings' 640-pixel screens
+(`phase7-7/probe-16x9/records.jsonl`). The framework draws those frames wide;
+every other frame keeps a 4:3 picture with bars, and the HUD keeps its 4:3
+layout in the middle. A first configuration set `game.toml`'s gameplay-state
+gate instead, and kept 251 of 268 replay shots at 4:3
+(`phase7-7/gate-config/survey_summary.log`): the runtime takes a gated scene
+for a 2D one until four or more untagged polygons reach more than 24 pixels
+past the screen's edges in each of two frames running (`ws_2d_only_scene()` and
+`ws_note_overhang()`, `psxrecomp/runtime/src/gpu.c:355-356`, `430-490` and
+`6576-6599`), and this game draws a new picture only every other frame
+(`phase7-7/gate-config/frame_pattern.log`). A frame that the predicate marks is
+exempt from that test (`psxrecomp/runtime/src/gpu.c:388-440`); the gate, which
+only the runtime reads, went, and the generate after that changed only the
+static shard's audit.
 
-## Phase 7 change 7 changes
+`game.toml`'s `[widescreen.cull]` lets the game's screen-edge culls pass what
+the wider view shows. `auto_screen_x` widens the width compares (0x140, 0x141),
+and the left edges that are a `bltz` with the compare in its delay slot, in
+functions that also compare Y with a height that `screen_h_imms` names, here
+0xE0 and 0xE1, since the framework's defaults miss 0xE1
+(`psxrecomp/runtime/include/ws_cull_detect.h`,
+`psxrecomp/recompiler/src/config_loader.cpp:1979-1983`). `branch_keep_sites`
+keeps twelve `blez` left edges from rejecting while the view is wide: the EXE's
+eleven and the LAST ZONE's. Each moves by `psx_ws_x_margin()`, which is 0 at
+4:3, where each acts as the game's own (`psxrecomp/runtime/src/gpu.c:1420`). A
+listed address keeps whatever conditional branch is there, in the static shard
+and in the interpreter alike, and only in the EXE does the recompiler check
+that one is there (`psxrecomp/recompiler/src/code_generator.cpp:774-814`,
+`psxrecomp/runtime/src/dirty_ram_interp.c:645-648`), so the 5TH and 8TH ZONE's
+left edges, at addresses where other zone files branch, stay as the game has
+them. `phase7-7/cull_sites.py` / `.log` found 23 left edges in the EXE, each
+kept or widened in the generated C, and `phase7-7/r3/left_edges.py` / `.log`
+found every one of the 26, the zone files' three among them, in one of the two
+forms that `AGENTS.md` names; the scan's first version missed 0x80053828, whose
+compare follows its delay slot (`phase7-7/cull_sites-first.log`). `generated/`
+changed only at the sites that `phase7-7/ws_sites.py` / `.log` lists: twelve
+kept branches, twelve widened `bltz` and 31 widened compares, those besides the
+funnels' right edges being culls that skip drawing, none a clamp that a menu or
+a cursor could reach. `AGENTS.md`'s "Mods" describes the feature and the rules
+for the cull list, and `game.toml`'s comment on `mod_instruction_sites` names
+Gamepad Strafe beside Mouse Aim.
 
-- `src/mods/omega_widescreen.c` (new): the plugin `omega.widescreen`. At
-  session start it reads the option View and asks the runtime for that aspect
-  (`psx_mod_set_fixed_display_aspect()`), 16:9 for Fit to Window, which also
-  asks for a view that follows the window's shape, up to 21:9
-  (`psx_mod_set_adaptive_display_aspect()`); a refusal counts
-  `omega.widescreen.view-refused`. It then registers `flight_frame()` as the
-  world-scene predicate, which marks as 3D scenes the frames drawn in a
-  DEMONSTRATION replay, CAMPAIGN PLAY, ZONE PLAY or TRAINING with the display
-  320 pixels wide. The first version left that to the gameplay-state gate in
-  `game.toml` (the observations). Round 2 corrects its comment on why the
-  frames are marked, which said that without the mark the framework would widen
-  flight at random, where it would draw no frame wide; the comment now also
-  says that a gate seldom draws one, and that Fit follows the window up to
-  21:9, the widest view.
-- The package `omega.enhancement.widescreen` (new), whose manifest in
-  `mods/preloaded/packages/omega.enhancement.widescreen/1.0.0/` holds the
-  feature `widescreen` ("Widescreen", group Display, off by default), its
-  option View (Fit to Window, 16:9 or 21:9, default Fit to Window), and the
-  plugin. The feature's text says which screens keep 4:3, the pause menu drawn
-  wide over flight, and what can go missing at the far sides, as the runs
-  showed.
-- `CMakeLists.txt`: `EXTRAS_SOURCES` adds `omega_widescreen.c`.
-- `game.toml`: the `[widescreen.cull]` block, with `auto_screen_x`, the heights
-  0xE0 and 0xE1, and the twelve `branch_keep_sites`, after a comment that the
-  picture stays 4:3 unless the Widescreen mod widens it, whose plugin marks
-  flight's frames; the comment on `mod_instruction_sites` names
-  `omega.gamepad-strafe` beside `omega.mouse-aim`.
-- `generated/`: the documented generate's output, changed only at the sites
-  that `ws_sites.py` / `.log` lists: twelve kept branches, twelve widened
-  `bltz` and 31 widened compares, 27 of them right edges and 4 that test both
-  edges, in eight files of the game's C and four of the static shard; and
-  `generated/AOT_STATIC_AUDIT.json`, eight of whose values change, the hash of
-  `game.toml` and the codegen cache tag among them.
-- `AGENTS.md`: a paragraph on Widescreen in "Mods". Round 2 has it give the
-  right reason for the mark, and state the rules for the cull list and how to
-  check them, citing the evidence script that checked the current list only as
-  a record. Round 3 corrects that check: it names both forms of a left edge,
-  asks that each listed address be one, and says where the EXE's code lies,
-  citing a second evidence script as a record too.
-- `.agent/HANDOFF.md`: the scope; change 6 condensed; these sections; the
+Three passes of the documented generate and builds (`phase7-7/w1-first/`,
+`phase7-7/gate-config/` and the last, `phase7-7/w1.log`) compiled with no
+warning and ended at `3ebdc88b…` in `build-dev` and `18b1d55e…` in
+`build-release`; the plugin's strict compiles gave no message, and the plugin
+audit passed. Headless (`phase7-7/w2.log`), with the feature off nothing was
+drawn wide; at 16:9, 21:9 and Fit to Window the intro, the title, the main menu
+and the briefing kept 4:3, while every flight shot, the pause menu's among
+them, came out wide with the HUD in its 4:3 place, and all 268 replay shots of
+the nine zones' demonstrations came out wide at 16:9
+(`phase7-7/survey_summary.log`). At the far sides, scenery such as the ground
+or a tunnel's walls can stop short of the edge, with neither band the darker
+one on the whole (`phase7-7/bands.py` / `.log`). Windowed
+(`phase7-7/fit_window.log`), Fit to Window followed the window from 4:3 up to
+its cap of 21:9. With the feature off, all 22 routes passed in the three
+runtime modes, beside nine runs with it on at 16:9 (`phase7-7/runs.log`): each
+probe the same as in Phase 6 change 11 round 2's batch but for four counters of
+how far the run had got when the probe sampled it (`phase7-7/probe_fields.py` /
+`.log`), the memcard route's cards byte for byte, and the shots' lag and
+results shots differing only as earlier batches' did; with it on, card 1 was
+the same byte for byte as with it off (`phase7-7/feature_on_compare_16x9.log`).
+A run tells whether a frame was wide from `gpu_state`'s `nw_extra`, since
+`screenshot_wide_hires` saves a wide picture for a frame shown at 4:3 as well
+(`psxrecomp/runtime/src/debug_server.c:9931-9954`). Review: round 1 NEEDS
+CHANGES on tree `ed10ef3` (staged diff `027ac717…`), with one Medium and two
+Lows, all in texts (`AGENTS.md` named an evidence script that no clone has as
+the check of the cull list; the plugin's comment and `AGENTS.md` gave a wrong
+reason for the mark; the handoff said that the user made the repository public,
+which this session did at his word); round 2 NEEDS CHANGES on tree `4631019`
+(staged diff `10435f40…`), with one Low (the check that `AGENTS.md` then
+described defined a left edge in the form that only the `blez` edges take, and
+did not ask that each listed address be one); round 3 PASS, no findings, on
+tree `1533aa8` (staged diff `b9dcb097…`). Rounds 2 and 3 changed only text, and
+both binaries stayed round 1's. Reports: `phase7-7/review-r1.md`,
+`phase7-7/r2/review-r2.md` and `phase7-7/r3/review-r3.md`. The full record:
+`git show 9a0f8ed:.agent/HANDOFF.md`.
+
+## Phase 8 change 1 observations (`.cache/evidence/phase8-1/`)
+
+- The user asked for the release with the widescreen mod ("... cut a release
+  build so I can test out the appimage after CI finishes its build."), and
+  chose its order ("After Gamepad Strafe (change 6), the widescreen mod and the
+  CI release setup; changes 12 to 15 follow the release (Recommended)"), its
+  builds ("The AppImage plus ZIPs for Linux, Windows and macOS") and its
+  version ("v1.0.0"). At his word ("Make the repo public as well, you have my
+  permission"), this session (`ses_ea9f61f76ffepnWtoam6Ws3zQw`) made the
+  repository public on 2026-10-27 with `gh repo edit`, after a scan of its
+  history found none of the files that `AGENTS.md` keeps out of it and no
+  token, key, password or local path (`release/public_check.py` / `.log`).
+- The framework's release template
+  (`psxrecomp/docs/ci/templates/game-release.yml`) builds and checks a zip for
+  `linux-x64`, `windows-x64`, `macos-arm64` and `macos-x64` and publishes a
+  GitHub release, but packages no AppImage: titles carry their own packager,
+  and Tomba 2's was the model for this one. The runtime reads and writes its
+  files beside the file it was started as, or, with `APPIMAGE` set, beside the
+  `.AppImage` file, never in the working directory (`exe_dir_from_argv()`,
+  `psxrecomp/runtime/src/main.cpp:2528-2559`), and an AppImage mounts
+  read-only. So the AppImage's start script must keep the game's files in a
+  writable folder and start the game through a link there, with `APPIMAGE`
+  unset.
+- A Release build has no debug server
+  (`psxrecomp/runtime/runtime.cmake:74-83`), so a local test follows the
+  runtime's frame report (`PSX_FRAME_REPORT_MS`,
+  `psxrecomp/runtime/src/main.cpp:4247-4276`) and ends the game with SIGTERM, a
+  soft exit with status 0 that still writes the run report
+  (`psxrecomp/runtime/src/crash_trace.c:909-915`).
+- The local test of the workflow's Linux half, on the drafts in scratch
+  (`release/c1.sh` / `release/c1.log`): its first run (`release/c1-first.log`)
+  failed in the packaging, since linuxdeploy's own strip, from GNU Binutils
+  2.35 (`r2/strip_version.log`), cannot read the `.relr.dyn` sections that the
+  host's libraries carry, `libSDL3.so.0` among them. So the packager runs
+  linuxdeploy with `NO_STRIP=1`: the libraries it copies come stripped from
+  their distribution, and the executable ships unstripped, as in the zips,
+  since nothing in the framework's packaging strips it. The second run passed:
+  the zip from `build-release` (61,928,259 bytes), the workflow's three Linux
+  steps, the AppImage (44,575,224 bytes, with ten libraries bundled, and glibc,
+  libstdc++, X11, OpenGL, FreeType, HarfBuzz and zlib taken from the system),
+  and a headless start of it that ran past frame 900 and ended on SIGTERM with
+  status 0 (exit origin `signal_sigterm`, no dispatch miss). It left the
+  repository as it was. The framework's packager downloads a pinned Python
+  (3.13.1) into `dist/.dl-cache/` for the overlay toolchain
+  (`psxrecomp/tools/release_stage.py`), and the AppImage's tools are pinned by
+  sha256.
+- The second run also found that the release zip held no
+  `controls/keybinds.ini`, which the AppImage's start script meant to copy into
+  its data folder, so the folder got none. The user chose: "Make our layout the
+  default: ship it as keybinds.ini in every ZIP and in the AppImage, which
+  copies it in once so later changes on the Controls page are kept
+  (Recommended)". The framework's packager puts a file at the zip's root with
+  `--doc` (`psxrecomp/tools/package_game_release.sh`, line 101 and the loop
+  from line 402).
+- The repository holds no Actions secrets, so the workflow's Windows build is
+  not signed (`psxrecomp/docs/ci/README.md`, "Windows code signing"). The build
+  job runs its four platforms with `fail-fast` off, and the release job needs
+  all four: if one fails, the others still upload their files as the run's
+  artifacts, kept for 30 days, but no release is published.
+- Review round 1 found three faults in the start script. On a version change it
+  deleted `assets/`, `bios/`, `licenses/` and `mods/bundled/` and copied the
+  release's again, so a file that the player had put in `bios/` or `assets/`
+  was lost: a BIOS dump in `bios/` among them, which the player picks there by
+  a relative path, since the runtime resolves such a path against the
+  executable's folder, the data folder here (`resolve_bios_path()`,
+  `psxrecomp/runtime/src/main.cpp:3125-3164`). It exported `LD_LIBRARY_PATH`,
+  which the game does not need, since linuxdeploy gives the executable the
+  runpath `$ORIGIN/../lib` and each bundled library `$ORIGIN` (`c2.log`), but
+  which the programs that the game starts inherit: the overlay autocompile's
+  shell, with Python and the host's compiler under it
+  (`psxrecomp/runtime/src/autocompile.c:1250-1282`), and the launcher's file
+  dialogs, which tinyfiledialogs shows through programs such as zenity
+  (`recomp-ui/src/common/launcher_files.c:685-791`); those would load the
+  AppImage's copies of libraries such as glib ahead of the system's (derived,
+  not run). And with a relative data folder it prepared the folder, then failed
+  to start the game, since it changed into the folder before starting the game
+  through a relative path. Round 1's start script also left out the payload's
+  `mods/README.md`, as a listing of the zip against C2's data folder showed
+  while round 2's check of every file was written.
+- With no `vX.Y.Z` tag yet, a run of the workflow without a version takes the
+  next patch number of `VERSION`, 0.1.1
+  (`psxrecomp/tools/ci/normalize_version.sh`, lines 76-86; review round 1), so
+  the run for v1.0.0 names its version.
+
+## Phase 8 change 1 changes
+
+- `.github/workflows/release.yml` (new): the framework's template at the pinned
+  psxrecomp, with its tokens filled in (the zip prefix `omegathrust`, the title
+  "Omega Thrust" in the tag's message and the release's name, the concurrency
+  group) and a header of its own; without the template's `BPE_RUNTIME_BIN_DIR`
+  export, since the packager reads `PSXRECOMP_RUNTIME_BIN_DIR` first
+  (`psxrecomp/tools/package_game_release.sh`, line 80); with a fifth check in
+  "Verify zip contents", that the zip's `keybinds.ini` equals
+  `controls/keybinds.ini`; and with two Linux steps after it, "Package AppImage
+  (Linux)" and "Verify AppImage (Linux)". The second checks the AppImage
+  against its `.sha256`, has its start script prepare a data folder
+  (`OMEGA_THRUST_SEED_ONLY=1`), and checks the files there, the seeded
+  `keybinds.ini` among them, and the version. Round 2 has it also compare every
+  file of the payload but the overlay toolchain with the data folder's copy,
+  check the toolchain's link, and fail if `ldd` finds a library missing for the
+  executable (review round 1, suggestion 1). The upload and the release add the
+  AppImage and its `.sha256`.
+- `scripts/package_appimage.sh` (new): builds the AppImage from the Linux zip
+  with linuxdeploy, appimagetool and the type2 AppImage runtime, each pinned by
+  version and sha256 and downloaded once; the executable goes to `usr/bin/`,
+  the rest of the zip to `usr/share/omegathrust/`, and linuxdeploy runs with
+  `NO_STRIP=1`.
+- `packaging/linux/AppRun` (new) and `packaging/linux/omegathrust.desktop`
+  (new): the AppImage's start script and desktop entry. The start script keeps
+  the game's files in a data folder (`$OMEGA_THRUST_DATA_DIR`, else
+  `$XDG_DATA_HOME/Omega_Thrust`, else `~/.local/share/Omega_Thrust`), copies
+  the release's files there when the AppImage's version differs from the one in
+  `.appimage-version`, which it writes once they are all copied, seeds
+  `keybinds.ini` once and never replaces it, links the overlay toolchain, and
+  starts the game through a link there with `APPIMAGE` unset. Round 2 replaces
+  only `licenses/` and `mods/bundled/` whole, and copies the release's files
+  over those in `assets/` and `bios/`, so that the player's own stay there;
+  copies the payload's `mods/README.md` too; ignores a relative `XDG_DATA_HOME`
+  and makes a relative data folder absolute from the folder that the script was
+  started in; names `OMEGA_THRUST_DATA_DIR` in its message when the folder
+  cannot be made (review round 1, suggestion 7); and no longer exports
+  `LD_LIBRARY_PATH`.
+- `scripts/package_release.sh`: passes `--doc controls/keybinds.ini`, so that
+  every zip ships the layout at its root as `keybinds.ini`.
+- `AGENTS.md`: a section "Releases": how to run the workflow, what it builds
+  and checks, the AppImage's packager and start script, and how to test the
+  Linux half locally. Round 2 corrects how a run without a version picks one,
+  notes that the emitters may come from a cache (review round 1, suggestion 4),
+  and gives the start script's rule for each folder, for a relative data folder
+  and for `LD_LIBRARY_PATH`.
+- `.agent/HANDOFF.md`: the scope; change 7 condensed; these sections; the
   hypotheses; the review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase7-7/`, with round 2's evidence in
-  its `r2/` and round 3's in its `r3/`, round 1's report `review-r1.md` and
-  round 2's `r2/review-r2.md`, each with its header, and change 6's round 2
-  report `phase7-6/r2/review-r2.md` with its header and its commit message
-  `phase7-6/commit-msg.txt`.
+- Untracked (ignored): `.cache/evidence/phase8-1/`, with round 2's evidence in
+  its `r2/` and round 1's report `review-r1.md` with its header, and
+  `.cache/evidence/release/`, and change 7's round 3 report
+  `phase7-7/r3/review-r3.md` with its header and its commit message
+  `phase7-7/commit-msg.txt`.
 
-## Phase 7 change 7 checks
+## Phase 8 change 1 checks
 
-- `w1.sh` ran the documented generate and builds of `build-dev` and
-  `build-release` three times, each pass's logs kept: first on the first
-  `game.toml` (`w1-first/`), then with 0x80053828 added to `branch_keep_sites`
-  (`gate-config/`), then on the final `game.toml`, without the gate, with the
-  plugin's predicate (`w1.log`, `generate.log`, `build-dev.log`,
-  `build-release.log`). The first rebuilt the static shard and changed eight
-  files of the game's C and four of the shard; the second changed one more line
-  of the game's C, the kept branch at 0x80053828; the third changed no C file,
-  only the shard's audit. Every build compiled with no warning and staged a
-  catalog of 12 packages, 6 of them the game's. The binaries went from Phase 7
-  change 6's, `81643830…` in `build-dev` and `84f6af2c…` in `build-release`, to
-  `89df4214…` and `36650336…`, then `50c27bc1…` and `6b6af14d…`, then
-  `3ebdc88b…` and `18b1d55e…` (`binaries-before.sha256` and
-  `binaries-after.sha256` of each pass). `w1-repeat.sh` / `w1-repeat.log` ran
-  the third pass and the next four checks.
-- `strict_compile.py` / `.log`: the plugin, compiled alone with `build-dev`'s
-  own command and strict warnings as errors, once with GCC 16.2.1 and once with
-  clang 23.1.3, gave no message, on the second pass
-  (`gate-config/strict_compile.log`) and on the third.
-- `plugin-audit.log`: both builds pass, with 12 manifests, 12 declared ids and
-  10 registered ids, on the second pass (`gate-config/plugin-audit.log`) and on
-  the third.
-- `cull_sites.py` / `.log` and `ws_sites.py` / `.log`, on the second pass
-  (`gate-config/cull_sites.log`, `gate-config/ws_sites.log`) and on the third
-  alike: every left edge of the EXE is kept or widened (the observations), and
-  the generated C holds twelve kept branches, twelve widened `bltz`, 27 widened
-  right edges and 4 compares widened at both edges, where HEAD's holds none.
-- `restage.sh` / `restage.log`: after the last edit to the manifest's text, the
-  documented builds compiled nothing, refreshed both builds' staged copies of
-  the manifest, and left both binaries byte for byte as the third pass built
-  them (`binaries-before-restage.sha256`, `binaries-after-restage.sha256`).
-- `gate-config/`: the first headless runs, on the second pass's build
-  (`50c27bc1…`), with the gameplay-state gate (`gate-config/scripts/` keeps the
-  scripts as the survey ran them). `gate-config/probes.log`: six runs of
-  `widescreen_probe.py`, through `run_probe.sh`, booted HLE with OpenBIOS:
-  title_to_zone1 with Widescreen off and at 16:9, 21:9 and Fit to Window, then
-  flight and a pause, and the 1ST and 5TH ZONE's DEMONSTRATION replays at 16:9.
-  Off, nothing was drawn wide; the title runs drew the 1ST ZONE's flight wide,
-  and the menus and the briefing at 4:3; the 1ST ZONE's replay was wide and the
-  5TH ZONE's at 4:3 throughout. `gate-config/survey.log`
-  (`gate-config/scripts/survey.sh`): the nine campaign zones' replays at 16:9,
-  with the draw census, 17 of 268 replay shots wide
-  (`gate-config/survey_summary.log`, `gate-config/frame_pattern.log`; the
-  observations).
-- `w2.sh` / `w2.log` repeated those runs on the third pass's build
-  (`3ebdc88b…`), one runtime at a time on port 4378, with the scripts that
-  `gate-config/scripts/` keeps but for `probes.sh`, which now leaves the two
-  replays to the survey. `probes.sh` / `probes.log`, the four title runs
-  (`probe-off.log`, `probe-16x9.log`, `probe-21x9.log`, `probe-fit.log`, and
-  their folders): with Widescreen off no shot was configured or drawn wide; at
-  16:9, 21:9 and Fit to Window the intro, the title, the main menu and the
-  briefing stayed at 4:3 (`present_native_43` 1), while every flight shot, the
-  pause menu's among them, came out wide, 426 or 560 pixels across, with the
-  HUD in its 4:3 place. `survey.sh` / `survey.log` (the card runs with a copy
-  of the unlocked save in scratch, whose sha256 and modification time were the
-  same before and after): all 268 replay shots wide (`survey_summary.log`,
-  `survey-zone1/` to `survey-zone-last/`), and `bands.py` / `.log` (the
-  observations).
-- `fit_window.sh` with `fit_window.py` / `fit_window.log`, `fit-window/`: a
-  copy of `build-dev` windowed on a private Xvfb display, drawn by Mesa's
-  llvmpipe on the CPU, with Fit to Window, the window resized through the debug
-  server in flight. The view opened at 16:9 and followed the window to 21:9, to
-  4:3 with no columns added, and stopped at 21:9 in a 28:9 window, each window
-  frame the size asked. Its first run (`fit_window-first.log`,
-  `fit-window-first/`) asked the wide picture to show nothing at 4:3, and so
-  failed there, since the debug server's dump returns the surface that the 21:9
-  view left (the observations); the script now asks that no columns be added,
-  and the first run's records pass that too.
-- `runs.sh` / `runs.log` (W3) played two sets of runs side by side, never more
-  than two runtimes at once: the feature-off batch of 66 runs (`routes.sh` /
-  `routes.log`, on port 4370) and nine runs with Widescreen on at 16:9
-  (`feature_on_routes.sh` / `feature_on_16x9.log`, on port 4377). Each run
-  waited for the resource coordinator's live gate (`gate.sh`; 75 readings, none
-  holding). `routes.sh` first moved Phase 6 change 11 round 2's batch out of
-  `.cache/routes/` into `routes-before/`. The unlocked save reached the runs
-  only through `run_route.py`'s copies, and its sha256 and modification time
-  were the same before and after (`runs.log`), as were the batch's inputs
-  (`inputs-before-routes.sha256`, `inputs-after-routes.sha256`).
-- The feature-off batch: all 22 routes pass in the three runtime modes, with no
-  dispatch miss and a picture for every shot (`routes_summary.log`), and
-  `card_check.log` finds no problem, the unlocked save unchanged. Against Phase
-  6 change 11 round 2's batch, each run's probe differs only in four counters
-  of how far the run had got when the probe sampled it (`probe_fields.py` /
-  `.log`), and the memcard route's six cards match it byte for byte. The
-  largest lag of a run's shots behind the ends of their steps runs from 10 to
-  17 frames, with a median of 14 against 13 there, higher in 30 runs and lower
-  in 25. `clear_time_check.log` finds each demonstration's results screen; its
-  lists of the shots that show it differ from that batch's in 7 of 57: in six,
-  those of U3 and of the 6TH and 8TH ZONE, by one shot as the screen comes or
-  goes, and in the LAST ZONE's in lle-scph1001 by an early shot at t04800, long
-  before the screen, that the batch before took for it. Those are the kinds of
-  difference that the batches of Phase 7 change 5 and Phase 6 change 11 showed.
-  So with Widescreen off, the regenerated game runs as the committed one in all
-  that the routes measure.
-- The Widescreen runs: `demo_zone1`, `memcard` and `title_to_zone1` pass in the
-  three modes with the feature on. Against this batch's feature-off runs
-  (`feature_on_compare.py` / `feature_on_compare_16x9.log`), no plugin counter
-  is set, the memcard route's card 1 is the same byte for byte, and the 1ST
-  ZONE demonstration's results screen is found in the same three shots in each
-  mode, in shots 426 pixels wide, whose middle 320 columns
-  `clear_time_check_wide.py` reads. `wide_check_test.sh` / `.log` shows that on
-  the feature-off batch's 1ST and 5TH ZONE demonstrations it prints what Phase
-  3 change 5's check (`phase3-5/clear_time_check.py`) prints, but for a note of
-  the shots' widths, and that on the 1ST ZONE's shots in hle-openbios, padded
-  to 426 pixels, it finds what that check finds on the shots as they were.
-- As the resource coordinator booked them, `phase6-11/r2/nicewatch2.py`,
-  started on each run's stopped root, raised to nice 5, within its
-  quarter-second poll, every program of the run that started below it or that
-  ananicy put back below it, leaving threads above it alone, and every value it
-  set took (`nicewatch2-w1.log`, `nicewatch2-w2.log`, `nicewatch2-restage.log`,
-  `nicewatch2-fit.log` and `nicewatch2-w3.log`, and in `w1-first/` and
-  `gate-config/` their own logs). In W3, ananicy put the batch's bash back to
-  -4 at its forks, so 53 of the `python3` and `tee` processes it started began
-  at -4, and 13 of the 75 runtimes too, started by a `run_route.py` still at
-  -4; each was at 5 within the poll. W3's launch also let its stopped root go
-  on a reading of -4, taken after a pause, and the watcher raised it at once.
-  Later launches use `.cache/evidence/release/held.sh`, which lets the root go
-  only on a reading of 5 taken just before.
-- `checks-p7-7.sh` / `.log` on the staged tree: the tree and the staged files,
-  and that nothing else changes; the pins and the submodules; `AGENTS.md`, the
-  manifest, the plugin, `CMakeLists.txt`, `game.toml` and `generated/`, with
-  `ws_sites.py` and `cull_sites.py` against their logs; the handoff's parts
-  that must equal HEAD's, and its text (placeholders, blank lines, headings,
-  line lengths, reflow leftovers, local paths, cited paths); the gates, and the
-  documented generate, which must find nothing to do; the builds' logs and
-  binaries through the three passes and the re-stage, the staged manifests, the
-  plugin audit and the strict compiles; the runs on the config with the
-  gameplay-state gate and `w2.sh`'s runs, with `survey_summary.py`,
-  `frame_pattern.py`, `bands.py` and `fit_window.py`'s expectations against
-  their logs and records; W3's logs and outputs, with the probes, the cards,
-  the results shots and the shots' lag compared with Phase 6 change 11 round
-  2's batch, and `feature_on_compare.py` and `wide_check_test.sh` against their
-  logs; the four test files, the Beetle driver's in up to three runs; change
-  6's round 2 report against session message 1694, and commit `0e65a35`'s
-  message against `phase7-6/commit-msg.txt`; the upstream issues, the listeners
-  and whitespace. All pass. Its first run (`checks-p7-7-first.log`), on an
-  earlier tree, found a fault in the script itself: it compared
-  `survey_summary.py`'s output on `gate-config/` with that folder's log, which
-  was saved with an exit line after it, while the script added none; it now
-  adds one.
-- Round 2 (`r2/`): `r2/rebuild.sh` / `.log`, with `r2/build-dev.log` and
-  `r2/build-release.log`: after the edit of the plugin's comments each build
-  compiled the plugin alone, with no warning, and both binaries stayed the
-  same, byte for byte (`r2/binaries-before.sha256`,
-  `r2/binaries-after.sha256`), so every run above holds for round 2's tree.
-  `r2/checks-p7-7-r2.sh` / `.log` repeats round 1's checks on the staged tree,
-  and also compares the index with round 1's and each file with its round 1
-  blob, and matches round 1's report against session message 1638; unlike round
-  1's script, it fails when a comparison made by its `same()` differs (review
-  round 1, suggestion 4), though three comparisons that it writes out without
-  `same()` only print a difference: the working tree against the index, the
-  unlocked save before W3 against after, and `feature_on_compare.py`'s output
-  against its log (review round 2, suggestion 2). All three printed none, and
-  all pass.
-- Round 3 (`r3/`): `r3/left_edges.py` / `.log` prints the code around each left
-  edge that `cull_sites.log` lists, the EXE's 23 and the zone files' three, and
-  checks each against the two forms that `AGENTS.md` now names: a `blez` on one
-  register, with a compare of another with 0x140 in its delay slot or within
-  the next words and a branch on that compare, the two registers holding the
-  largest and the smallest X of the polygon's vertices, as the listings show;
-  or a `bltz` on the low half of a packed screen-coordinate word, one vertex's
-  X, with a compare of that register with 0x141 in its delay slot and a branch
-  on it right after. Each edge is in its form and none in the other: the EXE's
-  eleven `blez` edges (at 0x80053828 the compare comes in the word after the
-  delay slot) and the zone files' three, and the EXE's twelve `bltz` edges.
-  Round 3 changes no code and builds nothing. `r3/checks-p7-7-r3.sh` / `.log`
-  repeats round 2's checks on the staged tree, which find both binaries round
-  1's, and fails on every comparison that differs, those three included; it
-  also compares the index with round 2's and each file with its round 2 blob,
-  runs `r3/left_edges.py` against its log, and matches round 2's report against
-  session message 2034. All pass. Both scripts ran through
-  `.cache/evidence/release/held.sh`, at nice 5 (`r3/nicewatch2-left-edges.log`,
-  `r3/nicewatch2-checks.log`).
+- `static_checks.sh` / `.log`: every difference of the workflow from the
+  template at the pinned psxrecomp is one that "Phase 8 change 1 changes"
+  names, or a comment that describes one. The workflow parses as YAML, with
+  the jobs `prepare`, `build` and `release`, the four platforms, 24 build
+  steps, `fail-fast` off and a release job that needs `prepare` and `build`.
+  actionlint 1.7.12 gives it the three notes that it gives the template
+  itself, from the template's own scripts (SC2129 and SC2269 in "Normalize
+  version / tag", SC2012 in "Verify zip contents"), and none from this
+  change's lines. shellcheck 0.11.0 gives the three shell scripts one warning,
+  SC2043 on `scripts/package_release.sh`'s loop over `DISC.md` alone, which
+  HEAD's file gives as well; `bash -n` and `sh -n` pass, and all three are
+  executable. Its first run found that the script's format for actionlint did
+  not parse, and that the start script exported, unquoted (SC2086), a copy of
+  `APPIMAGE` that nothing reads; that line went.
+- `c2.sh` / `c2.log` (C2) repeated C1's local test of the workflow's Linux half
+  (the observations) on this change's staged files, from the repository, held
+  at nice 5 (`.cache/evidence/release/held.sh`, `nicewatch2-c2.log`), with the
+  four pinned downloads reused from scratch and nothing downloaded.
+  `scripts/package_release.sh` built the Linux zip from `build-release`
+  (61,929,228 bytes), with `keybinds.ini` at its root equal to
+  `controls/keybinds.ini`. The workflow's three Linux steps passed: "Verify zip
+  contents" with its new check of that file, "Package AppImage (Linux)", and
+  "Verify AppImage (Linux)" with its check of the `keybinds.ini` that the start
+  script seeds. The AppImage (44,575,224 bytes) matched its `.sha256` and
+  bundled the same ten libraries as C1's. Started headless, with its data
+  folder in scratch, the game ran past frame 900 and ended on SIGTERM with
+  status 0 (exit origin `signal_sigterm`, no segment miss and no unknown
+  dispatch), and its data folder held the release's files and the seeded
+  `keybinds.ini`. The repository was left as it was, `VERSION` included.
+- `checks-p8-1.sh` / `.log` on the staged tree: the tree and the staged files,
+  and that nothing else changes, no file of the game among them; the pins and
+  the submodules; the files' modes; `static_checks.sh` against its log; the
+  lines that `scripts/package_release.sh` and `AGENTS.md` gain; the handoff's
+  parts that must equal HEAD's, and its text (placeholders, blank lines,
+  headings, line lengths, reflow leftovers, local paths, cited paths); the
+  gates; both builds' binaries, still Phase 7 change 7's; `c2.log`'s results,
+  the source files that it hashed against the staged ones, and the zip and the
+  AppImage that it built against the hashes that it recorded; the zip's
+  `keybinds.ini`, and its executable, `build-release`'s byte for byte. In the
+  extracted AppImage it compares the start script, the desktop entry and the
+  payload's `keybinds.ini` with the repository's, and runs the start script on
+  a data folder in scratch: it seeds `keybinds.ini` into the empty folder,
+  keeps a copy that the player changed, both on a second start and across a
+  version change, on which it copies the release's files again, and seeds the
+  file again only once it is deleted; without `APPDIR` it refuses to start. It
+  notes the strip state: the game's executable is unstripped in
+  `build-release`, in the zip, and in the AppImage, where linuxdeploy has set
+  its runpath, and the ten bundled libraries come stripped from the host. Then
+  the four test files, the Beetle driver's in up to three runs; change 7's
+  round 3 report against session message 2314, and commit `9a0f8ed`'s message
+  against `phase7-7/commit-msg.txt`; the upstream issues, the listeners and
+  whitespace. All pass.
+- Round 2 (`r2/`): `r2/static_checks.log`, from `static_checks.sh` again,
+  differs from round 1's log only in the new lines of "Verify AppImage (Linux)"
+  and the line numbers after them. `r2/strip_version.sh` / `.log` extracts the
+  pinned linuxdeploy in scratch: its strip is GNU Binutils 2.35 and the host's
+  2.47, and on copies of the host's `libSDL3.so.0`, which has a `.relr.dyn`
+  section, linuxdeploy's strip fails, finding the section's type unknown, where
+  the host's passes (review round 1, suggestion 5). `r2/step_b.sh` / `.log` ran
+  it, then `c2.sh` on round 2's staged files (`r2/c2.log`), both held at nice 5
+  (`r2/nicewatch2-step-b.log`, and `r2/step_b-nice.log`, which samples the
+  step's processes twice a second): the zip, the workflow's three Linux steps,
+  "Verify AppImage (Linux)" with its new checks among them, and a headless
+  start of the AppImage, which the start script now runs with `LD_LIBRARY_PATH`
+  as it was. The game ran past frame 900 and ended on SIGTERM with status 0,
+  with no segment miss and no unknown dispatch, while the overlay autocompile
+  that it starts ran Python and the host's compiler, at nice 15 (its own
+  nice(10) on top of 5), and reported no fault (`autocompile_degraded` 0). The
+  four downloads were reused, and the repository was left as it was.
+- `r2/checks-p8-1-r2.sh` / `.log` repeats round 1's checks on the staged tree,
+  with `r2/c2.log` in place of `c2.log`, and also compares the index with round
+  1's and each file with its round 1 blob, checks `r2/step_b.sh`'s logs, and
+  matches round 1's report against session message 721. On the extracted
+  AppImage it runs the start script on more cases than round 1's: every file of
+  the payload but the overlay toolchain reaches the data folder unchanged;
+  across a version change, a stand-in for a BIOS dump in `bios/` and a file
+  that the player added to `assets/` stay, a release file that the player
+  changed in `bios/` is copied over, and a file that the player added to
+  `licenses/` goes; a relative `OMEGA_THRUST_DATA_DIR` becomes a path from the
+  folder that the script was started in, a relative `XDG_DATA_HOME` is ignored
+  for `HOME`'s folder, and an absolute one is used; and a data folder that
+  cannot be made stops the script with a message that names
+  `OMEGA_THRUST_DATA_DIR`. All pass.
 
 ## Hypotheses and unknowns
 
@@ -1861,7 +1821,9 @@ diff `9c119c77…`). Reports: `phase7-6/review-r1.md` and
   `psxrecomp/runtime/src/gpu.c:470-490`, not run). The 5TH and 8TH ZONE each
   keep one left-edge cull as the game has it, so there a polygon that lies
   wholly in the left band is dropped; how often that shows is not measured
-  (the observations). Whether the game culls any object by its own view before
+  (`phase7-7/bands.log`: in the 5TH ZONE the left band is the darker one in 10
+  of 32 shots and the right in 5, too few to tell a lost polygon from the
+  scene). Whether the game culls any object by its own view before
   its polygon funnels, so that the object would appear late at a side, is not
   known. The HUD keeps its 4:3 layout in the middle; moving it out to the
   edges would take the framework's HUD tagging
@@ -1989,6 +1951,32 @@ diff `9c119c77…`). Reports: `phase7-6/review-r1.md` and
   round 3 suggestion 1). Whether stock play ever makes such a load is
   unknown. A fix would be a framework change, arriving through a reviewed
   pin bump; it is recorded here for later, not pursued.
+- The release workflow has not run yet: its Windows and macOS builds and its
+  release job run first on GitHub. Only its Linux half has run, on this host
+  (`release/c1.log`, and this change's runs from the repository,
+  `phase8-1/c2.log` and `phase8-1/r2/c2.log`), where the AppImage took glibc
+  and the libraries that linuxdeploy leaves out from the system, as it will on
+  a player's. Built on Ubuntu 24.04, as the workflow builds it, the AppImage
+  needs a glibc at least as new as that system's, and, since linuxdeploy leaves
+  out libstdc++ as well, a libstdc++ at least as new as that of its GCC 13
+  (review round 1, suggestion 3; derived, not run). Whether the Windows and
+  macOS builds read the `keybinds.ini` beside the executable has not been run
+  either. Derived from the code: the fork's fix hands `psx_keybinds_init()` the
+  executable's folder from `exe_dir_from_argv()` on every platform
+  (psxrecomp#752), and the framework's packager makes no app bundle for macOS,
+  so a file at a zip's root lies beside the executable on all three. "Verify
+  zip contents" compares the zip's `keybinds.ini` with `cmp` on all four
+  platforms, on Windows in Git Bash (`shell: bash`). Git for Windows' list of
+  the files that its installers ship (`phase8-1/r2/gfw-make-file-list.sh`,
+  fetched from git-for-windows/build-extra on 2026-10-28, line 215) takes
+  `diffutils`, which holds `cmp`, into all of them but its busybox-based
+  minimal one, so `cmp` should be there (derived, not run); without it the
+  Windows build would fail rather than pass a zip unchecked. The AppImage's
+  tools are downloaded on each run and checked against their pins, and
+  appimagetool's 1.9.1 file has been replaced upstream once (review round 1),
+  so a further replacement would fail the Linux build until the pin is renewed;
+  caching the tools in CI, keyed by their pins (its suggestion 6), is left for
+  later.
 
 ## Review and commit state
 
@@ -3026,43 +3014,66 @@ diff `9c119c77…`). Reports: `phase7-6/review-r1.md` and
   and round 2's checks bullet made exact about its own (2); this session named
   in the next action (3); and the check in shorter sentences that also say
   where the EXE's code lies (4).
-- Phase 7 change 7, round 3: pending delta re-review.
+- Phase 7 change 7, round 3: PASS on tree `1533aa8` (staged diff `b9dcb097…`),
+  no findings, from the same reviewer: round 2's finding is resolved, and the
+  four suggestions were taken up as described. It rebuilt the delta from round
+  2's blobs, the same as `phase7-7/r3/delta-r3.diff`, found both binaries round
+  1's, decoded all 26 left edges with a classifier of its own and traced two of
+  them by hand, re-ran `phase7-7/r3/left_edges.py` against its log, and checked
+  the handoff's new texts, its round 2 entry among them, against the records
+  and its report. It relied on `phase7-7/r3/checks-p7-7-r3.log` for the
+  documented generate, and ran no game, no test file and no plugin audit, round
+  3 changing only text. Report: `phase7-7/r3/review-r3.md` (session message
+  2314). Commit `9a0f8ed`, pushed. Its two nonblocking suggestions go to the
+  code-quality work (the next action): that "primitive" would be exact where
+  the texts say "polygon" of the `bltz` chains, eight of which guard a line or
+  sprites rather than a polygon, and that the committed check of the cull list
+  also fail when a listed address in the zone files' range holds a conditional
+  branch that is no left edge.
+- Phase 8 change 1, round 1: NEEDS CHANGES on tree `362f2b4` (staged diff
+  `e4c3764c…`), from a fresh read-only reviewer, with one Medium finding and
+  two Lows, all in the start script: on a version change it deleted what the
+  player had put in the data folder's `bios/` and `assets/`, a BIOS dump among
+  them, against the invariant (Medium); it exported `LD_LIBRARY_PATH`, which
+  the programs that the game starts would inherit; and a relative data folder
+  broke the start. The reviewer compared the workflow with the template at the
+  pin, checked the tool pins against GitHub's records of the files, read the
+  packager and the runtime's code that the design rests on, and checked the
+  handoff's records; it re-ran `static_checks.sh` and the four test files, and
+  ran the start script on eight cases in an extracted copy of C2's AppImage,
+  each step held at nice 5. It relied on `phase8-1/checks-p8-1.log` for the
+  gates, the binaries' hashes, pyflakes, the review records and the upstream
+  issues, and ran no build, packaging or game. Report: `phase8-1/review-r1.md`
+  (session message 721). Round 2 copies the release's files over `bios/` and
+  `assets/`, drops the export and makes a relative data folder absolute (the
+  observations), and of the review's eight suggestions takes up five: the
+  workflow's check of the AppImage compares every file of the data folder with
+  the payload's, checks the toolchain's link and runs `ldd` (1); the hypotheses
+  name libstdc++'s floor (3); "Releases" says how a run without a version picks
+  one and that the emitters may come from a cache (4);
+  `phase8-1/r2/strip_version.log` shows the strip's binutils (5); and the start
+  script's message names `OMEGA_THRUST_DATA_DIR` when the folder cannot be made
+  (7). A folder list taken from the payload (2) is not taken, since each folder
+  needs a rule of its own, and the check of every file fails the build on a
+  folder that the script does not copy; caching the AppImage's tools in CI (6)
+  is left for later (the hypotheses); the last (8) asks for nothing.
+- Phase 8 change 1, round 2: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Then the release that the user asked for
-("Please finish up whatever is remaining. Also, please implement a widescreen
-mod for this game. After that, and everything is finished, cut a release build
-so I can test out the appimage after CI finishes its build."), in the order he
-chose ("After Gamepad Strafe (change 6), the widescreen mod and the CI release
-setup; changes 12 to 15 follow the release (Recommended)"): first the CI
-release setup, as its own change, a workflow from the framework's template
-(`psxrecomp/docs/ci/templates/game-release.yml`) that builds the ZIPs for
-Linux, Windows and macOS and an AppImage, which the framework does not package,
-so with a packager of the game's own after Tomba 2's ("The AppImage plus ZIPs
-for Linux, Windows and macOS"); then the release, v1.0.0, the version he chose,
-which that workflow builds and publishes, for him to try its AppImage. At his
-word ("Make the repo public as well, you have my permission"), this session
-(`ses_ea9f61f76ffepnWtoam6Ws3zQw`) made the repository public on 2026-10-27
-with `gh repo edit`, after a scan of its history found none of the files that
-`AGENTS.md` keeps out of it and no token, key, password or local path
-(`.cache/evidence/release/public_check.py` / `.log`). The CI change's drafts,
-in scratch on the NVMe drive, passed a local test of the workflow's Linux half
-(`.cache/evidence/release/c1.sh` / `.log`): the Linux zip built from
-`build-release`, the workflow's own three Linux steps (the zip's check, the
-AppImage's packaging and its check), and a headless start of the AppImage,
-which ran past frame 900 and ended cleanly on SIGTERM. Its first run
-(`.cache/evidence/release/c1-first.log`) failed in the packaging, since
-linuxdeploy's own strip cannot read the .relr.dyn sections of current
-libraries, so the packager now runs linuxdeploy with `NO_STRIP=1`: the
-libraries it copies come stripped from their distribution, and the game's
-executable ships unstripped, as it does in the ZIPs, since nothing in the
-framework's packaging strips it. The second run found that the release zip
-holds no `controls/keybinds.ini`, which the AppImage's start script means to
-copy into its data folder, and the user chose to ship it: "Make our layout the
-default: ship it as keybinds.ini in every ZIP and in the AppImage, which copies
-it in once so later changes on the Controls page are kept (Recommended)". Each
-heavy step of these is booked with the resource coordinator.
+After a PASS: commit and push. Then the release, v1.0.0, the version the user
+chose, for him to try its AppImage: run the workflow on the pushed commit from
+the Actions tab, or with `gh workflow run release.yml -f version=1.0.0`, and
+follow it with `gh run watch`. The run must name that version: without one, and
+with no tag yet, it would take `VERSION`'s next patch number, 0.1.1 (the
+observations). When its four builds and its release job pass, check the
+release's files: download the AppImage and its `.sha256`, check the one against
+the other, and start the AppImage as "Releases" in `AGENTS.md` says. If a build
+fails, the others still upload their files, the Linux build's holding the
+AppImage, but no release is published; the fix is a change of its own, and the
+workflow then runs again with the same version, since a failed run tags
+nothing. Each step of these that loads this PC is booked with the resource
+coordinator.
 
 The user's trials then wait on him, in the play copy
 (`play/play.sh <session dir> <SCPH-1001 dump>` in `.cache/evidence/phase4-2/`,
@@ -3087,8 +3098,8 @@ gamepad's buttons and the keyboard's work
 `psxrecomp/runtime/src/main.cpp:5417-5435`), and Gamepad Strafe stands down.
 Widescreen waits on what he sees: the HUD moved out to the edges of a wide
 view, or the 5TH and 8TH ZONE's left-edge culls kept, which `branch_keep_sites`
-cannot do without keeping other zone files' branches at the same addresses (the
-observations).
+cannot do without keeping other zone files' branches at the same addresses
+(Phase 7 change 7).
 
 Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
@@ -3160,7 +3171,11 @@ once (change 7's review round 1, suggestions 3 and 2); and a committed check of
 `game.toml`'s cull list, beside `scripts/zones/`, from the evidence scripts
 `.cache/evidence/phase7-7/cull_sites.py` and
 `.cache/evidence/phase7-7/r3/left_edges.py` (the first finding of change 7's
-review round 1, and round 2's finding). For new zones (the doc's
+review round 1, and round 2's finding), which also fails when a listed address
+in the zone files' range holds a conditional branch that is no left edge, with
+`AGENTS.md`'s paragraph then citing it and saying "primitive" where it says
+"polygon" of the `bltz` chains (change 7's review round 3, suggestions 2 and
+1). For new zones (the doc's
 section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
 nothing, a results screen and music; or a new zone in an existing zone's

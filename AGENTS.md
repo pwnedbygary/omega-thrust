@@ -666,6 +666,82 @@ only if it starts near enough (`move`) and flies faster than the player
 and 6TH ZONE. The tests parse every committed recipe and, with the disc,
 build it.
 
+## Releases
+
+`.github/workflows/release.yml` ("Release builds") builds the release: the
+framework's game-release template
+(`psxrecomp/docs/ci/templates/game-release.yml`, at the pinned psxrecomp) with
+its tokens filled in, plus an AppImage. Run it from the Actions tab with a
+version such as 1.0.0, or with none to raise the patch number (or the part that
+`bump` names) of the latest `vX.Y.Z` tag, or of `VERSION` while there is no
+tag, or push a `vX.Y.Z` tag. Its last job publishes a GitHub release with the
+builds, always for a pushed tag and, for a run from the Actions tab, while
+`publish` is on, the default; such a run first tags the commit. Each of the
+four builds (`linux-x64`, `windows-x64`, `macos-arm64` and `macos-x64`) writes
+the version into `VERSION`, checks the boot EXE, the committed game C and the
+BIOS stamps, builds the emitters (or restores them from a cache) and the game,
+packages a zip with `scripts/package_release.sh` and checks its contents; the
+Linux build then makes the AppImage from that zip and checks it. Every zip
+ships `controls/keybinds.ini` as `keybinds.ini` at its root, beside the
+executable, so a release starts with the keyboard layout made for Mouse Aim. A
+Windows build is signed only when the repository's Actions secrets hold a
+signing certificate (`psxrecomp/docs/ci/README.md`, "Windows code signing"),
+which this repository's do not, and the macOS builds are not signed. Only the
+Linux half has been run outside CI.
+
+`scripts/package_appimage.sh <zip> [<out dir>]` builds
+`omegathrust-<version>-linux-x64.AppImage` and a `.sha256` beside it from the
+Linux zip, with linuxdeploy, appimagetool and the type2 AppImage runtime, each
+pinned by version and sha256 and downloaded once into `$APPIMAGE_TOOLS_DIR`
+(default `.cache/appimage-tools/`). It runs linuxdeploy with `NO_STRIP=1`,
+since linuxdeploy's own strip (binutils 2.35) cannot read the `.relr.dyn`
+sections of current shared libraries. The runtime reads and writes its files
+beside the file it was started as, or, with `APPIMAGE` set, beside the
+`.AppImage` file (`exe_dir_from_argv()`,
+`psxrecomp/runtime/src/main.cpp:2528-2559`), and an AppImage's own files are
+read-only. So `packaging/linux/AppRun` keeps the game's files in a data folder:
+`$OMEGA_THRUST_DATA_DIR`, else `$XDG_DATA_HOME/Omega_Thrust`, else
+`~/.local/share/Omega_Thrust`; a relative `OMEGA_THRUST_DATA_DIR` is taken from
+the folder it was started in, and a relative `XDG_DATA_HOME` is ignored, as the
+XDG base directory spec says. It copies the release's files there when the
+AppImage's version differs from the one in the folder's `.appimage-version`,
+which it writes once they are all copied (delete that file to have the next
+start copy them again). It replaces `licenses/` and `mods/bundled/` whole,
+since they hold only the release's files, and copies the release's files over
+those in `assets/` and `bios/`, where the player's own stay: a BIOS dump in
+`bios/`, where the runtime looks for one, survives an update. It never replaces
+the player's own files: `settings.toml`, the launcher's `.ini` files,
+`keybinds.ini` once copied, the memory cards and saves, `mods/state.toml` and
+`mods/installed/`. It links the overlay toolchain, and starts the game through
+a link in that folder with `APPIMAGE` unset and `LD_LIBRARY_PATH` as it was,
+since the executable finds the bundled libraries through its RUNPATH. With
+`OMEGA_THRUST_SEED_ONLY=1` it prepares the folder, prints its path and stops,
+as the workflow's check of the AppImage uses it; that check also compares the
+folder's files with the AppImage's own.
+
+To test the Linux half locally, package `build-release` (built as in "Verified
+commands") as the workflow does, from the repository root. The packager refuses
+a version other than the one the binary was built with and writes that version
+into `VERSION`, so give it the tracked version (0.1.0), which leaves `VERSION`
+unchanged. It writes into the ignored `dist/`, and downloads a pinned Python
+for the overlay toolchain into `dist/.dl-cache/`.
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1
+CI=true RELEASE_VERSION=0.1.0 \
+  bash scripts/package_release.sh build-release linux-x64 build-recompiler
+bash scripts/package_appimage.sh dist/omegathrust-0.1.0-linux-x64.zip dist
+OMEGA_THRUST_DATA_DIR="$PWD/.cache/appimage-data" \
+  dist/omegathrust-0.1.0-linux-x64.AppImage
+```
+
+A Release build has no debug server (`PSX_DEBUG_TOOLS` is off,
+`psxrecomp/runtime/runtime.cmake:74-83`), so a headless check of its boot
+follows the frame report that `PSX_FRAME_REPORT_MS` turns on
+(`psxrecomp/runtime/src/main.cpp:4247-4276`) and ends the game with SIGTERM,
+which the runtime takes as a soft exit with status 0
+(`psxrecomp/runtime/src/crash_trace.c:909-915`).
+
 ## Naming
 
 The project is Omega Thrust: window title "Omega Thrust", executable
