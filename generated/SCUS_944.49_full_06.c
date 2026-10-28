@@ -8629,8 +8629,7 @@ block_80036C24:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0xCu);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[3]; cpu->gpr[2] = ((int32_t)cpu->gpr[3] < 321) ? 1 : 0;
-    PGXP_ALU(0x28620141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x80036C44: 0x28620141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[3], 321);  /* ws auto screen-x cull (right edge) */  /* 0x80036C44: 0x28620141 */
 #ifdef PSX_COSIM
     cosim_instr(0x80036C44u);
 #endif

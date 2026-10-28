@@ -1,0 +1,45 @@
+format_version = 7
+id = "omega.enhancement.widescreen"
+version = "1.0.0"
+name = "Widescreen"
+author = "Omega Thrust"
+description = "Fly in widescreen: the game draws more of space at the sides instead of stretching its 4:3 picture."
+resolver = "declarative"
+save_compatibility = "shared"
+
+# The plugin reads this EXE's game state, and the cull sites in game.toml's
+# [widescreen.cull] block are this EXE's.
+[[target]]
+game_id = "SCUS-94449"
+
+[[feature]]
+id = "widescreen"
+name = "Widescreen"
+description = "Off by default. While on, flight is drawn wider than 4:3: in CAMPAIGN PLAY, ZONE PLAY, TRAINING and the demonstrations, the game shows more of space at the sides instead of stretching its picture, and the pause menu, which it draws over flight, is wide too. The title, the menus outside flight, the mission briefings and the movies keep their 4:3 picture with bars at the sides, and the HUD keeps its 4:3 layout in the middle of the screen. Experimental: at the far sides, scenery such as the ground or a tunnel's walls can stop short of the edge and an object can appear late, and in the 5TH and 8TH ZONE some polygons can be missing from the left side."
+group = "Display"
+default_enabled = false
+
+[[option]]
+feature = "widescreen"
+id = "aspect"
+label = "View"
+description = "Fit to Window opens at 16:9 and follows the window's shape, from 4:3 up to 21:9. The fixed views keep their shape whatever the window."
+group = "Display"
+type = "choice"
+default = "Fit"
+
+[[option.choice]]
+value = "Fit"
+label = "Fit to Window"
+
+[[option.choice]]
+value = "16:9"
+label = "16:9"
+
+[[option.choice]]
+value = "21:9"
+label = "21:9"
+
+[[plugin]]
+feature = "widescreen"
+id = "omega.widescreen"

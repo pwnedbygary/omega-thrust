@@ -2271,7 +2271,7 @@ block_800728A8:
     #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_800728AC = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_800728AC = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_icache_fetch(cpu, 0x800728B0u);
@@ -2279,8 +2279,7 @@ block_800728A8:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x800728B0: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x800728B0: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x800728B0u);
 #endif
@@ -2435,13 +2434,12 @@ block_800728D4:
     #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_800728D8 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_800728D8 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x800728DC: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x800728DC: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x800728DCu);
 #endif
@@ -2593,13 +2591,12 @@ block_80072900:
     #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_80072904 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_80072904 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x80072908: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x80072908: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x80072908u);
 #endif
@@ -2757,13 +2754,12 @@ block_8007292C:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_80072930 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_80072930 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x80072934: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x80072934: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x80072934u);
 #endif
@@ -9066,13 +9062,12 @@ block_80073264:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x80u);
 #endif
-    int _bc_80073264 = ((int32_t)cpu->gpr[7] <= 0);  /* save branch cond before delay slot */
+    int _bc_80073264 = (psx_ws_x_margin() > 0 ? 0 : ((int32_t)cpu->gpr[7] <= 0) /* ws branch keep */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x24u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[5]; cpu->gpr[2] = ((int32_t)cpu->gpr[5] < 320) ? 1 : 0;
-    PGXP_ALU(0x28A20140u, cpu->gpr[2], _pgx1, 0x0140u); }  /* 0x80073268: 0x28A20140 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[5], 320);  /* ws auto screen-x cull (right edge) */  /* 0x80073268: 0x28A20140 */
 #ifdef PSX_COSIM
     cosim_instr(0x80073268u);
 #endif

@@ -510,6 +510,57 @@ hooks read the pad record, which the debug server's `set_input` axes also
 reach, so headless runs can drive it. Check its strafe's directions as Mouse
 Aim's are checked: against the game's own movement, from one save state.
 
+`omega.enhancement.widescreen` ("Widescreen", group Display, off by default)
+runs `omega.widescreen` (`src/mods/omega_widescreen.c`). At session start it
+asks the runtime for the view that its option View names: 16:9, 21:9, or Fit to
+Window, which opens at 16:9 and then follows the window's shape from 4:3 up to
+21:9. It also marks flight's frames as 3D scenes
+(`psx_mod_set_world_scene_predicate()`): those drawn while the main loop's
+state word, 0x8009C5B0, is 5, 8, 9 or 11 (a DEMONSTRATION replay, CAMPAIGN
+PLAY, ZONE PLAY or TRAINING) and the display is 320 pixels wide, which leaves
+out the briefings' 640-pixel screens. The framework's native-wide renderer
+draws those frames wider, showing more of the scene at the sides; every other
+frame keeps a 4:3 picture with bars, and the HUD keeps its 4:3 layout in the
+middle. Without that mark no frame would be drawn wide, since `game.toml` turns
+on none of the framework's own ways to tell a 3D scene; and one of those ways,
+a gameplay-state gate, draws a gated frame wide only once enough polygons reach
+past the screen's edges in two frames running, which a game that draws a new
+picture every other frame seldom gives. `game.toml`'s `[widescreen.cull]`,
+which the recompiler and the runtime read whether the feature is on or not,
+lets the game's polygon funnels pass what the wider view shows: `auto_screen_x`
+widens their screen-X compares (with the heights 0xE0 and 0xE1, since the
+framework's defaults miss 0xE1) and their `bltz` left edges, and
+`branch_keep_sites` keeps their `blez` left edges from rejecting while the view
+is wide. At 4:3 each of these acts as the game's own. A listed address keeps
+whatever conditional branch is there, in the static shard and in the
+interpreter alike, and only in the EXE does the recompiler check that the
+address holds one (`psxrecomp/recompiler/src/code_generator.cpp:774-814`,
+`psxrecomp/runtime/src/dirty_ram_interp.c:645-648`). So a zone file's left edge
+may be listed only where no other zone file has a conditional branch: the LAST
+ZONE's is, the 5TH and 8TH ZONE's are not, so there a polygon that lies wholly
+in the left band is still dropped. A left edge is either a `blez` on a
+polygon's largest X beside a compare of its smallest X with 0x140 (the EXE's
+eleven and the zone files' three), or a `bltz` on one vertex's X with a compare
+of that X with 0x141 in its delay slot, in a chain that accepts the polygon
+once one vertex is on the screen (the EXE's twelve, which `auto_screen_x`
+widens). After any change to the block, and after a regenerate, check that each
+listed address is a left edge, in the EXE or in the one zone file that has a
+conditional branch there, and that each left edge of the EXE is kept or widened
+in the generated C. The EXE's code is `disc/SCUS_944.49` past its 0x800-byte
+header, loaded at 0x80010000; `scripts/zones/disc.py` reads the zone files from
+the disc, and `scripts/zones/mips.py` decodes the code, though its `BASE` is a
+zone file's address, 0x80120000, not the EXE's. Evidence scripts that are not
+in the repository made these checks for the current list
+(`.cache/evidence/phase7-7/cull_sites.py` and
+`.cache/evidence/phase7-7/r3/left_edges.py`; the handoff records their
+results). At the far sides, scenery such as the ground or a tunnel's walls can
+also stop short of the edge; whether the game culls any object by its own view
+before its funnels, so that it would appear late there, is not known. In a
+headless run the debug server's `screenshot_wide_hires` saves the wide picture,
+but it saves one for a frame shown at 4:3 as well, so read whether a frame was
+wide from `gpu_state`'s `nw_extra`, the columns added; `ws_census` lists each
+frame's polygons with how far they reach.
+
 The runtime reads the feature selection from `<exe>/mods/state.toml`, and
 every launch writes it back. Routes and the Beetle comparison run with every
 feature off, so `build-dev/mods/state.toml` must enable none. To try a

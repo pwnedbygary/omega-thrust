@@ -6178,13 +6178,12 @@ block_8005B8A8:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x80u);
 #endif
-    int _bc_8005B8A8 = ((int32_t)cpu->gpr[7] <= 0);  /* save branch cond before delay slot */
+    int _bc_8005B8A8 = (psx_ws_x_margin() > 0 ? 0 : ((int32_t)cpu->gpr[7] <= 0) /* ws branch keep */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x24u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[5]; cpu->gpr[2] = ((int32_t)cpu->gpr[5] < 320) ? 1 : 0;
-    PGXP_ALU(0x28A20140u, cpu->gpr[2], _pgx1, 0x0140u); }  /* 0x8005B8AC: 0x28A20140 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[5], 320);  /* ws auto screen-x cull (right edge) */  /* 0x8005B8AC: 0x28A20140 */
 #ifdef PSX_COSIM
     cosim_instr(0x8005B8ACu);
 #endif
@@ -10265,13 +10264,12 @@ block_8005BE6C:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_8005BE70 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_8005BE70 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x8005BE74: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x8005BE74: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x8005BE74u);
 #endif
@@ -10443,13 +10441,12 @@ block_8005BE94:
     #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_8005BE98 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_8005BE98 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x8005BE9C: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x8005BE9C: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x8005BE9Cu);
 #endif
@@ -10601,13 +10598,12 @@ block_8005BEC0:
     #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_8005BEC4 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_8005BEC4 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x8005BEC8: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x8005BEC8: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x8005BEC8u);
 #endif
@@ -10765,13 +10761,12 @@ block_8005BEEC:
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    int _bc_8005BEF0 = ((int32_t)cpu->gpr[2] < 0);  /* save branch cond before delay slot */
+    int _bc_8005BEF0 = (psx_ws_cull_bltz(cpu->gpr[2]) /* ws cull (left edge) */);  /* save branch cond before delay slot */
     /* delay slot (always executes) */
 #ifdef PSX_ENABLE_BLOCK_CYCLES
     psx_cyc_step(cpu, 0x4u);
 #endif
-    { uint32_t _pgx1 = cpu->gpr[2]; cpu->gpr[2] = ((int32_t)cpu->gpr[2] < 321) ? 1 : 0;
-    PGXP_ALU(0x28420141u, cpu->gpr[2], _pgx1, 0x0141u); }  /* 0x8005BEF4: 0x28420141 */
+cpu->gpr[2] = psx_ws_cull_slti(cpu->gpr[2], 321);  /* ws auto screen-x cull (right edge) */  /* 0x8005BEF4: 0x28420141 */
 #ifdef PSX_COSIM
     cosim_instr(0x8005BEF4u);
 #endif

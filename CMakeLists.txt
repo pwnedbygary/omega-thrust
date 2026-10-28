@@ -59,6 +59,7 @@ psxrecomp_add_game_runtime(psx-runtime
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_zone_clear.c"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_mouse_aim.c"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_gamepad_strafe.c"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_widescreen.c"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/omega_strafe.c"
     # Committed game C (psxrecomp_cli.py generate; git add generated). Release
     # CI configures with -DPSXRECOMP_REQUIRE_GAME_C=ON so a checkout without

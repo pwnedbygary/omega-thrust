@@ -36,8 +36,8 @@ strict = true
 # Instructions that call psx_mod_instruction before they run, for the plugins
 # in src/mods/: the campaign loop's step-limit check (omega.branching), the
 # force sums of two of the player's three movements, the usual one and SCAN's
-# (omega.mouse-aim), and the zone timeline runner's countdown load
-# (omega.zone-clear).
+# (omega.mouse-aim and omega.gamepad-strafe), and the zone timeline runner's
+# countdown load (omega.zone-clear).
 mod_instruction_sites = ["0x8002FB2C", "0x80033044", "0x800337CC", "0x80071558"]
 
 [runtime]
@@ -48,6 +48,31 @@ overlay_cache = true
 [video]
 renderer = "opengl"
 aspect_ratio = "4:3"
+
+# The picture stays 4:3 unless the game's Widescreen mod
+# (omega.enhancement.widescreen) widens it. Its plugin,
+# src/mods/omega_widescreen.c, tells the framework which frames are flight's:
+# those are drawn wide, and every other frame keeps its 4:3 picture with bars
+# at the sides. While the view is 4:3, nothing below changes what the game
+# does or draws.
+#
+# The game's polygon funnels drop a polygon whose projected X lies wholly off
+# the 320-pixel screen. auto_screen_x widens their compares with the screen's
+# width (0x140, 0x141), and their left edges that test X with bltz and hold
+# that compare in their delay slot, in functions that also compare Y with the
+# screen's height (0xE0, 0xE1). The left edges that test X with blez instead
+# never reject while the view is wide: the EXE's eleven and the LAST ZONE's
+# one. The 5TH and 8TH ZONE's files each have one too, but at addresses where
+# other zone files have branches of their own, which a listed address would
+# keep as well, so they are not listed and stay as the game has them.
+[widescreen.cull]
+auto_screen_x = true
+screen_h_imms = ["0xE0", "0xE1"]
+branch_keep_sites = [
+  "0x80049B90", "0x8004A0FC", "0x8004A6C0", "0x8004AC10", "0x8004B238",
+  "0x80053828", "0x80054530", "0x80058EF0", "0x8005AE44", "0x8005B8A8",
+  "0x80073264", "0x8012448C",
+]
 
 [controller]
 default_mode = "digital"

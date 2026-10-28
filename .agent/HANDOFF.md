@@ -18,37 +18,48 @@ the lock-on lasers, the right button the machine-gun lasers, and Enter
 pauses. It started with a framework fix, one commit on `8077e71` in a fork,
 since on Linux the runtime never read `keybinds.ini`.
 
-Current iteration, Phase 7 change 6, round 2: a strafe for gamepads, which the
-user chose as its own change before the route-script cleanup, after asking
-whether the strafe works with a controller ("Yes, as the next change, before
-the route-script cleanup (Recommended)"). Invariant: a new feature, Gamepad
-Strafe (`mods/preloaded/packages/omega.enhancement.gamepad-strafe/`, off by
-default, with its own Strafe speed), whose plugin
-(`src/mods/omega_gamepad_strafe.c`) strafes the mech with player 1's right
-stick, which a gamepad fills, while the main loop runs CAMPAIGN PLAY, ZONE PLAY
-or TRAINING. It strafes through the strafe that Mouse Aim's keys use, now in
-`src/mods/omega_strafe.c`, from its own hooks at the same two sites, so along
-the same axes in both movements and with the same camera lag; it presents
-player 1 as an analog pad, leaves the TYPE setting alone, and does nothing
-while Mouse Aim drives player 1, so that no step is strafed twice. Mouse Aim
-does as it did: its strafe moves to `omega_strafe.c` without a change in what
-it does. `game.toml`, `generated/` and the static shard's audit stay as they
-are. This file also records Phase 6 change 11's round 2 PASS and its commit
-`2d6f242`, condenses change 11, and records the user's trial of Phase 7
-change 5. Review round 1 found six places where the texts said more than the
-evidence, or other than it: how the replay probe read the pad record, a claim
-about every replay, the reason given for standing down, Gamepad Strafe's
-unknowns, missing from the hypotheses, an upstream issue's state, and
-`game.toml`'s comment on the hook sites, which names Mouse Aim alone. So round
-2 corrects the first five, the plugin's comment and the manifest's text among
-them, leaves the comment in `game.toml` to the next change, which regenerates
-anyway, and takes up the review's suggestions, one of which removes an include
-that `omega_strafe.h` does not use; both binaries stay as they were. Baseline:
-`2d6f242`. Out of scope: a strafe in the third movement, or one that pulls in
-SCAN as the game's slide does; any TYPE handling for the right stick; the
-widescreen mod, the CI release setup and the release, and the route-script
-cleanup and the rest of the code-quality work (the next action); and the
-framework.
+Current iteration, Phase 7 change 7, round 3: a widescreen mod, which the user
+asked for before the release ("Please finish up whatever is remaining. Also,
+please implement a widescreen mod for this game. After that, and everything is
+finished, cut a release build so I can test out the appimage after CI finishes
+its build.") and placed after Gamepad Strafe ("After Gamepad Strafe (change 6),
+the widescreen mod and the CI release setup; changes 12 to 15 follow the
+release (Recommended)"). Invariant: a new feature, Widescreen
+(`mods/preloaded/packages/omega.enhancement.widescreen/`, off by default, with
+a View of Fit to Window, 16:9 or 21:9), whose plugin
+(`src/mods/omega_widescreen.c`) chooses the view at session start and marks
+flight's frames, those drawn while the main loop's state word says CAMPAIGN
+PLAY, ZONE PLAY, TRAINING or a DEMONSTRATION replay and the display is 320
+pixels wide, as 3D scenes, which the framework then draws wide, while every
+other frame keeps its 4:3 picture; and a `[widescreen.cull]` block in
+`game.toml`, which lets the game's polygon culls pass what the wider view
+shows: `auto_screen_x` widens their right edges and their `bltz` left edges,
+and `branch_keep_sites` keeps twelve `blez` left edges from rejecting. While
+the view is 4:3, as it is with the feature off, each widened compare and kept
+branch acts as the game's own, so the game does and draws what it did;
+`generated/` changes only at those sites, and the static shard's audit records
+the new `game.toml`. The comment there on the two force-sum sites now names
+Gamepad Strafe beside Mouse Aim (change 6's review round 1, finding 6). This
+file also records Phase 7 change 6's round 2 PASS and its commit `0e65a35`,
+condenses change 6, and takes up three of that review's four suggestions.
+Review round 1 found that `AGENTS.md` named an evidence script, which no clone
+has, as the check to run on the cull list, that the plugin's comment and
+`AGENTS.md` gave a wrong reason for marking flight's frames, and that the next
+action said that the user made the repository public, which this session did at
+his word. So round 2 corrects those texts, the plugin's comments among them,
+which leaves both binaries the same, records in the next action the user's
+choice of keyboard layout for the release, and takes up the review's five
+suggestions. Review round 2 found that the check of the cull list that
+`AGENTS.md` then described defined a left edge in a form that only the `blez`
+edges take, so that it would miss the twelve `bltz` edges, and did not ask that
+each listed address be a left edge. So round 3 rewrites that check from a
+disassembly of every left edge and takes up the review's four suggestions; both
+binaries stay round 1's. Baseline: `0e65a35`. Out of scope: the left-edge culls
+of the 5TH and 8TH ZONE, at addresses that other zone files share; moving the
+HUD out to the edges of a wide view; objects that the game culls before they
+reach the polygon funnels; the CI release setup and the release, and then the
+route-script cleanup and the rest of the code-quality work (the next action);
+and the framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1297,256 +1308,416 @@ PASS on tree `7e11d2f` (staged diff `b0b85a73…`). Reports:
 `phase6-11/review-r1.md` and `phase6-11/r2/review-r2.md`; full record:
 `git show 2d6f242:.agent/HANDOFF.md`.
 
-## Phase 7 change 6 observations (`.cache/evidence/phase7-6/`)
+## Phase 7 change 6 (commit `0e65a35`)
 
-- The user asked whether the strafe works with a controller. It did not: Mouse
-  Aim's controller source replaces player 1's sticks while it is attached in
-  flight (`mouse_source()` in `src/mods/omega_mouse_aim.c`; the runtime takes a
-  source's sticks and merges only its buttons with the pad's,
-  `psxrecomp/runtime/src/pad_external_input.c:22-27`), and its hooks strafe
-  only while the source is attached, so a gamepad's right stick never strafed,
-  with Mouse Aim on or off. The play copy's settings
-  (`.cache/play/build/settings.toml`) put player 1 on an Xbox 360-type
-  controller (USB ids 045e:028e) in analog mode.
-- Without a source, the runtime fills the pad's right stick from a controller's
-  right stick (`pad_sticks_for()`, `psxrecomp/runtime/src/main.cpp:5300`),
-  which reaches bytes 4 and 5 of the pad record that the strafe reads; the game
-  ignores the right stick in flight (Phase 7 change 3). Both hook sites are
-  already in `game.toml`, and the static shard's audit hashes only the mod
-  packages that `aot/overlays.json` names, which are none
-  (`psxrecomp/tools/aot_overlay_pipeline.py:956`), so a new package and plugin
-  need no regenerate.
-- Several plugins may hook one instruction, each under its own plugin id (Phase
-  7 change 5), but the mod API cannot tell a plugin whether another plugin's
-  source or feature is active (`psxrecomp/runtime/include/mod_plugins.h`). With
-  both features on, both plugins' hooks run, and the pad record's right stick
-  then holds Mouse Aim's keys, which would be strafed twice. A package could
-  declare that it conflicts with the other, and the runtime would then refuse
-  to launch while a feature of each is enabled
-  (`psxrecomp/runtime/src/mod_packages.cpp`, lines 1774 to 1777, 3498 and 3514
-  to 3516). Standing down at run time lets both be on: Gamepad Strafe asks
-  Mouse Aim (`omega_mouse_aim_drives_player_1()`) and leaves the strafe to it
-  while Mouse Aim's source drives player 1. Review round 1 found that this
-  bullet first said that a package cannot declare a conflict.
-- Phase 7 change 3's feature-on runs of demo_zone1 found that Mouse Aim never
-  attached in a DEMONSTRATION replay, so such a replay runs in a state of the
-  main loop other than CAMPAIGN PLAY, ZONE PLAY and TRAINING (8, 9 and 11), the
-  states in which Mouse Aim drives player 1; this change's replay probe found
-  state 5. Without a check of its own, Gamepad Strafe would strafe such a
-  replay while the stick was pushed, so it strafes only in those three states.
-  Whether other replays run in another state too is not known. ZONE PLAY's
-  handler (0x8002FD44), like the DEMONSTRATION's (0x8002F7BC), calls
-  0x8002D1E8, which calls the replay player's step (0x80077228) at 0x8002D698,
-  so the replay that ZONE PLAY's results screen offers (START REPLAY) may run
-  in state 9, where both plugins would strafe it; or ZONE PLAY may call
-  0x8002D1E8 only to fly its zone live (review round 1; read from the code, not
-  run).
+Gamepad Strafe, which the user chose as its own change before the route-script
+cleanup after asking whether the strafe works with a controller ("Yes, as the
+next change, before the route-script cleanup (Recommended)"). It did not: Mouse
+Aim's controller source replaces player 1's sticks while it is attached in
+flight (`psxrecomp/runtime/src/pad_external_input.c:22-27`), and its hooks
+strafed only while it was attached. The strafe moved from
+`src/mods/omega_mouse_aim.c` to `src/mods/omega_strafe.c` and
+`src/mods/omega_strafe.h` without a change in what it does
+(`phase7-6/moved_code.py` / `.log`): `omega_strafe()` takes the movement, which
+chooses the axes, and the force of a full push, and returns whether it strafed.
+The package `omega.enhancement.gamepad-strafe` (feature "Gamepad Strafe", group
+Quality of Life, off by default, with its own Strafe speed, default 50) runs
+`omega.gamepad-strafe` (`src/mods/omega_gamepad_strafe.c`), whose own hooks at
+the two force-sum sites strafe with player 1's right stick, which a gamepad
+fills when no source is attached (`pad_sticks_for()`,
+`psxrecomp/runtime/src/main.cpp:5300`), while the main loop's state word,
+0x8009C5B0, says CAMPAIGN PLAY, ZONE PLAY or TRAINING (8, 9 or 11) and Mouse
+Aim does not drive player 1 (`omega_mouse_aim_drives_player_1()`,
+`src/mods/omega_mouse_aim.h`). It presents player 1 as an analog pad and leaves
+the TYPE setting alone. A package could instead declare that it conflicts with
+the other, and the runtime would then refuse to launch while a feature of each
+is enabled (`psxrecomp/runtime/src/mod_packages.cpp`, lines 1774 to 1777, 3498
+and 3514 to 3516; the refusal in
+`psxrecomp/runtime/src/mod_runtime.cpp:1614-1621` and
+`psxrecomp/runtime/src/main.cpp:16635-16638`); standing down lets both be on,
+with no step strafed twice. Through a DEMONSTRATION replay the main loop stays
+in state 5, and the live stick still reaches the pad record there
+(`phase7-6/r2/replay_records.py` / `.log`: `70 00`, in the record's signed
+encoding a full push right), so the state check is what keeps a pushed stick
+from strafing it. Whether the replay that ZONE PLAY's results screen offers
+runs in state 9 is not known: ZONE PLAY's handler calls 0x8002D1E8 at
+0x8002FD44, as the DEMONSTRATION's does at 0x8002F7BC, and 0x8002D1E8 calls the
+replay player's step, 0x80077228, at 0x8002D698 (read from the code, not run).
+It needed no regenerate: both sites were already in `game.toml`, and the static
+shard's audit hashes no mod package.
 
-## Phase 7 change 6 changes
+Its checks (`phase7-6/`): a host harness (`phase7-6/harness/`) found, on
+200,000 random cases, the new Mouse Aim's results equal to the old one's byte
+for byte and Gamepad Strafe adding the same forces, and caught each of six
+planted bugs. Both builds compiled with no warning (`81643830…` in `build-dev`,
+`84f6af2c…` in `build-release`), the strict compiles gave no message, and the
+plugin audit passes. Headless, with Gamepad Strafe alone, a full push moved the
+mech 76.4 to 77.2 units a frame outside SCAN and 88.8 to 89.7 in it, and over
+each phase's second half its speed was within three units a frame of Mouse
+Aim's for its keys; a push inside the deadzone did not move it; and with both
+features on only Mouse Aim's hooks counted
+(`phase7-6/probe-gamepad/analysis.log`, `phase7-6/probe-both/analysis.log`,
+`phase7-6/probe-mouse/analysis.log`). From one save state every strafe moved
+the mech the way the game's own turn, climb or SCAN slide in the same direction
+does (`phase7-6/screen-steering.log`, `phase7-6/screen-scan.log`, 17 checks
+each). Nine feature-on route runs pass with each feature, Mouse Aim's card 1
+differing from the feature-off batch's only in the TYPE byte and the save's
+checksum and Gamepad Strafe's cards equal to it byte for byte; the feature-off
+sample and Mouse Aim's windowed checks pass (`phase7-6/checks-p7-6.sh`,
+`phase7-6/r2/checks-p7-6-r2.sh`). Review: round 1 NEEDS CHANGES on tree
+`560e621` (staged diff `2d3ec40c…`), from a fresh read-only reviewer, with six
+Lows, all in texts; round 2 corrected five, left `game.toml`'s comment on the
+hook sites to this change, and took up the review's five suggestions, and both
+binaries stayed the same; round 2 PASS, no findings, on tree `052ae7f` (staged
+diff `9c119c77…`). Reports: `phase7-6/review-r1.md` and
+`phase7-6/r2/review-r2.md`. The full record:
+`git show 0e65a35:.agent/HANDOFF.md`.
 
-- `src/mods/omega_strafe.h` and `src/mods/omega_strafe.c` (new): the strafe,
-  moved from `omega_mouse_aim.c` with its constants, four of which the header
-  now holds under the prefix `OMEGA_STRAFE_`, and with the comments above them,
-  word for word but for the long comment on the movements, the axes and the
-  camera, which no longer names the mouse or the keys, names the cruising force
-  by its new name and leaves the cruising speed to the header's comment
-  (`moved_code.py` / `.log`). `strafe()` becomes `omega_strafe()`, which takes
-  the movement (`OMEGA_STRAFE_USUAL` or `OMEGA_STRAFE_SCAN`), which chooses the
-  axes, and the force of a full push, and returns whether it strafed; the
-  header holds the hook sites, their instruction word and the cruising force.
-  Round 2 removes an include from the header, `<stdint.h>`, which nothing in it
-  uses.
-- `src/mods/omega_mouse_aim.c`: its hooks call `omega_strafe()` while the
-  source is attached and count as before; the new
-  `omega_mouse_aim_drives_player_1()`, which `src/mods/omega_mouse_aim.h` (new)
-  declares; the header comment names `omega_strafe.c`.
-- `src/mods/omega_gamepad_strafe.c` (new): the plugin `omega.gamepad-strafe`.
-  At session start it reads its Strafe speed and presents player 1 as an analog
-  pad; its hooks at the two sites call `omega_strafe()` while the main loop
-  runs CAMPAIGN PLAY, ZONE PLAY or TRAINING and Mouse Aim does not drive player
-  1, and count `omega.gamepad-strafe.strafed-steps` or `.scan-strafed-steps`.
-  Its comment on that check said that it kept the stick out of every replay; in
-  round 2 it names DEMONSTRATION replays and says that it is not known for the
-  replay that ZONE PLAY's results screen offers.
-- The package `omega.enhancement.gamepad-strafe` (new), whose manifest in
-  `mods/preloaded/packages/omega.enhancement.gamepad-strafe/1.0.0/` holds the
-  feature `gamepad-strafe` ("Gamepad Strafe", group Quality of Life, off by
-  default), its option Strafe speed (10 to 100 in steps of 10, default 50), and
-  the plugin. Round 2 narrows the feature's sentence on replays to the
-  demonstrations of the REPLAY menu.
-- `CMakeLists.txt`: `EXTRAS_SOURCES` adds `omega_gamepad_strafe.c` and
-  `omega_strafe.c`, and its comment names the shared file.
-- `AGENTS.md`: a sentence in Mouse Aim's paragraph on the shared strafe, and a
-  paragraph on Gamepad Strafe, whose sentence on replays round 2 narrows in the
-  same way.
-- `.agent/HANDOFF.md`: the scope; change 11 condensed, and change 5's trial;
-  these sections; the hypotheses; the review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase7-6/`, with round 2's evidence in
-  its `r2/` and round 1's report `review-r1.md` with its header, and change
-  11's round 2 report `phase6-11/r2/review-r2.md` with its header and its
-  commit message `phase6-11/commit-msg.txt`.
+## Phase 7 change 7 observations (`.cache/evidence/phase7-7/`)
 
-## Phase 7 change 6 checks
+- The user asked for a widescreen mod before the release: "Please finish up
+  whatever is remaining. Also, please implement a widescreen mod for this game.
+  After that, and everything is finished, cut a release build so I can test out
+  the appimage after CI finishes its build." The framework leaves widescreen to
+  each title's mod catalog: a trusted plugin chooses the view at session start
+  (`psx_mod_set_fixed_display_aspect()`, and for Fit to Window also
+  `psx_mod_set_adaptive_display_aspect()`), and the title's `game.toml` says
+  which culls widen (`psxrecomp/docs/WIDESCREEN.md`, lines 159 to 170 and 213
+  to 233). TombaRecomp's package is the framework's worked example.
+- Which frames are drawn wide. The runtime's classifier asks a plugin's
+  world-scene predicate first, then the gameplay-state gate, whose answer is
+  final once it is configured, then heuristics that this game does not
+  configure (`ws_game_mode()`, `psxrecomp/runtime/src/gpu.c:394-403`). The
+  first configuration used the gate (`psxrecomp/runtime/src/gpu.c:303-321`):
+  the main loop's state word, 0x8009C5B0, is 8 in CAMPAIGN PLAY, 9 in ZONE PLAY
+  and 11 in TRAINING, the states in which Mouse Aim and Gamepad Strafe fly, and
+  5 through a DEMONSTRATION replay (`phase7-6/replay.log`). Its headless runs,
+  now in `gate-config/`, drew the 1ST ZONE's flight and replay wide but kept
+  the 5TH ZONE's replay at 4:3 throughout (`gate-config/probe-demo1-16x9.log`,
+  `gate-config/probe-demo5-16x9.log`). A survey of the nine campaign zones'
+  replays at 16:9, which also read the runtime's draw census for the two frames
+  before each shot, then found 251 of 268 replay shots at 4:3, the 1ST ZONE's
+  20 among them, though the gate called every one of them flight's
+  (`gate-config/scripts/survey.sh`, `gate-config/survey_summary.log`). A frame
+  that the classifier calls flight's is still drawn at 4:3 while the runtime
+  takes its scene for a 2D one (`gpu_ws_present_native_43()` and
+  `ws_2d_only_scene()`, `psxrecomp/runtime/src/gpu.c:430-490`), as it does
+  until four or more polygons not tagged as sprites reach more than 24 pixels
+  past an edge of the screen in each of two frames running
+  (`ws_note_overhang()`, `psxrecomp/runtime/src/gpu.c:355-356` and
+  `6576-6599`): a test written for games that tag their sprites, which exempts
+  a plugin's world-scene predicate but not the gate. This game draws a new
+  picture every other frame: in each of the 268 shots, exactly one of the two
+  frames before it drew polygons (`gate-config/frame_pattern.log`), so the test
+  almost never passed, though in every zone the frames that drew had polygons
+  past the edges. The 7TH ZONE's 17 wide shots, and the first runs' wide 1ST
+  ZONE, came from chance pairs of frames.
+- So the plugin marks flight's frames itself, through the world-scene predicate
+  that the framework offers for that (`psx_mod_set_world_scene_predicate()`,
+  `psxrecomp/runtime/include/mod_plugins.h:298-307`): the classifier asks it
+  first, and the 2D-only test does not apply to a frame that it marks
+  (`psxrecomp/runtime/src/gpu.c:388-440`). `flight_frame()` marks a frame while
+  the state word is 5, 8, 9 or 11 and the display is 320 pixels wide
+  (`psx_mod_display_width()`): the mission briefings run in CAMPAIGN PLAY's
+  state too, but on a 640-pixel display (`probe-16x9/records.jsonl`), so they
+  keep 4:3, as the title, the menus and the BIOS do. The framework's rule for
+  movies, which keeps a frame from the MDEC or a 24-bit display at 4:3, still
+  applies (`psxrecomp/runtime/src/gpu.c:470-490`). The runtime clears the
+  predicate when a session starts, so the plugin registers it at each
+  activation (`psxrecomp/runtime/src/main.cpp:1620-1622`). `game.toml` no
+  longer sets the gate, which only the runtime reads
+  (`psxrecomp/runtime/src/gpu.c:303-321`,
+  `psxrecomp/runtime/src/main.cpp:14725-14728`), so a frame that the plugin
+  does not mark falls through to the heuristics and keeps 4:3; the generate
+  after that changed no C file, only the static shard's audit (`w1.log`). With
+  the predicate, every flight shot of the title runs and all 268 replay shots
+  of the survey came out wide (the checks).
+- The culls: the game draws at 320 by 224, and its polygon funnels drop a
+  polygon whose projected X lies wholly off the screen, or accept one that has
+  a vertex on it, with a `blez` or `bltz` on an X for the left edge and a
+  `slti` or `sltiu` against 0x140 or 0x141 for the right. `auto_screen_x`
+  widens the width compares, and a left edge only if it is a `bltz` with the
+  compare in its delay slot, in a function that also compares Y with a height
+  that `screen_h_imms` names (`psxrecomp/runtime/include/ws_cull_detect.h`);
+  its default heights, 0xE0 and 0xF1, miss this game's 0xE1
+  (`psxrecomp/recompiler/src/config_loader.cpp:1979-1983`). `branch_keep_sites`
+  keeps a listed left edge from rejecting while the view is wide
+  (`psxrecomp/recompiler/src/code_generator.cpp:809-814`). In the EXE the
+  recompiler refuses a listed address that holds no conditional branch; in a
+  zone file it checks nothing and keeps any conditional branch at a listed
+  address, whatever the file
+  (`psxrecomp/recompiler/src/code_generator.cpp:774-793`), and so does the
+  interpreter, which runs the zone files' code that the static shard does not
+  hold (`ws_branch_keep()`, `psxrecomp/runtime/src/dirty_ram_interp.c:645`).
+- `cull_sites.py` / `.log` lists every left edge, in the EXE and in the disc's
+  25 zone files, against `branch_keep_sites` and the generated C. The EXE has
+  23: 12 `bltz`, each with the compare in its delay slot, which `auto_screen_x`
+  widens, and 11 `blez`, all listed. In ten of those the compare sits in the
+  delay slot; in the eleventh, 0x80053828, the delay slot holds a `subu`, and
+  the compare follows it. The scan's first version looked only for a compare in
+  the delay slot and missed it (`cull_sites-first.log`), so the first
+  regenerate (`w1-first/`) left it as the game has it (`cull_sites-w1.log`).
+  The zone files have three, all `blez`: the LAST ZONE's (S10) is listed, since
+  no other zone file has a conditional branch at its address; the 5TH ZONE's
+  (S5) and the 8TH ZONE's (S9) are not, since S6's file has one at the 5TH
+  ZONE's address and S2's and S8's at the 8TH ZONE's.
+- `psx_ws_x_margin()`, by which the widened compares and the kept branches
+  move, is 0 at 4:3, so they then act as the game's own
+  (`psxrecomp/runtime/src/gpu.c:1420`). While the view is wide it holds in
+  every frame, menus included, not only in the frames drawn wide. Besides the
+  funnels above, `auto_screen_x` widened the right bound of a cull in the EXE
+  that skips a point whose X is not between -320 and 320 (0x80036C44), and, in
+  the 6TH and 8TH ZONE's files, the two vertex tests of a funnel that compare X
+  with both edges at once, with an unsigned `sltiu`, which it widens at both
+  edges (S6: 0x801262EC and 0x80126320; S9: 0x80129540 and 0x80129574). Each is
+  a cull that skips drawing; none is a clamp that a menu or a cursor could
+  reach. Every other compare it widened is a funnel's right edge (`ws_sites.py`
+  / `.log` lists them all).
+- In the wide pictures, stars fill the side bands, and scenery such as the
+  ground or a tunnel's walls can stop short of the edge, on the left and on the
+  right (the survey's contact sheets, `survey-zone1/sheet.png` to
+  `survey-zone-last/sheet.png`). Over the survey's 268 wide shots neither band
+  is the darker one on the whole: the left band is darker than the right, by a
+  lit share of 0.05 or more, in 56 shots, and the right in 59 (`bands.py` /
+  `.log`). In the 5TH ZONE, whose one left-edge cull stays as the game has it,
+  the left band is the darker one in 10 of its 32 shots and the right in 5; too
+  few shots to tell a lost polygon from the scene. The HUD keeps its 4:3 layout
+  in the middle.
+- Whether the window shows a frame wide, a run reads from the debug server's
+  `gpu_state`: `nw_extra` gives the columns added, 0 in a 4:3 view, and
+  `present_native_43` is 1 while a wide view shows a frame at 4:3 with bars.
+  The wide picture that `screenshot_wide_hires` saves does not say it: the
+  debug server saves the wide surface whenever one exists for the displayed
+  buffer (`psxrecomp/runtime/src/debug_server.c:9931-9954`), so it also saves
+  one for a frame shown at 4:3: a dark one for the briefing at 16:9
+  (`probe-16x9.log`), and, in a window resized from 21:9 to 4:3, the 21:9
+  picture's side bands around the current 4:3 one (`fit-window-first/`,
+  `fit_window-first.log`).
 
-- `harness/harness.py` / `harness/harness.log`, on the host: `harness/driver.c`
-  and `harness/stubs.c`, which give the plugins the mod API as stubs on a fake
-  RAM, linked once with commit `2d6f242`'s `omega_mouse_aim.c` and once with
-  this change's three sources, both with `cc -O3`, as `build-dev` compiles the
-  plugins. On the same 200,000 random cases (the main loop's state, the
-  player's pointer, state, angles, view rotation and force words, the pad
-  record and the stage's scroll flag, at either site), the new Mouse Aim's
-  lines equal the old one's byte for byte; Gamepad Strafe alone adds the forces
-  that the old Mouse Aim added, which strafed in 64,553 of the cases; and with
-  both on, the lines equal the old Mouse Aim's, Gamepad Strafe adding nothing.
-  Six bugs planted one at a time each change exactly the comparisons expected:
-  the camera's force words left out, a stick on the deadzone's edge strafing,
-  SCAN's movement given the heading's axes, Mouse Aim strafing while detached,
-  and Gamepad Strafe strafing while Mouse Aim drives player 1 or outside
-  flight. Its first run (`harness/harness-first.log`) printed the previous
-  case's force words for a case without a player object, which inflated the
-  planted bugs' counts but changed no result. These are host runs of the
-  plugins' C against stubs, not runs of the runtime.
-- `build-dev.log` and `build-release.log`: the documented build commands re-ran
-  CMake, as the change to `CMakeLists.txt` requires, which rewrote the
-  generated `psx_bios_registry.c` in each build directory
-  (`psxrecomp/runtime/runtime.cmake:785`). They compiled it and the three
-  plugin sources with no warning, and staged a catalog of 11 packages, 5 of
-  them the game's. The binaries went from Phase 7 change 5's, `7c234043…` in
-  `build-dev` and `3781e02a…` in `build-release`, to `81643830…` and
-  `84f6af2c…` (`binaries-before.sha256`, `binaries-after.sha256`).
-- `strict_compile.py` / `.log`: each of the three plugin sources, compiled
-  alone with `build-dev`'s own command and strict warnings as errors, once with
-  GCC 16.2.1 and once with clang 23.1.3, gave no message.
-- `plugin-audit.log`: both builds pass, with 11 manifests, 11 declared ids and
-  9 registered ids; the list of registered ids leaves out the two plugins that
-  register only instruction hooks, `omega.branching` and `omega.zone-clear`.
-- `moved_code.py` / `.log` compares the moved code with commit `2d6f242`'s
-  `omega_mouse_aim.c`, which `git diff` shows only as lines deleted there and
-  added in a new file. The ten moved functions, and the comments above them,
-  are the same. `strafe()` and `omega_strafe()` differ only where
-  `omega_strafe()` takes the movement and the force and returns whether it
-  strafed, and where the test of Mouse Aim's source and the count went to Mouse
-  Aim's hooks. The 22 constants that left keep their values, four renamed with
-  the prefix `OMEGA_STRAFE_`, and the long comment on the movements differs
-  only where it named the mouse, the keys and the cruising speed.
-- `runs.sh` / `runs.log` ran step (2) on `build-dev` (`81643830…`) from 17:10
-  to 17:37, on the resource coordinator's booking: lane A, the headless probes
-  on port 4378 one at a time, beside lane B, the feature-on routes on port
-  4377; then lane C, the feature-off sample on port 4370, beside lane D, Mouse
-  Aim's windowed checks on a private Xvfb display (`lane-a.log` to
-  `lane-d.log`). `phase6-11/r2/nicewatch2.py` held every program of the batch
-  at nice 5, but for each runtime's own thread at 19, and failed to set none
-  (`nicewatch2.log`, and `nicewatch2-replay.log` for the replay probe's second
-  run).
-- `probe-gamepad.log` and `probe-gamepad/` (`gamepad_probe.py`, which sets the
-  phases of `phase7-5/scan_probe.py`; `probe-gamepad/analysis.log` from
-  `gamepad_analyze.py`), with Gamepad Strafe alone: a full push of the right
-  stick moved the mech 76.4 to 77.2 units a frame across the screen outside
-  SCAN, 79.6 to 81.0 over each phase's second half; a push of 64 of 112 moved
-  it 43.5 (45.3); a push of 32, inside the deadzone, did not move it and
-  counted no step. In SCAN a full push moved it 88.8 to 89.7 units a frame
-  along the rotation that the game's slide uses (97.2 to 98.5), counting only
-  SCAN steps. The camera fell 710 to 719 units behind a sideways strafe and 868
-  to 899 in SCAN. Over each phase's second half these speeds are within three
-  units a frame of Mouse Aim's for its keys, here (`probe-mouse/analysis.log`;
-  the SCAN phases vary most, as the view's turn does from run to run) and in
-  Phase 7 change 5 (`phase7-5/scan-after.log`), whose camera fell 719 units
-  behind and 867 to 890 in SCAN.
-- `probe-both.log` and `probe-both/`, with both features on: only Mouse Aim's
-  hooks counted steps, and the mech moved as fast as with either alone (76.7 to
-  the right, against 76.4), so no step was strafed twice. In a headless run the
-  runtime discards a controller source's input, so Mouse Aim's hooks read the
-  stick that the debug server sets, as Gamepad Strafe's do. `probe-mouse.log`
-  and `probe-mouse/`, with Mouse Aim alone: over each phase's second half its
-  speeds are within three units a frame of change 5's, and Gamepad Strafe
-  counted nothing.
-- `replay-first.log` / `replay-first/` and `replay.log` / `replay/`
-  (`replay_probe.py`): through the 1ST ZONE's DEMONSTRATION replay the main
-  loop stayed in state 5. The live stick, held fully right, reached the pad
-  record, whose right stick read `70 00` in 116 of the 117 samples: in the
-  record's encoding, signed and centred, a full push right (112) and none up or
-  down, as in `probe-gamepad/`'s phases to the right. Its left stick stayed
-  centred, though every recording steers with that stick
-  (`spike-replay/stick_use.log`), so the game does not fill the record from the
-  replay (`r2/replay_records.py` / `.log`). Gamepad Strafe counted no step,
-  since state 5 is not one in which it flies; without that check, the live push
-  would have strafed the mech right through the replay (derived). The first run
-  looked in the record for 0xFF, the value that `set_input` sends, and so
-  exited 1. The second read the record's bytes unsigned, about 0x80, so that
-  the centred byte 0 counted as a push, and passed with 91 samples in play, one
-  of them the one sample with a centred stick. Review round 1 found that this
-  bullet then read `70 00` in the same way. `replay_probe.py` now reads the
-  record signed, as `r2/replay_records.py` does, which counts 90 such samples;
-  the logs above come from its earlier text.
-- `screen-steering.log` / `screen-steering/` and `screen-scan.log` /
-  `screen-scan/` (`gamepad_screen_check.py`, from one save state with TYPE B):
-  outside SCAN each strafe moved the mech to the side that the game's own turn
-  or climb in the same direction takes it, without changing the pitch or the
-  yaw; in SCAN each moved it the way the game's own slide in the same direction
-  does (cosines +0.984, +0.978 and +0.978, and +0.805 for down), at 51.7 to
-  70.8 units a frame, counting only SCAN steps. All 17 checks pass in each.
-- `feature_on_routes.sh` / `feature_on_mouse.log` and `feature_on_gamepad.log`
-  (outputs in `feature-on-mouse/` and `feature-on-gamepad/`): with Mouse Aim
-  on, and with Gamepad Strafe on, all nine runs pass (title_to_zone1, memcard
-  and demo_zone1 in each mode). Against the feature-off batch in
-  `.cache/routes/`, Phase 6 change 11's (`feature_on_compare.py`;
-  `feature_on_compare_mouse.log`, `feature_on_compare_gamepad.log`), Mouse
-  Aim's card 1 differs only in the TYPE byte and the save's checksum, as in
-  changes 2 to 5, while Gamepad Strafe's cards, since it leaves TYPE alone,
-  match byte for byte. The probes saw one attach of Mouse Aim's source in each
-  title_to_zone1 run with Mouse Aim on, and no counter with Gamepad Strafe on,
-  as the routes leave the right stick centred. That script is this change's
-  copy of `phase7-2/feature_on_compare.py`, which read the plugin counters from
-  change 2's directory whatever set it compared, and so printed Mouse Aim's
-  attach for the Gamepad Strafe set too when `runs.sh` ran it first
-  (`feature_on_compare_mouse-first.log`,
-  `feature_on_compare_gamepad-first.log`); the copy reads each set's own probe
-  files, and changes nothing else.
-- `feature_off_sample.sh` / `feature_off_sample.log` (inputs in `off/`): with
-  every feature off, title_to_zone1, memcard and demo_zone1 pass in HLE mode,
-  each run's overlay counters and most-run PCs equal to those of Phase 6 change
-  11's batch (`phase6-11/r2/probe/`), with no `omega.*` counter, and the
-  memcard route's two cards equal to that batch's; `build-dev` was the same
-  before and after.
-- `mouse_checks.log` / `mouse/` (`phase7-5/run_mouse_checks.sh`, Phase 7 change
-  5's windowed checks of Mouse Aim): with the feature off, on, and on with
-  Invert vertical, no expectation fails, those with Q held among them, and each
-  run loaded its copy's `keybinds.ini`.
-- `checks-p7-6.sh` / `.log` on the staged tree: the tree and the staged paths,
-  and that nothing else changes, `game.toml`, `generated/` and Mouse Aim's
-  manifest among them; the pins and the submodules; `AGENTS.md`'s changed
-  words; the manifest and `CMakeLists.txt`; the handoff's parts that must equal
-  HEAD's, the words changed in the rest, and its text (placeholders, blank
-  lines, headings, line lengths, reflow leftovers, local paths, cited paths);
-  the gates and the documented generate, which finds nothing to do; the builds,
-  their staged catalogs and the plugin audit; the strict compiles and
-  `moved_code.py`; the host harness, run again; the probes' analyses,
-  recomputed; the replay, the direction checks, the windowed checks and the
-  feature-off sample from their logs; the feature-on runs, compared again, with
-  each run's probe and cards against change 5's feature-on runs for Mouse Aim
-  and the feature-off batch for Gamepad Strafe; the four test files, the Beetle
-  driver's in up to three runs; change 11's round 2 report against session
-  message 1459 and commit `2d6f242`'s message; and the upstream issues. All
-  pass.
-- Round 2 (`r2/`): `r2/replay_records.py` / `.log` tabulates the pad record of
-  both replay runs and of `probe-gamepad/`, each stick read signed and centred
-  as `omega_strafe.c` reads it, by the main loop's and the player's states, or
-  by phase: see the replay bullet above. `r2/build-dev.log` and
-  `r2/build-release.log`: after the edits to `omega_strafe.h` and to the
-  gamepad plugin's comment, each build compiled the three plugin sources with
-  no warning and staged the edited manifest, and both binaries stayed the same,
-  byte for byte (`r2/binaries-before.sha256`, `r2/binaries-after.sha256`), so
-  every run above holds for round 2's tree. `r2/checks-p7-6-r2.sh` / `.log`
-  repeats round 1's checks on the staged tree, with `moved_code.py` and the
-  host harness compared with their round 1 logs but for the lines that give the
-  sources' hashes, and also compares the index with round 1's and each file
-  with its round 1 blob, runs `r2/replay_records.py` and matches round 1's
-  report against session message 1235. All pass. Its first run
-  (`r2/checks-p7-6-r2-first.log`), on an earlier tree, found two faults in the
-  script itself: it ran `r2/replay_records.py` without its sample files, and
-  compared the harness's log without masking the line number of a compiler
-  warning in planted bug 6's build, which moved down a line with the gamepad
-  plugin's longer comment; the script now passes the files and masks it.
+## Phase 7 change 7 changes
+
+- `src/mods/omega_widescreen.c` (new): the plugin `omega.widescreen`. At
+  session start it reads the option View and asks the runtime for that aspect
+  (`psx_mod_set_fixed_display_aspect()`), 16:9 for Fit to Window, which also
+  asks for a view that follows the window's shape, up to 21:9
+  (`psx_mod_set_adaptive_display_aspect()`); a refusal counts
+  `omega.widescreen.view-refused`. It then registers `flight_frame()` as the
+  world-scene predicate, which marks as 3D scenes the frames drawn in a
+  DEMONSTRATION replay, CAMPAIGN PLAY, ZONE PLAY or TRAINING with the display
+  320 pixels wide. The first version left that to the gameplay-state gate in
+  `game.toml` (the observations). Round 2 corrects its comment on why the
+  frames are marked, which said that without the mark the framework would widen
+  flight at random, where it would draw no frame wide; the comment now also
+  says that a gate seldom draws one, and that Fit follows the window up to
+  21:9, the widest view.
+- The package `omega.enhancement.widescreen` (new), whose manifest in
+  `mods/preloaded/packages/omega.enhancement.widescreen/1.0.0/` holds the
+  feature `widescreen` ("Widescreen", group Display, off by default), its
+  option View (Fit to Window, 16:9 or 21:9, default Fit to Window), and the
+  plugin. The feature's text says which screens keep 4:3, the pause menu drawn
+  wide over flight, and what can go missing at the far sides, as the runs
+  showed.
+- `CMakeLists.txt`: `EXTRAS_SOURCES` adds `omega_widescreen.c`.
+- `game.toml`: the `[widescreen.cull]` block, with `auto_screen_x`, the heights
+  0xE0 and 0xE1, and the twelve `branch_keep_sites`, after a comment that the
+  picture stays 4:3 unless the Widescreen mod widens it, whose plugin marks
+  flight's frames; the comment on `mod_instruction_sites` names
+  `omega.gamepad-strafe` beside `omega.mouse-aim`.
+- `generated/`: the documented generate's output, changed only at the sites
+  that `ws_sites.py` / `.log` lists: twelve kept branches, twelve widened
+  `bltz` and 31 widened compares, 27 of them right edges and 4 that test both
+  edges, in eight files of the game's C and four of the static shard; and
+  `generated/AOT_STATIC_AUDIT.json`, eight of whose values change, the hash of
+  `game.toml` and the codegen cache tag among them.
+- `AGENTS.md`: a paragraph on Widescreen in "Mods". Round 2 has it give the
+  right reason for the mark, and state the rules for the cull list and how to
+  check them, citing the evidence script that checked the current list only as
+  a record. Round 3 corrects that check: it names both forms of a left edge,
+  asks that each listed address be one, and says where the EXE's code lies,
+  citing a second evidence script as a record too.
+- `.agent/HANDOFF.md`: the scope; change 6 condensed; these sections; the
+  hypotheses; the review state; the next action.
+- Untracked (ignored): `.cache/evidence/phase7-7/`, with round 2's evidence in
+  its `r2/` and round 3's in its `r3/`, round 1's report `review-r1.md` and
+  round 2's `r2/review-r2.md`, each with its header, and change 6's round 2
+  report `phase7-6/r2/review-r2.md` with its header and its commit message
+  `phase7-6/commit-msg.txt`.
+
+## Phase 7 change 7 checks
+
+- `w1.sh` ran the documented generate and builds of `build-dev` and
+  `build-release` three times, each pass's logs kept: first on the first
+  `game.toml` (`w1-first/`), then with 0x80053828 added to `branch_keep_sites`
+  (`gate-config/`), then on the final `game.toml`, without the gate, with the
+  plugin's predicate (`w1.log`, `generate.log`, `build-dev.log`,
+  `build-release.log`). The first rebuilt the static shard and changed eight
+  files of the game's C and four of the shard; the second changed one more line
+  of the game's C, the kept branch at 0x80053828; the third changed no C file,
+  only the shard's audit. Every build compiled with no warning and staged a
+  catalog of 12 packages, 6 of them the game's. The binaries went from Phase 7
+  change 6's, `81643830…` in `build-dev` and `84f6af2c…` in `build-release`, to
+  `89df4214…` and `36650336…`, then `50c27bc1…` and `6b6af14d…`, then
+  `3ebdc88b…` and `18b1d55e…` (`binaries-before.sha256` and
+  `binaries-after.sha256` of each pass). `w1-repeat.sh` / `w1-repeat.log` ran
+  the third pass and the next four checks.
+- `strict_compile.py` / `.log`: the plugin, compiled alone with `build-dev`'s
+  own command and strict warnings as errors, once with GCC 16.2.1 and once with
+  clang 23.1.3, gave no message, on the second pass
+  (`gate-config/strict_compile.log`) and on the third.
+- `plugin-audit.log`: both builds pass, with 12 manifests, 12 declared ids and
+  10 registered ids, on the second pass (`gate-config/plugin-audit.log`) and on
+  the third.
+- `cull_sites.py` / `.log` and `ws_sites.py` / `.log`, on the second pass
+  (`gate-config/cull_sites.log`, `gate-config/ws_sites.log`) and on the third
+  alike: every left edge of the EXE is kept or widened (the observations), and
+  the generated C holds twelve kept branches, twelve widened `bltz`, 27 widened
+  right edges and 4 compares widened at both edges, where HEAD's holds none.
+- `restage.sh` / `restage.log`: after the last edit to the manifest's text, the
+  documented builds compiled nothing, refreshed both builds' staged copies of
+  the manifest, and left both binaries byte for byte as the third pass built
+  them (`binaries-before-restage.sha256`, `binaries-after-restage.sha256`).
+- `gate-config/`: the first headless runs, on the second pass's build
+  (`50c27bc1…`), with the gameplay-state gate (`gate-config/scripts/` keeps the
+  scripts as the survey ran them). `gate-config/probes.log`: six runs of
+  `widescreen_probe.py`, through `run_probe.sh`, booted HLE with OpenBIOS:
+  title_to_zone1 with Widescreen off and at 16:9, 21:9 and Fit to Window, then
+  flight and a pause, and the 1ST and 5TH ZONE's DEMONSTRATION replays at 16:9.
+  Off, nothing was drawn wide; the title runs drew the 1ST ZONE's flight wide,
+  and the menus and the briefing at 4:3; the 1ST ZONE's replay was wide and the
+  5TH ZONE's at 4:3 throughout. `gate-config/survey.log`
+  (`gate-config/scripts/survey.sh`): the nine campaign zones' replays at 16:9,
+  with the draw census, 17 of 268 replay shots wide
+  (`gate-config/survey_summary.log`, `gate-config/frame_pattern.log`; the
+  observations).
+- `w2.sh` / `w2.log` repeated those runs on the third pass's build
+  (`3ebdc88b…`), one runtime at a time on port 4378, with the scripts that
+  `gate-config/scripts/` keeps but for `probes.sh`, which now leaves the two
+  replays to the survey. `probes.sh` / `probes.log`, the four title runs
+  (`probe-off.log`, `probe-16x9.log`, `probe-21x9.log`, `probe-fit.log`, and
+  their folders): with Widescreen off no shot was configured or drawn wide; at
+  16:9, 21:9 and Fit to Window the intro, the title, the main menu and the
+  briefing stayed at 4:3 (`present_native_43` 1), while every flight shot, the
+  pause menu's among them, came out wide, 426 or 560 pixels across, with the
+  HUD in its 4:3 place. `survey.sh` / `survey.log` (the card runs with a copy
+  of the unlocked save in scratch, whose sha256 and modification time were the
+  same before and after): all 268 replay shots wide (`survey_summary.log`,
+  `survey-zone1/` to `survey-zone-last/`), and `bands.py` / `.log` (the
+  observations).
+- `fit_window.sh` with `fit_window.py` / `fit_window.log`, `fit-window/`: a
+  copy of `build-dev` windowed on a private Xvfb display, drawn by Mesa's
+  llvmpipe on the CPU, with Fit to Window, the window resized through the debug
+  server in flight. The view opened at 16:9 and followed the window to 21:9, to
+  4:3 with no columns added, and stopped at 21:9 in a 28:9 window, each window
+  frame the size asked. Its first run (`fit_window-first.log`,
+  `fit-window-first/`) asked the wide picture to show nothing at 4:3, and so
+  failed there, since the debug server's dump returns the surface that the 21:9
+  view left (the observations); the script now asks that no columns be added,
+  and the first run's records pass that too.
+- `runs.sh` / `runs.log` (W3) played two sets of runs side by side, never more
+  than two runtimes at once: the feature-off batch of 66 runs (`routes.sh` /
+  `routes.log`, on port 4370) and nine runs with Widescreen on at 16:9
+  (`feature_on_routes.sh` / `feature_on_16x9.log`, on port 4377). Each run
+  waited for the resource coordinator's live gate (`gate.sh`; 75 readings, none
+  holding). `routes.sh` first moved Phase 6 change 11 round 2's batch out of
+  `.cache/routes/` into `routes-before/`. The unlocked save reached the runs
+  only through `run_route.py`'s copies, and its sha256 and modification time
+  were the same before and after (`runs.log`), as were the batch's inputs
+  (`inputs-before-routes.sha256`, `inputs-after-routes.sha256`).
+- The feature-off batch: all 22 routes pass in the three runtime modes, with no
+  dispatch miss and a picture for every shot (`routes_summary.log`), and
+  `card_check.log` finds no problem, the unlocked save unchanged. Against Phase
+  6 change 11 round 2's batch, each run's probe differs only in four counters
+  of how far the run had got when the probe sampled it (`probe_fields.py` /
+  `.log`), and the memcard route's six cards match it byte for byte. The
+  largest lag of a run's shots behind the ends of their steps runs from 10 to
+  17 frames, with a median of 14 against 13 there, higher in 30 runs and lower
+  in 25. `clear_time_check.log` finds each demonstration's results screen; its
+  lists of the shots that show it differ from that batch's in 7 of 57: in six,
+  those of U3 and of the 6TH and 8TH ZONE, by one shot as the screen comes or
+  goes, and in the LAST ZONE's in lle-scph1001 by an early shot at t04800, long
+  before the screen, that the batch before took for it. Those are the kinds of
+  difference that the batches of Phase 7 change 5 and Phase 6 change 11 showed.
+  So with Widescreen off, the regenerated game runs as the committed one in all
+  that the routes measure.
+- The Widescreen runs: `demo_zone1`, `memcard` and `title_to_zone1` pass in the
+  three modes with the feature on. Against this batch's feature-off runs
+  (`feature_on_compare.py` / `feature_on_compare_16x9.log`), no plugin counter
+  is set, the memcard route's card 1 is the same byte for byte, and the 1ST
+  ZONE demonstration's results screen is found in the same three shots in each
+  mode, in shots 426 pixels wide, whose middle 320 columns
+  `clear_time_check_wide.py` reads. `wide_check_test.sh` / `.log` shows that on
+  the feature-off batch's 1ST and 5TH ZONE demonstrations it prints what Phase
+  3 change 5's check (`phase3-5/clear_time_check.py`) prints, but for a note of
+  the shots' widths, and that on the 1ST ZONE's shots in hle-openbios, padded
+  to 426 pixels, it finds what that check finds on the shots as they were.
+- As the resource coordinator booked them, `phase6-11/r2/nicewatch2.py`,
+  started on each run's stopped root, raised to nice 5, within its
+  quarter-second poll, every program of the run that started below it or that
+  ananicy put back below it, leaving threads above it alone, and every value it
+  set took (`nicewatch2-w1.log`, `nicewatch2-w2.log`, `nicewatch2-restage.log`,
+  `nicewatch2-fit.log` and `nicewatch2-w3.log`, and in `w1-first/` and
+  `gate-config/` their own logs). In W3, ananicy put the batch's bash back to
+  -4 at its forks, so 53 of the `python3` and `tee` processes it started began
+  at -4, and 13 of the 75 runtimes too, started by a `run_route.py` still at
+  -4; each was at 5 within the poll. W3's launch also let its stopped root go
+  on a reading of -4, taken after a pause, and the watcher raised it at once.
+  Later launches use `.cache/evidence/release/held.sh`, which lets the root go
+  only on a reading of 5 taken just before.
+- `checks-p7-7.sh` / `.log` on the staged tree: the tree and the staged files,
+  and that nothing else changes; the pins and the submodules; `AGENTS.md`, the
+  manifest, the plugin, `CMakeLists.txt`, `game.toml` and `generated/`, with
+  `ws_sites.py` and `cull_sites.py` against their logs; the handoff's parts
+  that must equal HEAD's, and its text (placeholders, blank lines, headings,
+  line lengths, reflow leftovers, local paths, cited paths); the gates, and the
+  documented generate, which must find nothing to do; the builds' logs and
+  binaries through the three passes and the re-stage, the staged manifests, the
+  plugin audit and the strict compiles; the runs on the config with the
+  gameplay-state gate and `w2.sh`'s runs, with `survey_summary.py`,
+  `frame_pattern.py`, `bands.py` and `fit_window.py`'s expectations against
+  their logs and records; W3's logs and outputs, with the probes, the cards,
+  the results shots and the shots' lag compared with Phase 6 change 11 round
+  2's batch, and `feature_on_compare.py` and `wide_check_test.sh` against their
+  logs; the four test files, the Beetle driver's in up to three runs; change
+  6's round 2 report against session message 1694, and commit `0e65a35`'s
+  message against `phase7-6/commit-msg.txt`; the upstream issues, the listeners
+  and whitespace. All pass. Its first run (`checks-p7-7-first.log`), on an
+  earlier tree, found a fault in the script itself: it compared
+  `survey_summary.py`'s output on `gate-config/` with that folder's log, which
+  was saved with an exit line after it, while the script added none; it now
+  adds one.
+- Round 2 (`r2/`): `r2/rebuild.sh` / `.log`, with `r2/build-dev.log` and
+  `r2/build-release.log`: after the edit of the plugin's comments each build
+  compiled the plugin alone, with no warning, and both binaries stayed the
+  same, byte for byte (`r2/binaries-before.sha256`,
+  `r2/binaries-after.sha256`), so every run above holds for round 2's tree.
+  `r2/checks-p7-7-r2.sh` / `.log` repeats round 1's checks on the staged tree,
+  and also compares the index with round 1's and each file with its round 1
+  blob, and matches round 1's report against session message 1638; unlike round
+  1's script, it fails when a comparison made by its `same()` differs (review
+  round 1, suggestion 4), though three comparisons that it writes out without
+  `same()` only print a difference: the working tree against the index, the
+  unlocked save before W3 against after, and `feature_on_compare.py`'s output
+  against its log (review round 2, suggestion 2). All three printed none, and
+  all pass.
+- Round 3 (`r3/`): `r3/left_edges.py` / `.log` prints the code around each left
+  edge that `cull_sites.log` lists, the EXE's 23 and the zone files' three, and
+  checks each against the two forms that `AGENTS.md` now names: a `blez` on one
+  register, with a compare of another with 0x140 in its delay slot or within
+  the next words and a branch on that compare, the two registers holding the
+  largest and the smallest X of the polygon's vertices, as the listings show;
+  or a `bltz` on the low half of a packed screen-coordinate word, one vertex's
+  X, with a compare of that register with 0x141 in its delay slot and a branch
+  on it right after. Each edge is in its form and none in the other: the EXE's
+  eleven `blez` edges (at 0x80053828 the compare comes in the word after the
+  delay slot) and the zone files' three, and the EXE's twelve `bltz` edges.
+  Round 3 changes no code and builds nothing. `r3/checks-p7-7-r3.sh` / `.log`
+  repeats round 2's checks on the staged tree, which find both binaries round
+  1's, and fails on every comparison that differs, those three included; it
+  also compares the index with round 2's and each file with its round 2 blob,
+  runs `r3/left_edges.py` against its log, and matches round 2's report against
+  session message 2034. All pass. Both scripts ran through
+  `.cache/evidence/release/held.sh`, at nice 5 (`r3/nicewatch2-left-edges.log`,
+  `r3/nicewatch2-checks.log`).
 
 ## Hypotheses and unknowns
 
@@ -1674,12 +1845,37 @@ PASS on tree `7e11d2f` (staged diff `b0b85a73…`). Reports:
   gamepad's sticks. It does not strafe a DEMONSTRATION replay; whether the
   replay that ZONE PLAY's results screen offers runs in a flight state, where
   the stick, and Mouse Aim's keys, would strafe it, is not known (change 6's
-  observations). For the user's trial (review round 1's suggestion 3): the
-  deadzone is a square, so a stick pushed fully along one axis and a step of 16
-  off centre along the other also strafes along the other at 14% of a full
-  push, or at 28% two steps off, and the push goes from nothing to 43% of a
-  full one at the deadzone's edge. A deadzone per axis, or a push scaled from
+  section). For the user's trial (change 6's review round 1, suggestion 3):
+  the deadzone is a square, so a stick pushed fully along one axis and a step
+  of 16 off centre along the other also strafes along the other at 14% of a
+  full push, or at 27% two steps off, and the push goes from nothing to 43% of
+  a full one at the deadzone's edge. A deadzone per axis, or a push scaled from
   the edge, would change either, if he notices them.
+- Widescreen (Phase 7 change 7) has run headless, with the runtime's software
+  renderer, in the 1ST ZONE's flight and the nine campaign zones'
+  DEMONSTRATION replays, and in a window on a private Xvfb display, with OpenGL
+  on Mesa's llvmpipe, in the 1ST ZONE's flight: not on the desktop with a GPU,
+  not with the Vulkan renderer, not in ZONE PLAY, TRAINING or the unlocked
+  zones' replays, and not through the movies between zones, which the
+  framework's rule for movies should keep at 4:3 (derived from
+  `psxrecomp/runtime/src/gpu.c:470-490`, not run). The 5TH and 8TH ZONE each
+  keep one left-edge cull as the game has it, so there a polygon that lies
+  wholly in the left band is dropped; how often that shows is not measured
+  (the observations). Whether the game culls any object by its own view before
+  its polygon funnels, so that the object would appear late at a side, is not
+  known. The HUD keeps its 4:3 layout in the middle; moving it out to the
+  edges would take the framework's HUD tagging
+  (`psxrecomp/runtime/include/mod_plugins.h`), out of this change's scope. The
+  kept `blez` left edges let polygons through however far to the left they lie,
+  and the survey's census found vertices at X -1024, the lowest X that the GTE
+  gives (`survey-zone7/records.jsonl`). Review round 1 read from the code that
+  each of the game's two frame buffers has a packet area of 0x30000 bytes,
+  filled through the pointer at 0x8009C08C with no check of its end, and that
+  the second area ends at the pad buffer, 0x8010A048 (its suggestion 1). The
+  busiest frame in the census, in the LAST ZONE at 16:9, drew 2016 polygons
+  (`survey-zone-last/records.jsonl`), about half an area by the review's
+  estimate; 21:9, which shows more, was not surveyed, so whether a wide view
+  can fill an area is not known.
 - With bilinear filtering, psxrecomp's OpenGL and Vulkan shaders wrap
   neighbour texels across 256-texel page edges (#719), and the filter also
   smooths the 2D UI (#720); the user plays with Nearest for now. The route
@@ -2750,48 +2946,149 @@ PASS on tree `7e11d2f` (staged diff `b0b85a73…`). Reports:
   code-quality work (2), records the deadzone's square and its edge for the
   user's trial in the hypotheses (3), makes `replay_probe.py` read the record
   signed (4), and narrows the draft of the commit message (5).
-- Phase 7 change 6, round 2: pending delta re-review.
+- Phase 7 change 6, round 2: PASS on tree `052ae7f` (staged diff `9c119c77…`),
+  no findings, from the same reviewer: round 1's six findings are resolved,
+  five corrected and the sixth left to change 7, and its five suggestions taken
+  up. The reviewer rebuilt the delta from round 1's frozen index, found the
+  plugin objects of both builds byte-identical to its own strict compiles of
+  round 2's sources and both binaries round 1's, re-ran the host harness,
+  `phase7-6/moved_code.py`, `phase7-6/r2/replay_records.py` and the recordings'
+  stick count, checked what round 2's checks script masks, decoded the main
+  loop's calls of the replay player again, computed the deadzone's figures, and
+  ran the plugin audit. It relied on round 2's checks log for the test files
+  and `phase7-6/gamepad_analyze.py`, and on both checks scripts' logs
+  (`phase7-6/checks-p7-6.log`, `phase7-6/r2/checks-p7-6-r2.log`) for the gates,
+  the documented generate, the pins, the cited paths and round 1's report
+  against its session message; it ran no game. Report:
+  `phase7-6/r2/review-r2.md` (session message 1694). Commit `0e65a35`, pushed.
+  Of its four nonblocking suggestions, the hypotheses now give the deadzone's
+  second figure as 27% (1), and change 6's condensed record names the call
+  sites of 0x8002D1E8 as call sites (2) and cites where the runtime refuses a
+  launch with conflicting packages (4); the third, on the scope's list of six
+  places, lapsed with that scope.
+- Phase 7 change 7, round 1: NEEDS CHANGES on tree `ed10ef3` (staged diff
+  `027ac717…`), from a fresh read-only reviewer, with one Medium finding and
+  two Lows, all in texts. Medium: `AGENTS.md` named
+  `.cache/evidence/phase7-7/cull_sites.py`, an evidence script that no clone
+  has, as the check to run after any change to the cull list, though a listed
+  address keeps any conditional branch there in a zone file, unchecked. Low:
+  the plugin's comment and `AGENTS.md` said that without the plugin's mark the
+  framework would widen flight at random, where it would draw no frame wide,
+  since `game.toml` turns on none of its other ways to tell a 3D scene. Low:
+  the next action said that the user made the repository public, where this
+  session did, at his word. The reviewer recomputed the snapshot, scanned every
+  compare with the screen's width in the EXE and the 25 zone files, checked the
+  generated C, the shard's audit, the plugin audit and both builds' plugin
+  object against its own compile, re-ran `phase7-7/cull_sites.py`,
+  `phase7-7/ws_sites.py`, `phase7-7/probe_fields.py`, `phase7-7/bands.py`,
+  `phase7-7/survey_summary.py`, `phase7-7/frame_pattern.py` and
+  `phase7-7/feature_on_compare.py` against their logs, ran the four test files,
+  and checked the handoff's record of change 6 and its quotes; it relied on
+  `phase7-7/checks-p7-7.log` for the documented generate and the builds'
+  compile counts, and ran no game. Report: `phase7-7/review-r1.md` (session
+  message 1638). Round 2 has `AGENTS.md` state the rules for the cull list and
+  how to check them, citing the script only as the record of the current list's
+  check, corrects the reason in both texts and the next action's sentence, and
+  takes up the five suggestions: the packet areas' headroom in the hypotheses
+  (1); 21:9 named in the plugin's comment, while giving the widest view's
+  numbers once goes to the code-quality work, since round 2 changes no code
+  (2); the shared flight check's variant for the DEMONSTRATION replays, in the
+  next action (3); a checks script that fails when a comparison differs (4);
+  and a review request that has worktree comparisons read a copy of the index
+  (5).
+- Phase 7 change 7, round 2: NEEDS CHANGES on tree `4631019` (staged diff
+  `10435f40…`), from the same reviewer, with one new Low, in round 2's text:
+  the check of the cull list that `AGENTS.md` described defined a left edge as
+  a `blez` or `bltz` beside a compare of a polygon's smallest X, a form that
+  only the eleven `blez` edges take, since each `bltz` edge tests one vertex's
+  X, with a compare of that X with 0x141 in its delay slot. Applied as written,
+  the check would find 11 of the EXE's 23 left edges and would not notice the
+  twelve `bltz` edges losing their widening. It also did not ask that each
+  listed address be a left edge, though the recompiler keeps any conditional
+  branch at a listed address, and keeping one that is no cull would change the
+  game's logic in every frame while the feature is on. Round 1's three findings
+  are resolved. The reviewer rebuilt the delta from round 1's blobs, found the
+  plugin's code and both binaries round 1's (the builds' plugin objects,
+  recompiled from round 2's source, and its own strict compile of that source
+  hash as round 1's object), re-ran `phase7-7/cull_sites.py` and
+  `phase7-7/ws_sites.py` against their logs, decoded all 23 left edges of the
+  EXE, read the framework's code that the new texts cite, recomputed the
+  handoff's new texts and figures from the records, and checked round 1's
+  report against session message 1638 and the keyboard quote against the
+  question's answer. It relied on `phase7-7/r2/checks-p7-7-r2.log` for the
+  documented generate, did not re-run the test files or the plugin audit, whose
+  inputs and binaries are round 1's, and ran no game. Report:
+  `phase7-7/r2/review-r2.md` (session message 2034). Round 3 rewrites the check
+  with both forms, from `phase7-7/r3/left_edges.py`, which finds every left
+  edge in its form, has it ask that each listed address be a left edge, and
+  takes up the four suggestions: the census's vertices at X -1024 in the
+  hypotheses (1); a checks script that fails on every comparison that differs,
+  and round 2's checks bullet made exact about its own (2); this session named
+  in the next action (3); and the check in shorter sentences that also say
+  where the EXE's code lies (4).
+- Phase 7 change 7, round 3: pending delta re-review.
 
 ## Next action
 
-After a PASS: commit and push. Then the user's trial of Gamepad Strafe with his
-gamepad, in the play copy (`play/play.sh <session dir> <SCPH-1001 dump>` in
-`.cache/evidence/phase4-2/`, which refreshes from `build-dev/`), with Mouse Aim
-off and Gamepad Strafe on in the launcher's Mods page; tell the resource
-coordinator before handing him the command. A session records no mod options,
-so afterwards save the play copy's `mods/state.toml` into the session folder,
-as `phase7-4/play-01/mods-state.toml` and `phase7-5/play-01/mods-state.toml`
-were. The play copy's `keybinds.ini` is change 3's `controls/keybinds.ini`, as
-`phase7-3/playcopy-keybinds.sha256` records. Mouse Aim and Gamepad Strafe then
-wait on the user's choices: the camera's lag at other Strafe speeds (at 100 the
-push is twice the default's, and the lag there is not measured); in SCAN,
-whether the strafe should also pull the mech along the view's turn, as the
-game's slide does, and whether it should keep the higher speed it showed in the
-headless run, whose cause is not traced; and whether the keys or the stick
-should strafe in the third movement too, for the 18 steps after a boost key's
-press, or the 6 of a dash. With Mouse Aim on, a gamepad's sticks neither steer
-nor strafe in flight, while a gamepad's buttons and the keyboard's work
-(`psxrecomp/runtime/src/pad_external_input.c:25-26`,
-`psxrecomp/runtime/src/main.cpp:5417-5435`), and Gamepad Strafe stands down.
-
-Then the release that the user asked for: "Please finish up whatever is
-remaining. Also, please implement a widescreen mod for this game. After that,
-and everything is finished, cut a release build so I can test out the appimage
-after CI finishes its build." He chose the order "After Gamepad Strafe (change
-6), the widescreen mod and the CI release setup; changes 12 to 15 follow the
-release (Recommended)". So a widescreen mod comes next, as Phase 7 change 7,
-through the framework's native-wide view (`psxrecomp/docs/WIDESCREEN.md`), with
-a package of the game's own that chooses the aspect, as Tomba's does. It edits
-`game.toml` and regenerates, so it also makes the comment there on the two
-force-sum sites name Gamepad Strafe beside Mouse Aim, since both hook them
-(change 6's review round 1, finding 6). Then the CI release setup, as its own
-change: a workflow from the framework's template
+After a PASS: commit and push. Then the release that the user asked for
+("Please finish up whatever is remaining. Also, please implement a widescreen
+mod for this game. After that, and everything is finished, cut a release build
+so I can test out the appimage after CI finishes its build."), in the order he
+chose ("After Gamepad Strafe (change 6), the widescreen mod and the CI release
+setup; changes 12 to 15 follow the release (Recommended)"): first the CI
+release setup, as its own change, a workflow from the framework's template
 (`psxrecomp/docs/ci/templates/game-release.yml`) that builds the ZIPs for
 Linux, Windows and macOS and an AppImage, which the framework does not package,
 so with a packager of the game's own after Tomba 2's ("The AppImage plus ZIPs
-for Linux, Windows and macOS"). Then the release, v1.0.0, which that workflow
-builds and publishes, for the user to try its AppImage. Each heavy step of
-these is booked with the resource coordinator.
+for Linux, Windows and macOS"); then the release, v1.0.0, the version he chose,
+which that workflow builds and publishes, for him to try its AppImage. At his
+word ("Make the repo public as well, you have my permission"), this session
+(`ses_ea9f61f76ffepnWtoam6Ws3zQw`) made the repository public on 2026-10-27
+with `gh repo edit`, after a scan of its history found none of the files that
+`AGENTS.md` keeps out of it and no token, key, password or local path
+(`.cache/evidence/release/public_check.py` / `.log`). The CI change's drafts,
+in scratch on the NVMe drive, passed a local test of the workflow's Linux half
+(`.cache/evidence/release/c1.sh` / `.log`): the Linux zip built from
+`build-release`, the workflow's own three Linux steps (the zip's check, the
+AppImage's packaging and its check), and a headless start of the AppImage,
+which ran past frame 900 and ended cleanly on SIGTERM. Its first run
+(`.cache/evidence/release/c1-first.log`) failed in the packaging, since
+linuxdeploy's own strip cannot read the .relr.dyn sections of current
+libraries, so the packager now runs linuxdeploy with `NO_STRIP=1`: the
+libraries it copies come stripped from their distribution, and the game's
+executable ships unstripped, as it does in the ZIPs, since nothing in the
+framework's packaging strips it. The second run found that the release zip
+holds no `controls/keybinds.ini`, which the AppImage's start script means to
+copy into its data folder, and the user chose to ship it: "Make our layout the
+default: ship it as keybinds.ini in every ZIP and in the AppImage, which copies
+it in once so later changes on the Controls page are kept (Recommended)". Each
+heavy step of these is booked with the resource coordinator.
+
+The user's trials then wait on him, in the play copy
+(`play/play.sh <session dir> <SCPH-1001 dump>` in `.cache/evidence/phase4-2/`,
+which refreshes from `build-dev/`) or in the release's AppImage: Gamepad Strafe
+with his gamepad, with Mouse Aim off and Gamepad Strafe on in the launcher's
+Mods page, and Widescreen, with its View at Fit to Window, 16:9 or 21:9; tell
+the resource coordinator before handing him a command. A session records no mod
+options, so afterwards save the play copy's `mods/state.toml` into the session
+folder, as `phase7-4/play-01/mods-state.toml` and
+`phase7-5/play-01/mods-state.toml` were. The play copy's `keybinds.ini` is
+change 3's `controls/keybinds.ini`, as `phase7-3/playcopy-keybinds.sha256`
+records. Mouse Aim and Gamepad Strafe then wait on the user's choices: the
+camera's lag at other Strafe speeds (at 100 the push is twice the default's,
+and the lag there is not measured); in SCAN, whether the strafe should also
+pull the mech along the view's turn, as the game's slide does, and whether it
+should keep the higher speed it showed in the headless run, whose cause is not
+traced; and whether the keys or the stick should strafe in the third movement
+too, for the 18 steps after a boost key's press, or the 6 of a dash. With Mouse
+Aim on, a gamepad's sticks neither steer nor strafe in flight, while a
+gamepad's buttons and the keyboard's work
+(`psxrecomp/runtime/src/pad_external_input.c:25-26`,
+`psxrecomp/runtime/src/main.cpp:5417-5435`), and Gamepad Strafe stands down.
+Widescreen waits on what he sees: the HUD moved out to the edges of a wide
+view, or the 5TH and 8TH ZONE's left-edge culls kept, which `branch_keep_sites`
+cannot do without keeping other zone files' branches at the same addresses (the
+observations).
 
 Then the rest of the code-quality work the user chose
 (`.cache/evidence/code-quality/audit-r1.md`; its section 4 gives the order
@@ -2854,10 +3151,16 @@ in place of its base, since in the tests every lw of the difficulty word
 loads into its own base register (`phase6-10/mutations.log`); with it the
 142 baseline outputs stay the same too, and it would fail a test whose
 wave loads the word through another register, such as `lui $v1, 0x800A`
-then `lw $v0, 0x7C34($v1)` (`phase6-10/r2/loaded_gap.log`)); names for
-the C plugins' registers (the same object code), and one header for the game's
-RAM addresses and one flight check that the plugins share (change 6's review
-round 1, suggestion 2). For new zones (the doc's
+then `lw $v0, 0x7C34($v1)` (`phase6-10/r2/loaded_gap.log`)); names for the C
+plugins' registers (the same object code); one header for the game's RAM
+addresses and one flight check that the plugins share (change 6's review round
+1, suggestion 2), with a variant that also counts a DEMONSTRATION replay, as
+Widescreen's does, and Widescreen's view table giving the widest view's numbers
+once (change 7's review round 1, suggestions 3 and 2); and a committed check of
+`game.toml`'s cull list, beside `scripts/zones/`, from the evidence scripts
+`.cache/evidence/phase7-7/cull_sites.py` and
+`.cache/evidence/phase7-7/r3/left_edges.py` (the first finding of change 7's
+review round 1, and round 2's finding). For new zones (the doc's
 section 6, step 5), the candidates: a plugin that gives index 23 a
 name (required, see the hypotheses), a result record that overwrites
 nothing, a results screen and music; or a new zone in an existing zone's
