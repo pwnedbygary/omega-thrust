@@ -59,7 +59,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing run_route must not add __pycache__ to the repository
 from run_route import (CARD_SIZE, DISC, SHOT_FILE, RouteError, load_route,  # noqa: E402
-                       port_answers, reason, stop_signals)
+                       port_answers, reason, stop_signals, write_result)
 
 MODES = {  # BIOS image (lle-scph1001 takes --bios), then the profile with its sha256
     "lle-openbios": ("psxrecomp/bios/openbios.bin", "psxrecomp/bios/OpenBIOS.toml"),
@@ -121,21 +121,27 @@ def is_driver_dir(out):
         return False
 
 
-def prepare_out(out):
+def prepare_out(out, result):
+    """Removes this driver's earlier outputs from out and marks out as the driver's
+    with result before making anything else there, as run_route.prepare_out() does
+    for the runner."""
     if out.exists() and not out.is_dir():
         raise SystemExit(f"--out {out} is not a directory")
     entries = list(out.iterdir()) if out.exists() else []
     if entries and not is_driver_dir(out):
         raise SystemExit(f"refusing to use {out}: it is not empty and has no result.json "
                          f"written by {DRIVER}")
-    for entry in entries:
+    # The earlier marker goes last, so that a failure while clearing leaves it in place.
+    for entry in sorted(entries, key=lambda path: path.name == "result.json"):
         if entry.name not in OUTPUTS and not SHOT_FILE.fullmatch(entry.name):
             continue
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry)
         else:
             entry.unlink()
-    (out / "cwd").mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
+    write_result(out, result)
+    (out / "cwd").mkdir()
     (out / "system").mkdir()
 
 
@@ -176,6 +182,8 @@ class Beetle:
             self.buf += chunk
         line, self.buf = self.buf.split(b"\n", 1)
         reply = json.loads(line)
+        if not isinstance(reply, dict):
+            raise RouteError(f"reply to {cmd['cmd']} is not a JSON object: {reply!r}")
         if reply.get("id") != i:
             raise RouteError(f"reply {reply} does not answer {cmd['cmd']}")
         return reply
@@ -185,11 +193,13 @@ class Beetle:
 
 
 def ping_frame(reply):
-    """The frame a ping reply reports. A failed ping, or a reply without a frame, fails the run."""
+    """The frame a ping reply reports. A failed ping, or a reply without a frame number,
+    fails the run. JSON's true and false are no frame numbers, though Python counts them
+    as ints."""
     if not reply.get("ok"):
         raise RouteError(f"ping failed: {reason(reply)}")
     frame = reply.get("frame")
-    if not isinstance(frame, int):
+    if isinstance(frame, bool) or not isinstance(frame, int):
         raise RouteError(f"ping reply {reply} has no frame number")
     return frame
 
@@ -296,7 +306,7 @@ def finish(out, result, failures):
     if result["exit_code"] not in (0, None):
         failures.append(f"psx-beetle exit code {result['exit_code']}")
     result.update(status="FAIL" if failures else "PASS", failures=failures)
-    (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
+    write_result(out, result)
 
     for rec in result["records"]:
         shot = rec["screenshot"]
@@ -366,8 +376,15 @@ def main():
     if port_answers(args.port):
         raise SystemExit(f"127.0.0.1:{args.port} already accepts connections; "
                          "stop that process or choose another --port")
+    try:
+        binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise SystemExit(f"{binary}: cannot read it ({exc.strerror})")
     out = (args.out or repo / ".cache" / "beetle-routes" / name / args.mode).resolve()
-    prepare_out(out)
+    result = {"driver": DRIVER, "route": name, "mode": args.mode, "binary_sha256": binary_sha256,
+              "bios_sha256": want_bios, "card1_sha256": want_card1, "paced": args.paced,
+              "status": "running", "presses": [], "records": []}
+    prepare_out(out, result)
     blank = blank_card()
     # The names Beetle loads and saves (beetle-psx libretro.cpp MDFN_MakeFName, MDFNMKF_SAV)
     cards = [f"{Path(DISC).stem}.{slot}.mcr" for slot in (0, 1)]
@@ -376,11 +393,6 @@ def main():
     link = out / "system" / "scph5501.bin"
     link.symlink_to(bios)
 
-    result = {"driver": DRIVER, "route": name, "mode": args.mode,
-              "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-              "bios_sha256": want_bios, "card1_sha256": want_card1, "paced": args.paced,
-              "status": "running", "presses": [], "records": []}
-    (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
     env.update(SDL_VIDEODRIVER="dummy", SDL_RENDER_DRIVER="software")

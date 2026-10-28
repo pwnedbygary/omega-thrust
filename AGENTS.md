@@ -225,7 +225,9 @@ and does not fail the run.
 
 A run fails if the boot banner in `runtime.log` (`bios_boot=`, `image=`) does
 not match `--mode`, the runtime exits early, the route stops early or times
-out, or `dispatch_stats` reports an unknown-dispatch or segment miss. The
+out, `dispatch_stats` reports an unknown-dispatch or segment miss, or a
+debug-server reply lacks a value that the runner reads (`start_frame`,
+`active`, `index`, `remaining`) or holds it as another type. The
 runner sets `PSX_BIOS_HLE` for the mode and removes `PSX_BIOS_HLE_KEEP_INTRO`
 and `APPIMAGE`. It accepts `--bios` only for `lle-scph1001`, refuses a port
 that already accepts connections, and sends commands only after its own
@@ -233,7 +235,10 @@ runtime prints `debug server LISTENING`. It writes `result.json`,
 `runtime.log`, the screenshots and the runtime's `cwd/` and `memcards/` to
 `.cache/routes/<name>/<mode>/`, where `<name>` is the route's `name`. It reuses
 an output directory only if the directory is empty or holds a `result.json`
-written by the runner, and then deletes only its own earlier outputs. A run
+written by the runner, and then deletes only its own earlier outputs, that
+`result.json` last. Before it makes anything else there, it writes its own
+`result.json`, with status `running` until the run ends, so a run that fails or
+is stopped after that still leaves a directory that the next run reuses. A run
 refused before launch (bad arguments, a busy port) leaves the output directory
 untouched, so a `result.json` there may be an earlier run's; trust the runner's
 exit status. Two runs of the same route and mode share an output directory, so

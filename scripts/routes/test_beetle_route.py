@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import json
 import os
+import resource
 import shutil
 import signal
 import socket
@@ -50,6 +51,12 @@ def inherited_signals(actions):
     finally:
         for sig, action in previous.items():
             signal.signal(sig, action)
+
+
+def small_files():
+    """Keeps every file that the process writes under 64 KiB, half a memory card.
+    Python ignores SIGXFSZ, so a larger write fails with OSError (File too large)."""
+    resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024, 64 * 1024))
 
 
 # A frame loop in psx-beetle's order (psxrecomp/runtime/src/beetle_main.cpp:226-233):
@@ -160,12 +167,15 @@ def handle(req, with_event):
         reply = {"id": req["id"], "ok": False, "error": "busy"}
     elif cmd == "ping":
         reply.update(backend="beetle", port=port, frame=frame, guest_cycles=0)
-        # noframe and nullframe answer the ping sent with a press or screenshot without a
-        # frame or with a null one; lonenoframe and lonenullframe do so for one sent alone.
+        # noframe, nullframe and trueframe answer the ping sent with a press or screenshot
+        # without a frame, with a null one or with true; lonenoframe, lonenullframe and
+        # lonetrueframe do so for one sent alone.
         if behavior == ("noframe" if with_event else "lonenoframe"):
             del reply["frame"]
         elif behavior == ("nullframe" if with_event else "lonenullframe"):
             reply["frame"] = None
+        elif behavior == ("trueframe" if with_event else "lonetrueframe"):
+            reply["frame"] = True
         elif behavior == "signalatend" and frame >= 520:  # SHORT's end with --start 300
             os.kill(parent, getattr(signal, os.environ.get("FAKE_SIGNAL", "SIGTERM")))
         elif behavior == "groupsignal" and frame >= 350:  # in SHORT's first step
@@ -185,6 +195,8 @@ def handle(req, with_event):
         reply.update(path=req["path"], width=350, height=240)
     else:
         reply = {"id": req["id"], "ok": False, "error": "unknown command"}
+    if behavior == "notobject":  # every reply, so the run's first ping
+        reply = [reply]
     client.sendall((json.dumps(reply) + "\n").encode())
 
 
@@ -410,6 +422,12 @@ class BeetleRouteTest(unittest.TestCase):
             unreadable.chmod(0)
             cases.append(("an unreadable image", {"card1_sha256": digest},
                           ["--card1", str(unreadable)]))
+            # The driver hashes psx-beetle before it makes the output directory.
+            execute_only = self.dir / "fake_beetle_execute_only"
+            shutil.copy(self.fake, execute_only)
+            execute_only.chmod(0o111)
+            cases.append(("a psx-beetle that may be run but not read", {},
+                          ["--binary", str(execute_only)]))
         for label, fields, extra in cases:
             with self.subTest(label):
                 self.reset()
@@ -460,21 +478,64 @@ class BeetleRouteTest(unittest.TestCase):
         press_only = [{"frames": 120, "buttons": NEUTRAL}, {"frames": 6, "buttons": START},
                       {"frames": 30, "buttons": NEUTRAL}]
         # A run's first ping goes alone; press_only's first event is a press with no shot,
-        # and SHORT's first event holds a shot and a press.
+        # and SHORT's first event holds a shot and a press. A frame of true is no frame
+        # number, though Python counts it as the int 1.
         for case, behavior, steps in (
                 ("sent alone, no frame", "lonenoframe", SHORT),
                 ("sent alone, null frame", "lonenullframe", SHORT),
+                ("sent alone, frame true", "lonetrueframe", SHORT),
                 ("sent with only a press, no frame", "noframe", press_only),
                 ("sent with only a press, null frame", "nullframe", press_only),
+                ("sent with only a press, frame true", "trueframe", press_only),
                 ("sent with a shot, no frame", "noframe", SHORT),
-                ("sent with a shot, null frame", "nullframe", SHORT)):
+                ("sent with a shot, null frame", "nullframe", SHORT),
+                ("sent with a shot, frame true", "trueframe", SHORT)):
             with self.subTest(case):
                 self.reset()
-                proc = self.run_driver(self.route(steps), behavior=behavior)
+                # A driver that took true for frame 1 could wait for frame 419 until
+                # --timeout; 5 s keeps that failure short, and the fake gets there in 1.4 s.
+                proc = self.run_driver(self.route(steps), "--timeout", "5", behavior=behavior)
                 self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
                 self.assertNotIn("Traceback", proc.stderr)
                 self.assertRegex(self.failures(), r"^ping reply \{.*\} has no frame number$")
                 self.assertIn("FAIL: ping reply", proc.stdout)
+
+    def test_a_reply_that_is_not_a_json_object_fails_the_run(self):
+        proc = self.run_driver(self.route(), behavior="notobject")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertRegex(self.failures(), r"^reply to ping is not a JSON object: \[\{.*\}\]$")
+        self.assertEqual(self.fake_pids(), [])
+
+    def test_a_failure_after_the_checks_leaves_a_directory_the_next_run_reuses(self):
+        # A file size limit below a card's fails the write of Beetle's first card,
+        # which the driver makes after it has marked the directory as its own.
+        run = subprocess.run(self.command(self.route()), env=self.env(), preexec_fn=small_files,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("File too large", run.stderr)
+        self.assertFalse(self.started())
+        self.assertEqual(self.result()["status"], "running")
+        proc = self.run_driver(self.route())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can delete from a read-only directory")
+    def test_a_failure_while_clearing_an_earlier_run_keeps_its_marker(self):
+        # A directory that lists its entries in creation order, as btrfs and tmpfs do,
+        # lists the driver's marker before cwd/, so clearing in that order would delete
+        # the marker before failing on cwd/locked.
+        self.assertEqual(self.run_driver(self.route()).returncode, 0)
+        locked = self.out / "cwd" / "locked"
+        locked.mkdir()
+        (locked / "file").write_text("the driver cannot delete this")
+        locked.chmod(0o555)
+        proc = self.run_driver(self.route())
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("PermissionError", proc.stderr)
+        self.assertEqual(self.result()["status"], "PASS")  # the earlier run's record
+        locked.chmod(0o755)
+        proc = self.run_driver(self.route())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
     def test_exit_during_the_route_fails(self):
         proc = self.run_driver(self.route(), behavior="exit")

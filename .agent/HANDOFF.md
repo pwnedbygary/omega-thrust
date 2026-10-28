@@ -21,32 +21,42 @@ widescreen view. Phase 8, also at his request, is the release: a workflow that
 builds ZIPs for Linux, Windows and macOS and an AppImage, and the release
 v1.0.0.
 
-Current iteration, Phase 8 change 1, round 2: the CI release setup, which the
-user asked for with the widescreen mod ("... cut a release build so I can test
-out the appimage after CI finishes its build.") and chose to have build "The
-AppImage plus ZIPs for Linux, Windows and macOS". Invariant: a workflow,
-`.github/workflows/release.yml`, from the framework's release template, which
-on a run from the Actions tab with a version, or on a pushed `vX.Y.Z` tag,
-builds and checks a zip for Linux, Windows and macOS (arm64 and x64) and an
-AppImage from the Linux zip, and publishes them as a GitHub release. Every zip
-ships `controls/keybinds.ini` at its root as `keybinds.ini`, as the user chose,
-and the AppImage's start script keeps the game's files in a writable data
-folder, seeds that layout once and never replaces or removes the player's own
-files. No file of the game changes: not `game.toml`, `generated/` or `src/`,
-and both builds stay as they are. This file also records Phase 7 change 7's
-round 3 PASS and its commit `9a0f8ed`, and condenses change 7. Review round 1
-found that the start script deleted what the player had put in the data
-folder's `bios/` and `assets/`, a BIOS dump among them, whenever the version
-changed, against that invariant; that it exported `LD_LIBRARY_PATH`, which the
-game does not need and the programs that it starts would inherit; and that a
-relative data folder broke the start. So round 2 copies the release's files
-over those two folders instead, drops the export and makes a relative data
-folder absolute, and takes up five of the review's suggestions, among them a
-check in the workflow of every file that the start script copies. Baseline:
-`9a0f8ed`. Out of scope: signing the Windows and macOS builds; cutting the
-release, v1.0.0, which this change's workflow does once it is committed and
-pushed (the next action); the user's trials; the route-script cleanup and the
-rest of the code-quality work; and the framework.
+Current iteration, Phase 6 change 12, round 3: the route scripts' other error
+paths, fixed before the refactor so that it starts from fixed scripts, as the
+approved plan gives them after the audit's finding 10
+(`code-quality/audit-r1.md`, lines 119 and 120). Invariant:
+`scripts/routes/run_route.py` and `scripts/routes/beetle_route.py` mark an
+output directory as their own, with a `result.json` whose status is `running`,
+before they make anything else there, and remove an earlier run's marker last
+when they clear its outputs, so that a run that fails or is stopped after its
+checks, or fails while clearing, leaves a directory that the next run reuses. A
+debug-server reply that is not a JSON object no longer stops a script with a
+traceback. The driver fails the run at once with a failure that names the
+reply. The runner takes it for a failed reply, as it already took a reply that
+is not JSON, and handles it as before: a failed reply to a command that sets up
+or starts the route fails the run at once; while booting, the runner asks again
+for the frame, and during the route for its status, until their deadlines; and
+it records the replies that it gathers for each shot and at the end as they
+came. A reply that lacks a value that the scripts check, or holds it as another
+type (`start_frame`, `active`, `index` and `remaining` in the runner, `frame`
+in the driver's pings, where a JSON `true`, which Python counts as an int, is
+no number), fails the run at once with a failure that names the reply. None of
+this covers a reply nested too deeply for Python's JSON parser: its
+`RecursionError` still ends either script in a traceback, as before. The driver
+reads psx-beetle to hash it before it touches the output directory, so a
+psx-beetle that cannot be read is refused before launch. A run that meets none
+of these plays and records as before. The tests' runtime fake exits with
+status 0 on SIGINT and SIGTERM, as psx-runtime does (change 11's round 2
+suggestion 1). This file also records Phase 8 change 1's round 2 PASS, its
+commit `2e08574`, the release v1.0.0 that its workflow built and this host's
+checks of that release; it condenses change 1 and corrects the hypotheses'
+floor for libstdc++. Baseline: `2e08574`. Out of scope: one module for what the
+two route scripts share, smaller `main()` functions and `load_route` raising
+its own exception (change 13, the next action); the packaging's changes that
+Phase 8 change 1's review round 2 suggested (the next action); the
+decompilation and the decompiler tool that the user asked for (the next
+action); the user's trials; the rest of the code-quality work; and the
+framework.
 
 ## Phase 0 observations (`.cache/evidence/phase0/`)
 
@@ -1455,229 +1465,372 @@ both binaries stayed round 1's. Reports: `phase7-7/review-r1.md`,
 `phase7-7/r2/review-r2.md` and `phase7-7/r3/review-r3.md`. The full record:
 `git show 9a0f8ed:.agent/HANDOFF.md`.
 
-## Phase 8 change 1 observations (`.cache/evidence/phase8-1/`)
+## Phase 8 change 1 (commit `2e08574`)
 
-- The user asked for the release with the widescreen mod ("... cut a release
-  build so I can test out the appimage after CI finishes its build."), and
-  chose its order ("After Gamepad Strafe (change 6), the widescreen mod and the
-  CI release setup; changes 12 to 15 follow the release (Recommended)"), its
-  builds ("The AppImage plus ZIPs for Linux, Windows and macOS") and its
-  version ("v1.0.0"). At his word ("Make the repo public as well, you have my
-  permission"), this session (`ses_ea9f61f76ffepnWtoam6Ws3zQw`) made the
-  repository public on 2026-10-27 with `gh repo edit`, after a scan of its
-  history found none of the files that `AGENTS.md` keeps out of it and no
-  token, key, password or local path (`release/public_check.py` / `.log`).
-- The framework's release template
-  (`psxrecomp/docs/ci/templates/game-release.yml`) builds and checks a zip for
-  `linux-x64`, `windows-x64`, `macos-arm64` and `macos-x64` and publishes a
-  GitHub release, but packages no AppImage: titles carry their own packager,
-  and Tomba 2's was the model for this one. The runtime reads and writes its
-  files beside the file it was started as, or, with `APPIMAGE` set, beside the
-  `.AppImage` file, never in the working directory (`exe_dir_from_argv()`,
-  `psxrecomp/runtime/src/main.cpp:2528-2559`), and an AppImage mounts
-  read-only. So the AppImage's start script must keep the game's files in a
-  writable folder and start the game through a link there, with `APPIMAGE`
-  unset.
-- A Release build has no debug server
-  (`psxrecomp/runtime/runtime.cmake:74-83`), so a local test follows the
-  runtime's frame report (`PSX_FRAME_REPORT_MS`,
-  `psxrecomp/runtime/src/main.cpp:4247-4276`) and ends the game with SIGTERM, a
-  soft exit with status 0 that still writes the run report
-  (`psxrecomp/runtime/src/crash_trace.c:909-915`).
-- The local test of the workflow's Linux half, on the drafts in scratch
-  (`release/c1.sh` / `release/c1.log`): its first run (`release/c1-first.log`)
-  failed in the packaging, since linuxdeploy's own strip, from GNU Binutils
-  2.35 (`r2/strip_version.log`), cannot read the `.relr.dyn` sections that the
-  host's libraries carry, `libSDL3.so.0` among them. So the packager runs
-  linuxdeploy with `NO_STRIP=1`: the libraries it copies come stripped from
-  their distribution, and the executable ships unstripped, as in the zips,
-  since nothing in the framework's packaging strips it. The second run passed:
-  the zip from `build-release` (61,928,259 bytes), the workflow's three Linux
-  steps, the AppImage (44,575,224 bytes, with ten libraries bundled, and glibc,
-  libstdc++, X11, OpenGL, FreeType, HarfBuzz and zlib taken from the system),
-  and a headless start of it that ran past frame 900 and ended on SIGTERM with
-  status 0 (exit origin `signal_sigterm`, no dispatch miss). It left the
-  repository as it was. The framework's packager downloads a pinned Python
-  (3.13.1) into `dist/.dl-cache/` for the overlay toolchain
-  (`psxrecomp/tools/release_stage.py`), and the AppImage's tools are pinned by
-  sha256.
-- The second run also found that the release zip held no
-  `controls/keybinds.ini`, which the AppImage's start script meant to copy into
-  its data folder, so the folder got none. The user chose: "Make our layout the
-  default: ship it as keybinds.ini in every ZIP and in the AppImage, which
-  copies it in once so later changes on the Controls page are kept
-  (Recommended)". The framework's packager puts a file at the zip's root with
-  `--doc` (`psxrecomp/tools/package_game_release.sh`, line 101 and the loop
-  from line 402).
-- The repository holds no Actions secrets, so the workflow's Windows build is
-  not signed (`psxrecomp/docs/ci/README.md`, "Windows code signing"). The build
-  job runs its four platforms with `fail-fast` off, and the release job needs
-  all four: if one fails, the others still upload their files as the run's
-  artifacts, kept for 30 days, but no release is published.
-- Review round 1 found three faults in the start script. On a version change it
-  deleted `assets/`, `bios/`, `licenses/` and `mods/bundled/` and copied the
-  release's again, so a file that the player had put in `bios/` or `assets/`
-  was lost: a BIOS dump in `bios/` among them, which the player picks there by
-  a relative path, since the runtime resolves such a path against the
-  executable's folder, the data folder here (`resolve_bios_path()`,
-  `psxrecomp/runtime/src/main.cpp:3125-3164`). It exported `LD_LIBRARY_PATH`,
-  which the game does not need, since linuxdeploy gives the executable the
-  runpath `$ORIGIN/../lib` and each bundled library `$ORIGIN` (`c2.log`), but
-  which the programs that the game starts inherit: the overlay autocompile's
-  shell, with Python and the host's compiler under it
-  (`psxrecomp/runtime/src/autocompile.c:1250-1282`), and the launcher's file
-  dialogs, which tinyfiledialogs shows through programs such as zenity
-  (`recomp-ui/src/common/launcher_files.c:685-791`); those would load the
-  AppImage's copies of libraries such as glib ahead of the system's (derived,
-  not run). And with a relative data folder it prepared the folder, then failed
-  to start the game, since it changed into the folder before starting the game
-  through a relative path. Round 1's start script also left out the payload's
-  `mods/README.md`, as a listing of the zip against C2's data folder showed
-  while round 2's check of every file was written.
-- With no `vX.Y.Z` tag yet, a run of the workflow without a version takes the
-  next patch number of `VERSION`, 0.1.1
-  (`psxrecomp/tools/ci/normalize_version.sh`, lines 76-86; review round 1), so
-  the run for v1.0.0 names its version.
+The CI release setup. The user asked for the release with the widescreen mod
+("... cut a release build so I can test out the appimage after CI finishes its
+build."), and chose its order ("After Gamepad Strafe (change 6), the widescreen
+mod and the CI release setup; changes 12 to 15 follow the release
+(Recommended)"), its builds ("The AppImage plus ZIPs for Linux, Windows and
+macOS") and its version ("v1.0.0"). At his word ("Make the repo public as well,
+you have my permission"), this session (`ses_ea9f61f76ffepnWtoam6Ws3zQw`) made
+the repository public on 2026-10-27 with `gh repo edit`, after a scan of its
+history found none of the files that `AGENTS.md` keeps out of it and no token,
+key, password or local path (`release/public_check.py` / `.log`).
+`.github/workflows/release.yml` is the framework's release template
+(`psxrecomp/docs/ci/templates/game-release.yml`) at the pinned psxrecomp with
+its tokens filled in: it builds and checks a zip for `linux-x64`,
+`windows-x64`, `macos-arm64` and `macos-x64`, with `fail-fast` off, and
+publishes a GitHub release only when all four pass. The template packages no
+AppImage, so the workflow adds two Linux steps after "Verify zip contents",
+"Package AppImage (Linux)" and "Verify AppImage (Linux)". The packager,
+`scripts/package_appimage.sh`, after Tomba 2's, uses linuxdeploy, appimagetool
+and the type2 runtime, each pinned by version and sha256, and runs linuxdeploy
+with `NO_STRIP=1`: linuxdeploy's own strip, from GNU Binutils 2.35, cannot read
+the `.relr.dyn` sections of the host's libraries (`release/c1-first.log`, where
+the first local test failed on it, and `phase8-1/r2/strip_version.log`). The
+runtime keeps its files beside the file it was started as, or beside the
+`.AppImage` file with `APPIMAGE` set (`exe_dir_from_argv()`,
+`psxrecomp/runtime/src/main.cpp:2528-2559`), and an AppImage mounts read-only,
+so the start script, `packaging/linux/AppRun`, keeps them in a data folder
+(`$OMEGA_THRUST_DATA_DIR`, made absolute from the folder it was started in,
+else `$XDG_DATA_HOME/Omega_Thrust` with an absolute `XDG_DATA_HOME`, else
+`~/.local/share/Omega_Thrust`) and starts the game through a link there with
+`APPIMAGE` unset. When the AppImage's version differs from the folder's
+`.appimage-version`, it replaces `licenses/` and `mods/bundled/` whole, copies
+the release's files over those in `assets/` and `bios/`, where the player's own
+stay, and copies the payload's other files; it seeds `keybinds.ini` once and
+never replaces the player's files. Every zip ships `controls/keybinds.ini` at
+its root as `keybinds.ini` (`scripts/package_release.sh`, `--doc`), as the user
+chose when the local test found the zip without it: "Make our layout the
+default: ship it as keybinds.ini in every ZIP and in the AppImage, which copies
+it in once so later changes on the Controls page are kept (Recommended)".
+"Verify zip contents" checks that file. "Verify AppImage (Linux)" checks the
+AppImage against its `.sha256`, has the start script prepare a data folder
+(`OMEGA_THRUST_SEED_ONLY=1`), compares every file of the payload but the
+overlay toolchain with the folder's, checks the toolchain's link, the seeded
+`keybinds.ini` and the version, and fails if `ldd` finds a library missing.
+`AGENTS.md` gains a section "Releases". A Release build has no debug server
+(`psxrecomp/runtime/runtime.cmake:74-83`), so a local test follows the frame
+report (`PSX_FRAME_REPORT_MS`) and ends the game with SIGTERM, a soft exit with
+status 0 (`psxrecomp/runtime/src/crash_trace.c:909-915`). The repository holds
+no Actions secrets, so the Windows build is not signed.
 
-## Phase 8 change 1 changes
+The workflow's Linux half passed here, held at nice 5 (`release/c1.sh` / `.log`
+on the drafts; `phase8-1/c2.sh` / `.log` on round 1's staged files and
+`phase8-1/r2/c2.log` on round 2's): the zip from `build-release` (61,929,228
+bytes from both rounds' files, with `keybinds.ini`), the three Linux steps, the
+AppImage (44,575,224 bytes, with ten of the host's libraries bundled) and a
+headless start of it that ran past frame 900 and ended on SIGTERM with status 0
+(exit origin `signal_sigterm`, no segment miss and no unknown dispatch),
+leaving the repository as it was. The checks scripts
+(`phase8-1/checks-p8-1.sh`, `phase8-1/r2/checks-p8-1-r2.sh`) ran the start
+script on a data folder in scratch: it seeds `keybinds.ini` and keeps a copy
+that the player changed, across a version change too; it keeps a stand-in for a
+BIOS dump in `bios/` and a file added to `assets/`; it makes a relative data
+folder absolute, and stops with a message that names `OMEGA_THRUST_DATA_DIR`
+when the folder cannot be made. Review: round 1 NEEDS CHANGES on tree `362f2b4`
+(staged diff `e4c3764c…`), with one Medium (on a version change the start
+script deleted `assets/` and `bios/` and copied the release's again, so a file
+that the player had put there was lost, a BIOS dump among them) and two Lows
+(it exported `LD_LIBRARY_PATH`, which the programs that the game starts would
+inherit, and it failed to start the game from a relative data folder); round 2
+PASS, with no findings, on tree `2ac85c5` (staged diff `06bc863b…`). Reports:
+`phase8-1/review-r1.md` and `phase8-1/r2/review-r2.md`; full record:
+`git show 2e08574:.agent/HANDOFF.md`.
 
-- `.github/workflows/release.yml` (new): the framework's template at the pinned
-  psxrecomp, with its tokens filled in (the zip prefix `omegathrust`, the title
-  "Omega Thrust" in the tag's message and the release's name, the concurrency
-  group) and a header of its own; without the template's `BPE_RUNTIME_BIN_DIR`
-  export, since the packager reads `PSXRECOMP_RUNTIME_BIN_DIR` first
-  (`psxrecomp/tools/package_game_release.sh`, line 80); with a fifth check in
-  "Verify zip contents", that the zip's `keybinds.ini` equals
-  `controls/keybinds.ini`; and with two Linux steps after it, "Package AppImage
-  (Linux)" and "Verify AppImage (Linux)". The second checks the AppImage
-  against its `.sha256`, has its start script prepare a data folder
-  (`OMEGA_THRUST_SEED_ONLY=1`), and checks the files there, the seeded
-  `keybinds.ini` among them, and the version. Round 2 has it also compare every
-  file of the payload but the overlay toolchain with the data folder's copy,
-  check the toolchain's link, and fail if `ldd` finds a library missing for the
-  executable (review round 1, suggestion 1). The upload and the release add the
-  AppImage and its `.sha256`.
-- `scripts/package_appimage.sh` (new): builds the AppImage from the Linux zip
-  with linuxdeploy, appimagetool and the type2 AppImage runtime, each pinned by
-  version and sha256 and downloaded once; the executable goes to `usr/bin/`,
-  the rest of the zip to `usr/share/omegathrust/`, and linuxdeploy runs with
-  `NO_STRIP=1`.
-- `packaging/linux/AppRun` (new) and `packaging/linux/omegathrust.desktop`
-  (new): the AppImage's start script and desktop entry. The start script keeps
-  the game's files in a data folder (`$OMEGA_THRUST_DATA_DIR`, else
-  `$XDG_DATA_HOME/Omega_Thrust`, else `~/.local/share/Omega_Thrust`), copies
-  the release's files there when the AppImage's version differs from the one in
-  `.appimage-version`, which it writes once they are all copied, seeds
-  `keybinds.ini` once and never replaces it, links the overlay toolchain, and
-  starts the game through a link there with `APPIMAGE` unset. Round 2 replaces
-  only `licenses/` and `mods/bundled/` whole, and copies the release's files
-  over those in `assets/` and `bios/`, so that the player's own stay there;
-  copies the payload's `mods/README.md` too; ignores a relative `XDG_DATA_HOME`
-  and makes a relative data folder absolute from the folder that the script was
-  started in; names `OMEGA_THRUST_DATA_DIR` in its message when the folder
-  cannot be made (review round 1, suggestion 7); and no longer exports
-  `LD_LIBRARY_PATH`.
-- `scripts/package_release.sh`: passes `--doc controls/keybinds.ini`, so that
-  every zip ships the layout at its root as `keybinds.ini`.
-- `AGENTS.md`: a section "Releases": how to run the workflow, what it builds
-  and checks, the AppImage's packager and start script, and how to test the
-  Linux half locally. Round 2 corrects how a run without a version picks one,
-  notes that the emitters may come from a cache (review round 1, suggestion 4),
-  and gives the start script's rule for each folder, for a relative data folder
-  and for `LD_LIBRARY_PATH`.
-- `.agent/HANDOFF.md`: the scope; change 7 condensed; these sections; the
-  hypotheses; the review state; the next action.
-- Untracked (ignored): `.cache/evidence/phase8-1/`, with round 2's evidence in
-  its `r2/` and round 1's report `review-r1.md` with its header, and
-  `.cache/evidence/release/`, and change 7's round 3 report
-  `phase7-7/r3/review-r3.md` with its header and its commit message
-  `phase7-7/commit-msg.txt`.
+The release v1.0.0: the workflow ran on the pushed commit with
+`gh workflow run release.yml -f version=1.0.0` (run 40634011680, 2026-10-28
+from 04:44:30 to 04:57:20 UTC), and its four builds and its release job passed
+(`release/v1.0.0/watch.log`). The release "Omega Thrust v1.0.0" holds the four
+zips, the AppImage and its `.sha256`, and its tag `v1.0.0`, which the release
+job made, points at `2e08574`. `release/v1.0.0/verify.sh` / `.log` downloaded
+the AppImage and its `.sha256`, which matched each other and GitHub's digests,
+and extracted it: the start script, the desktop entry, `keybinds.ini` and
+`game.toml` are the commit's, the version is 1.0.0, and there are 12 mod
+manifests. CI's AppImage bundles no library: without a system SDL3 the build
+compiles SDL3 into the executable (`psxrecomp/runtime/runtime.cmake:232-282`),
+and the executable names only glibc, libstdc++, libgcc_s, zlib and libOpenGL,
+which come from the player's system. The newest symbol versions that the
+executable asks for are GLIBC_2.38, GLIBCXX_3.4.30 (GCC 12's libstdc++) and
+CXXABI_1.3.13. The start script prepared a data folder with all 47 files of the
+payload outside the overlay toolchain and the seeded `keybinds.ini`.
+`release/v1.0.0/boot.sh` / `.log`, held at nice 5 with the resource
+coordinator's grant, then started it headless here: it ran to frame 1,141 and
+ended on SIGTERM with status 0 (exit origin `signal_sigterm`, no segment miss
+and no unknown dispatch), no thread of it was read below nice 5, and nothing
+stayed mounted. Since v1.0.0 is tagged, a run without a version takes the tag's
+next patch number, 1.0.1, or the part that `bump` names, by the inline bump in
+the workflow's "Normalize version / tag" (`.github/workflows/release.yml`,
+lines 126-145), since the prepare job checks out no submodules (round 2's
+suggestion 1; round 1 had cited `psxrecomp/tools/ci/normalize_version.sh`).
 
-## Phase 8 change 1 checks
+## Phase 6 change 12 observations (`.cache/evidence/phase6-12/`)
 
-- `static_checks.sh` / `.log`: every difference of the workflow from the
-  template at the pinned psxrecomp is one that "Phase 8 change 1 changes"
-  names, or a comment that describes one. The workflow parses as YAML, with
-  the jobs `prepare`, `build` and `release`, the four platforms, 24 build
-  steps, `fail-fast` off and a release job that needs `prepare` and `build`.
-  actionlint 1.7.12 gives it the three notes that it gives the template
-  itself, from the template's own scripts (SC2129 and SC2269 in "Normalize
-  version / tag", SC2012 in "Verify zip contents"), and none from this
-  change's lines. shellcheck 0.11.0 gives the three shell scripts one warning,
-  SC2043 on `scripts/package_release.sh`'s loop over `DISC.md` alone, which
-  HEAD's file gives as well; `bash -n` and `sh -n` pass, and all three are
-  executable. Its first run found that the script's format for actionlint did
-  not parse, and that the start script exported, unquoted (SC2086), a copy of
-  `APPIMAGE` that nothing reads; that line went.
-- `c2.sh` / `c2.log` (C2) repeated C1's local test of the workflow's Linux half
-  (the observations) on this change's staged files, from the repository, held
-  at nice 5 (`.cache/evidence/release/held.sh`, `nicewatch2-c2.log`), with the
-  four pinned downloads reused from scratch and nothing downloaded.
-  `scripts/package_release.sh` built the Linux zip from `build-release`
-  (61,929,228 bytes), with `keybinds.ini` at its root equal to
-  `controls/keybinds.ini`. The workflow's three Linux steps passed: "Verify zip
-  contents" with its new check of that file, "Package AppImage (Linux)", and
-  "Verify AppImage (Linux)" with its check of the `keybinds.ini` that the start
-  script seeds. The AppImage (44,575,224 bytes) matched its `.sha256` and
-  bundled the same ten libraries as C1's. Started headless, with its data
-  folder in scratch, the game ran past frame 900 and ended on SIGTERM with
-  status 0 (exit origin `signal_sigterm`, no segment miss and no unknown
-  dispatch), and its data folder held the release's files and the seeded
-  `keybinds.ini`. The repository was left as it was, `VERSION` included.
-- `checks-p8-1.sh` / `.log` on the staged tree: the tree and the staged files,
-  and that nothing else changes, no file of the game among them; the pins and
-  the submodules; the files' modes; `static_checks.sh` against its log; the
-  lines that `scripts/package_release.sh` and `AGENTS.md` gain; the handoff's
-  parts that must equal HEAD's, and its text (placeholders, blank lines,
-  headings, line lengths, reflow leftovers, local paths, cited paths); the
-  gates; both builds' binaries, still Phase 7 change 7's; `c2.log`'s results,
-  the source files that it hashed against the staged ones, and the zip and the
-  AppImage that it built against the hashes that it recorded; the zip's
-  `keybinds.ini`, and its executable, `build-release`'s byte for byte. In the
-  extracted AppImage it compares the start script, the desktop entry and the
-  payload's `keybinds.ini` with the repository's, and runs the start script on
-  a data folder in scratch: it seeds `keybinds.ini` into the empty folder,
-  keeps a copy that the player changed, both on a second start and across a
-  version change, on which it copies the release's files again, and seeds the
-  file again only once it is deleted; without `APPDIR` it refuses to start. It
-  notes the strip state: the game's executable is unstripped in
-  `build-release`, in the zip, and in the AppImage, where linuxdeploy has set
-  its runpath, and the ten bundled libraries come stripped from the host. Then
-  the four test files, the Beetle driver's in up to three runs; change 7's
-  round 3 report against session message 2314, and commit `9a0f8ed`'s message
-  against `phase7-7/commit-msg.txt`; the upstream issues, the listeners and
-  whitespace. All pass.
-- Round 2 (`r2/`): `r2/static_checks.log`, from `static_checks.sh` again,
-  differs from round 1's log only in the new lines of "Verify AppImage (Linux)"
-  and the line numbers after them. `r2/strip_version.sh` / `.log` extracts the
-  pinned linuxdeploy in scratch: its strip is GNU Binutils 2.35 and the host's
-  2.47, and on copies of the host's `libSDL3.so.0`, which has a `.relr.dyn`
-  section, linuxdeploy's strip fails, finding the section's type unknown, where
-  the host's passes (review round 1, suggestion 5). `r2/step_b.sh` / `.log` ran
-  it, then `c2.sh` on round 2's staged files (`r2/c2.log`), both held at nice 5
-  (`r2/nicewatch2-step-b.log`, and `r2/step_b-nice.log`, which samples the
-  step's processes twice a second): the zip, the workflow's three Linux steps,
-  "Verify AppImage (Linux)" with its new checks among them, and a headless
-  start of the AppImage, which the start script now runs with `LD_LIBRARY_PATH`
-  as it was. The game ran past frame 900 and ended on SIGTERM with status 0,
-  with no segment miss and no unknown dispatch, while the overlay autocompile
-  that it starts ran Python and the host's compiler, at nice 15 (its own
-  nice(10) on top of 5), and reported no fault (`autocompile_degraded` 0). The
-  four downloads were reused, and the repository was left as it was.
-- `r2/checks-p8-1-r2.sh` / `.log` repeats round 1's checks on the staged tree,
-  with `r2/c2.log` in place of `c2.log`, and also compares the index with round
-  1's and each file with its round 1 blob, checks `r2/step_b.sh`'s logs, and
-  matches round 1's report against session message 721. On the extracted
-  AppImage it runs the start script on more cases than round 1's: every file of
-  the payload but the overlay toolchain reaches the data folder unchanged;
-  across a version change, a stand-in for a BIOS dump in `bios/` and a file
-  that the player added to `assets/` stay, a release file that the player
-  changed in `bios/` is copied over, and a file that the player added to
-  `licenses/` goes; a relative `OMEGA_THRUST_DATA_DIR` becomes a path from the
-  folder that the script was started in, a relative `XDG_DATA_HOME` is ignored
-  for `HOME`'s folder, and an absolute one is used; and a data folder that
-  cannot be made stops the script with a message that names
-  `OMEGA_THRUST_DATA_DIR`. All pass.
+- The audit's finding 10 (`code-quality/audit-r1.md`, lines 119 and 120): a
+  debug-server reply without an expected key ends in a `KeyError` traceback
+  rather than a clean failure, and both route scripts make files before they
+  write the `result.json` that marks an output directory as theirs. At
+  `2e08574` the runner read `start_frame` from `input_route_start`'s reply, and
+  `active`, `index` and `remaining` from `input_route_status`'s, without a
+  check (`run_route.py`, lines 243 and 268 to 276), and its `ask()` returned
+  whatever JSON value came (line 121), so a reply that was a JSON list failed
+  at its first `.get()` with an `AttributeError` traceback; the driver's
+  `Beetle.reply()` did the same (`beetle_route.py`, line 178). Python's `json`
+  reads a JSON `true` as `True`, which `isinstance(value, int)` accepts, so the
+  driver's `ping_frame()` (lines 187 to 194) took a ping reply's
+  `"frame": true` for frame 1 (change 1's round 3 suggestion 1), and the runner
+  a `start_frame` of `true` (derived from the code). The debug server writes
+  `start_frame` as an integer
+  (`psxrecomp/runtime/src/debug_server.c:8064-8079`), and `active` as `true` or
+  `false` and `steps`, `index` and `remaining` as integers (`:8089-8097`), so
+  the new checks refuse nothing that it sends.
+- Both scripts made `cwd/` and `memcards/`, or `cwd/` and `system/`, in
+  `prepare_out()` (runner lines 190 to 205, driver lines 124 to 139), then
+  copied `--card1` into `memcards/` (runner), or wrote Beetle's two cards and
+  its BIOS link and hashed psx-beetle (driver, lines 371 to 383), and only then
+  wrote `result.json`. A failure in between, such as a full disk, a file size
+  limit or a psx-beetle that may be run but not read, left a directory that
+  holds files but no marker, which every later run refused ("it is not empty
+  and has no result.json") until it was cleared by hand. Writing the marker
+  first has a consequence of its own: a directory that lists its entries in
+  creation order, as btrfs and tmpfs do, lists the marker before `cwd/`, so a
+  cleanup in listing order would delete it first, and a failure later in the
+  cleanup, such as a file that the script cannot delete, would again leave a
+  directory without a marker. So the earlier marker goes last.
+- On `2e08574`'s scripts the new tests fail and the others pass (`red.sh` /
+  `tests-red.log`): in `test_run_route.py` the six broken replies, the frame
+  reply without a frame count and the failure after the checks (7 failures and
+  1 error of 25 tests); in `test_beetle_route.py` the three pings with a frame
+  of `true`, the reply that is not a JSON object, the psx-beetle that cannot be
+  read and the failure after the checks (5 failures and 1 error of 25). No test
+  timed out. The two tests of a failure while clearing pass there, since those
+  scripts wrote the marker after `cwd/`; they guard the new order, as the
+  planted bugs show (the checks).
+- The tests' runtime fake died by SIGTERM and SIGHUP in the test of a signal to
+  the process group, while its comment said that psx-runtime exits on SIGINT
+  and SIGTERM (change 11's round 2 suggestion 1). psx-runtime's handler makes
+  SIGINT and SIGTERM a soft exit with status 0
+  (`psxrecomp/runtime/src/crash_trace.c:909-915`, installed at `:955-956`), and
+  nothing in `psxrecomp/runtime/src/` handles SIGHUP, whose default action ends
+  the process.
+
+## Phase 6 change 12 changes
+
+- `scripts/routes/run_route.py`: `ask()` refuses a reply that is not a JSON
+  object with a `ValueError`, which `query()` turns into a failed reply, as it
+  does a reply that is not JSON. `reply_int()` reads an integer, refusing
+  JSON's `true` and `false`, and `route_status()` reads `active`, `index` and
+  `remaining`; each fails the run with a `RouteError` that names the reply, and
+  `play()` reads the start frame and the route's status through them.
+  `prepare_out(out, result)` deletes the runner's earlier outputs,
+  `result.json` last, then writes the run's record, `result`, with status
+  `running`, through the new `write_result()`, before it makes `cwd/` and
+  `memcards/`; `main()` builds that record before it calls `prepare_out()`, and
+  `finish()` writes the last one through `write_result()`. `finish()` prints a
+  shot's lateness only from a frame count, and keeps a frame reply that holds
+  none as it came.
+- `scripts/routes/beetle_route.py`: imports `write_result()` from
+  `run_route.py`, and its `prepare_out(out, result)` works as the runner's,
+  then makes `cwd/` and `system/`. `main()` reads psx-beetle to hash it before
+  it calls `prepare_out()`, and stops with "cannot read it" and the reason when
+  it cannot, before anything is made. `Beetle.reply()` fails the run with a
+  `RouteError` on a reply that is not a JSON object, and `ping_frame()` refuses
+  JSON's `true` and `false`.
+- `scripts/routes/test_run_route.py` (25 tests, 4 new): the fake runtime's
+  behaviours `nostartframe`, `truestartframe`, `notobject`, `noindex`,
+  `noremaining`, `intactive` and `textframe` each break one reply (`broken()`);
+  the fake exits with status 0 on SIGINT and SIGTERM, as psx-runtime does, and
+  `groupsignal`'s comment says so. New tests:
+  `test_a_reply_without_what_the_runner_reads_fails_the_run` (six cases),
+  `test_a_frame_reply_without_a_frame_count_is_recorded_as_it_came`,
+  `test_a_failure_after_the_checks_leaves_a_directory_the_next_run_reuses`, in
+  which a file size limit of 64 KiB (`small_files()`) fails the copy of
+  `--card1`, and
+  `test_a_failure_while_clearing_an_earlier_run_keeps_its_marker`, with a
+  read-only folder in `cwd/` (skipped as root).
+- `scripts/routes/test_beetle_route.py` (25 tests, 3 new): the fake
+  psx-beetle's behaviours `trueframe` and `lonetrueframe`, a ping's frame of
+  `true`, and `notobject`; three more cases in
+  `test_a_ping_reply_without_a_frame_fails_the_run`, which now runs all nine of
+  its cases with `--timeout 5`, and one in
+  `test_arguments_are_checked_before_launch`, a psx-beetle that may be run but
+  not read (skipped as root). New tests:
+  `test_a_reply_that_is_not_a_json_object_fails_the_run`,
+  `test_a_failure_after_the_checks_leaves_a_directory_the_next_run_reuses`, in
+  which the 64 KiB limit fails the write of Beetle's first card, and
+  `test_a_failure_while_clearing_an_earlier_run_keeps_its_marker`.
+- `AGENTS.md` ("Routes"): a run also fails when a debug-server reply lacks a
+  value that the runner reads or holds it as another type; the runner deletes
+  its earlier `result.json` last and writes its own before it makes anything
+  else.
+- `.agent/HANDOFF.md`: the scope; Phase 8 change 1 condensed, with the release;
+  these sections; the hypotheses' item on the release; the review state; the
+  next action.
+- Untracked (ignored): `.cache/evidence/phase6-12/`, and
+  `.cache/evidence/release/v1.0.0/`, and Phase 8 change 1's round 2 report
+  `phase8-1/r2/review-r2.md` with its header and its commit message
+  `phase8-1/commit-msg.txt`.
+
+## Phase 6 change 12 checks
+
+- `step1.sh` / `step1.log`, started by `release/held.sh` at absolute nice 5
+  with the resource coordinator's grant (its RUN LOG 395), ran from 10:46:32 to
+  10:56:11, reading the live gate (`phase7-7/gate.sh`) before each of its three
+  parts. The route test files on the working tree pass (`tests-green.log`:
+  `test_run_route.py` 25 tests, `test_beetle_route.py` 25, `test_routes.py` 5),
+  leaving nothing in TMPDIR and no `__pycache__`. `red.sh` ran the same tests
+  on `2e08574`'s scripts (`tests-red.log`, the observations). `mutations.py`
+  (`mutations.log`) runs both test files unmutated, then plants 14 bugs in the
+  fix, one at a time, each against the test file that covers it: in each
+  script, no marker before the run and the cleanup in listing order; `ask()`
+  and `Beetle.reply()` returning a reply that is not a JSON object;
+  `reply_int()` taking `true` for an integer; `route_status()` taking an
+  integer for `active`, or reading `index` or `remaining` unchecked;
+  `start_frame` read unchecked; `finish()` taking lateness from any frame that
+  is not null; `ping_frame()` taking `true` for a frame number; and psx-beetle
+  hashed after `prepare_out()`, unguarded. The unmutated files pass, and each
+  bug fails a test written for it, the cleanups in listing order failing the
+  tests of a failure while clearing; nothing is left in TMPDIR or running. The
+  sampler kept as `nice_samples-step1.py` read the nice value of every thread
+  of the step every 0.5 s (`step1-nice.log`, summed up in
+  `step1-nice-summary.log`): 5,984 readings, all at 5. The watcher raised only
+  the step's bash scripts to 5, from -8 at the start and from -4 six times
+  after (`nicewatch2-step1.log`).
+- `routes.sh` / `routes.log`, started by `release/held.sh` at absolute nice 5
+  with the resource coordinator's grant (its RUN LOG 401), ran beside the
+  Beetle batch from 11:03:47 to 12:41:50, reading the live gate before each
+  run. It held on one reading, at 12:31:57, while 28.1% of memory was
+  available, and went on at 12:32:27. All 22 routes passed in the three runtime
+  modes on build-dev, still the binary of Phase 7 change 7's batch, whose
+  outputs were moved to `routes-before/`; the card, the binary and
+  `run_route.py` were unchanged from start to end
+  (`inputs-before-routes.sha256`, `inputs-after-routes.sha256`), and
+  `build-dev/mods/state.toml` enabled no feature. Against that batch, each
+  run's probe is the same but for the four counters of how far the run had got
+  when the probe sampled it (`probe_fields.py` / `.log`), and the memcard
+  route's cards and `card_check.log` are the same byte for byte. The lists of
+  results shots differ in 8 of 57 (`clear_time_check.log`, compared by
+  `against_w3.py`, which `step2_end.sh` / `.log` runs): seven by one shot as
+  the screen comes or goes, and the LAST ZONE's in lle-openbios by an early
+  shot, `demo-zone-last-lle-openbios-20-t04800.png`, that shows a cyan flash in
+  flight, which the check's counts of cyan pixels take for the results screen's
+  label and banner; the earlier batch's shot of that step
+  (`routes-before/demo-zone-last/lle-openbios/20-t04800.png`), taken 8 frames
+  earlier, has no flash. The largest lag of each run's shots is 11 to 18
+  frames, against 10 to 17, with a median of 14 in both. title_to_zone1 then
+  ran again in hle-openbios over its own outputs: the runner cleared them and
+  passed, leaving the same 16 paths as the first run, kept in `reuse-first/`,
+  and its own record with status PASS. `nice_samples.py` read the nice value of
+  every thread of the batch every 0.5 s (`routes-nice.log.xz`, summed up in
+  `routes-nice-summary.log`): of 82,576 readings, 111 were below 5, all at -4.
+  103 were of the batch's own bash script, and 8 of seven processes that the
+  batch had just started, each read once, as it started (a contact sheet's
+  magick in two threads), and at 5 at its next reading: two python3 processes,
+  a tee and the runtime starting demo_zone_u7 in lle-openbios, the magick, and
+  the python3 and tee of a summary after the last run. The runtime's own
+  `overlay-preserve-write` thread ran at 19, the priority that it sets for
+  itself (`psxrecomp/runtime/src/overlay_capture.c:1281`). The watcher set 523
+  values to 5 and failed none (`nicewatch2-routes.log`): 454 of the bash
+  script, from -8 at the start and from -4 after, and 69 of the threads of the
+  batch's other processes (python3, tee, magick and the runtime), from -4.
+- `beetle_routes.sh` / `beetle_routes.log`, started by `held_at.sh` at exactly
+  nice 0 (`release/held.sh`'s handshake with the nice value as its first
+  argument; the watcher holds the whole tree at that value) with the same
+  grant, ran beside the runtime batch from 11:03:47 to 11:47:36, reading the
+  live gate before each run. It held on three readings, from 11:06:34 to
+  11:07:34, while 27.9% to 29.5% of memory was available, and went on at
+  11:08:04. All 44 Beetle runs passed at their first attempt.
+  `phase6-1/batch_compare.py` then found their 1,368 screenshots, 88 cards and
+  44 result files the same byte for byte as those of change 11's round 2 batch,
+  on the same psx-beetle (moved to `beetle-routes-before/`), and `beetle.log`
+  the same in all 44 (`batch_compare.log`). title_to_zone1 then ran again in
+  lle-openbios over its own outputs: the driver cleared them and passed,
+  leaving the same paths as the first run, kept in `beetle-reuse-first/`, and
+  every file but `beetle.log` the same, 9 of them. The card, psx-beetle and
+  both scripts were unchanged from start to end (`beetle-inputs-before.sha256`,
+  `beetle-inputs-after.sha256`). `nice_samples.py`, given the value 0, read the
+  nice value of every thread of the batch every 0.5 s (`beetle-nice.log.xz`,
+  summed up in `beetle-nice-summary.log`): of 18,997 readings, the 8 that were
+  not 0 were all of the batch's own bash script, at -4. The watcher set 53
+  values to 0 and failed none (`nicewatch2-beetle.log`): 50 of the bash script,
+  from -8 at the start and from -4 after, and three of the driver and
+  psx-beetle that played the LAST ZONE's demonstration in lle-openbios, first
+  read at -4 at 11:23:22 and set at once.
+- `checks-p6-12.sh` / `checks-p6-12.log`, started by `release/held.sh` at
+  absolute nice 5 with the resource coordinator's grant, ran from 17:59:11 to
+  18:08:53 on the staged tree `a4b95d9`, before this bullet was written, and
+  read the live gate before its tests, `red.sh` and `mutations.py`. Against
+  `2e08574` only the six files change, with nothing unstaged or untracked. The
+  parts of this file that must equal HEAD's do: the header, the overall
+  paragraph, Phase 0 to Phase 7 change 7, the review entries up to Phase 8
+  change 1's round 2 and the hypotheses before the release item. No
+  placeholder, doubled blank line, added line over 79 columns or local path is
+  there, and the evidence paths that the added lines cite exist, but for the
+  names of files in a run's folders, the release's zip and the player's data
+  folder. The framework's checks, the pins and the submodules are as before;
+  Phase 8 change 1's round 2 report is session message 1027, and the message of
+  `2e08574` is `phase8-1/commit-msg.txt`. pyflakes and the tests pass
+  (`test_run_route.py` 25, `test_routes.py` 5,
+  `scripts/zones/test_zone_data.py` 71, `test_beetle_route.py` 25 at its first
+  run), leaving nothing behind, and `red.sh`, `mutations.py` and
+  `probe_fields.py` reproduce their logs. Of the 6,044 readings that
+  `nice_samples.py` took (`checks-nice.log.xz`, summed up in
+  `checks-nice-summary.log`), three were below 5, all at -4, of the step's bash
+  scripts: two were at 5 by the next reading, and the third was the root's
+  last, as the step ended. The watcher set 12 values to 5 and failed none
+  (`nicewatch2-checks.log`).
+- Round 2: `r2/checks-p6-12-r2.sh` / `r2/checks-p6-12-r2.log`, started by
+  `release/held.sh` at absolute nice 5 with the resource coordinator's grant
+  once the live gate had passed, ran at 18:49:05, in under a second, on the
+  staged tree `6316337`, before this bullet was written. It runs no test, since
+  no code changed. The index differs from round 1's (`r2/index-round1.txt`)
+  only in this file's line, so the five other files are the ones that round 1's
+  review read, and against `2e08574` only the six files change, with nothing
+  unstaged or untracked. The words changed since round 1 are those of the
+  scope, of the Beetle tests' bullet in the changes, of the review state and of
+  the next action. The parts of this file that must equal HEAD's still do, and
+  so do those that must equal round 1's: everything from Phase 0 to change 12's
+  changes, change 12's checks up to this bullet, the hypotheses and the review
+  entries up to change 12's round 1 entry, and the next action from the user's
+  trials on. The text and citation checks find what round 1's found: no
+  placeholder, doubled blank line, added line over 79 columns or local path,
+  and every evidence path cited exists but for the names of files in a run's
+  folders, the release's zip and the player's data folder. Round 1's report is
+  session message 933, and the next action's six quotes of the user are in
+  `r2/user-answers.txt`, which `r2/user_answers.py` reads again from OpenCode's
+  session database. `nice_samples.py` took one sample (`r2/checks-nice.log.xz`,
+  summed up in `r2/checks-nice-summary.log`): two readings, of the root's bash
+  and a `cp`, both at 5. The watcher set four values to 5 and failed none
+  (`r2/nicewatch2-checks.log`): the root's bash from -8 at the start and from
+  -4 once, and a `cmp` and a `python3` of the step from -4.
+- Round 3: `r3/checks-p6-12-r3.sh` / `r3/checks-p6-12-r3.log`, started by
+  `release/held.sh` at absolute nice 5 with the resource coordinator's grant
+  once the live gate had passed, ran at 19:23:29, in under a second, on the
+  staged tree `f511127`, before this bullet was written. It runs no test, since
+  no code changed. The index differs from round 2's (`r3/index-round2.txt`)
+  only in this file's line, so the five other files are still the ones that
+  round 1's review read, and against `2e08574` only the six files change, with
+  nothing unstaged or untracked. The words changed since round 2 are those of
+  the scope, of the review entries for change 12 and of the next action's
+  paragraphs on the decompilation, and the paragraph that said that the user
+  had not chosen to start a decompilation is gone. The parts of this file that
+  must equal HEAD's still do, and so do those that must equal round 2's:
+  everything from Phase 0 to change 12's changes, change 12's checks up to this
+  bullet, the hypotheses and the review entries up to change 12's round 1
+  entry, the next action's first paragraph, and the next action from the user's
+  trials on, but for the paragraph removed. The text and citation checks find
+  what round 2's found. Round 1's report is session message 933 and round 2's
+  is session message 545. The next action's eleven quotes of the user are in
+  `r3/user-answers.txt`, which `r3/user_answers.py` reads again from OpenCode's
+  session database and which begins with round 2's `r2/user-answers.txt`. The
+  copies of decompdecomp's README, guide, roadmap and license in
+  `decomp/decompdecomp/` have the hashes that `decomp/decompdecomp/SOURCE.txt`
+  records, and hold the facts that the next action gives. In its samples
+  (`r3/checks-nice.log.xz`, summed up in `r3/checks-nice-summary.log`),
+  `nice_samples.py` read two values, of the root's bash and a `cp`, both at 5.
+  The watcher set two values to 5 and failed none (`r3/nicewatch2-checks.log`):
+  the root's bash, from -8 at the start and from -4 once.
 
 ## Hypotheses and unknowns
 
@@ -1951,32 +2104,28 @@ both binaries stayed round 1's. Reports: `phase7-7/review-r1.md`,
   round 3 suggestion 1). Whether stock play ever makes such a load is
   unknown. A fix would be a framework change, arriving through a reviewed
   pin bump; it is recorded here for later, not pursued.
-- The release workflow has not run yet: its Windows and macOS builds and its
-  release job run first on GitHub. Only its Linux half has run, on this host
-  (`release/c1.log`, and this change's runs from the repository,
-  `phase8-1/c2.log` and `phase8-1/r2/c2.log`), where the AppImage took glibc
-  and the libraries that linuxdeploy leaves out from the system, as it will on
-  a player's. Built on Ubuntu 24.04, as the workflow builds it, the AppImage
-  needs a glibc at least as new as that system's, and, since linuxdeploy leaves
-  out libstdc++ as well, a libstdc++ at least as new as that of its GCC 13
-  (review round 1, suggestion 3; derived, not run). Whether the Windows and
-  macOS builds read the `keybinds.ini` beside the executable has not been run
-  either. Derived from the code: the fork's fix hands `psx_keybinds_init()` the
+- The release workflow has run once, for v1.0.0 (Phase 8 change 1's section).
+  The Windows and macOS zips passed the workflow's checks, "Verify zip
+  contents" among them, which compares the zip's `keybinds.ini` with `cmp` on
+  all four platforms, on Windows in Git Bash, so `cmp` was there, as Git for
+  Windows' list of the files that its installers ship had made likely
+  (`phase8-1/r2/gfw-make-file-list.sh`, line 215). Those zips have not been run
+  on Windows or macOS. That they read the `keybinds.ini` beside the executable
+  is derived from the code: the fork's fix hands `psx_keybinds_init()` the
   executable's folder from `exe_dir_from_argv()` on every platform
   (psxrecomp#752), and the framework's packager makes no app bundle for macOS,
-  so a file at a zip's root lies beside the executable on all three. "Verify
-  zip contents" compares the zip's `keybinds.ini` with `cmp` on all four
-  platforms, on Windows in Git Bash (`shell: bash`). Git for Windows' list of
-  the files that its installers ship (`phase8-1/r2/gfw-make-file-list.sh`,
-  fetched from git-for-windows/build-extra on 2026-10-28, line 215) takes
-  `diffutils`, which holds `cmp`, into all of them but its busybox-based
-  minimal one, so `cmp` should be there (derived, not run); without it the
-  Windows build would fail rather than pass a zip unchecked. The AppImage's
-  tools are downloaded on each run and checked against their pins, and
-  appimagetool's 1.9.1 file has been replaced upstream once (review round 1),
-  so a further replacement would fail the Linux build until the pin is renewed;
-  caching the tools in CI, keyed by their pins (its suggestion 6), is left for
-  later.
+  so a file at a zip's root lies beside the executable on all three. The
+  AppImage has run only on this host, with glibc 2.44. It takes glibc and
+  libstdc++ from the player's system, and its executable asks for symbols up to
+  GLIBC_2.38 and GLIBCXX_3.4.30 (`release/v1.0.0/verify.log`), so it needs
+  glibc 2.38 and the libstdc++ of GCC 12 or newer (derived, not run on such a
+  system). This file had said GCC 13's, the Ubuntu 24.04 build's own (after
+  Phase 8 change 1's review round 1, suggestion 3), but the symbols that the
+  executable uses are older. The AppImage's tools are downloaded on each run
+  and checked against their pins, and appimagetool's 1.9.1 file has been
+  replaced upstream once (that review's round 1), so a further replacement
+  would fail the Linux build until the pin is renewed; caching the tools in CI,
+  keyed by their pins (its suggestion 6), is left for later.
 
 ## Review and commit state
 
@@ -3057,25 +3206,178 @@ both binaries stayed round 1's. Reports: `phase7-7/review-r1.md`,
   needs a rule of its own, and the check of every file fails the build on a
   folder that the script does not copy; caching the AppImage's tools in CI (6)
   is left for later (the hypotheses); the last (8) asks for nothing.
-- Phase 8 change 1, round 2: pending delta re-review.
+- Phase 8 change 1, round 2: PASS on tree `2ac85c5` (staged diff `06bc863b…`),
+  no findings, from a fresh read-only reviewer: round 1's three findings are
+  resolved, round 2 adds no fault, and nothing outside the delta changed. It
+  rebuilt the delta from round 1's blobs and round 2's, byte for byte; read the
+  start script, the workflow's new lines and the handoff against
+  `phase8-1/r2/c2.log`, its samples, the checks log and
+  `phase8-1/r2/strip_version.log`; and found that nothing in the runtime scans
+  `bios/` for a dump. Held at nice 5, it re-ran `phase8-1/static_checks.sh`,
+  the same as its log but for the exit line, shellcheck on the start script,
+  and `phase8-1/r2/strip_version.sh`. On round 2's AppImage it ran the
+  workflow's "Verify AppImage (Linux)" from the staged YAML, which passed; the
+  step's new blocks, which flagged two faults that it planted and a removed
+  toolchain link, and failed a binary with a missing library; and seven cases
+  of the start script, among them a copy cut short at each of its three stages,
+  which left no marker and was finished by the next start. It relied on
+  `phase8-1/r2/checks-p8-1-r2.log` for the gates, the binaries' hashes,
+  pyflakes, the four test files, the match with message 721 and the upstream
+  issues, and ran no build, packaging or game. Report:
+  `phase8-1/r2/review-r2.md` (session message 1027). Commit `2e08574`, pushed;
+  the release v1.0.0 followed (Phase 8 change 1's section). Of its five
+  nonblocking suggestions, the first, to cite the workflow's inline bump rather
+  than the framework's `psxrecomp/tools/ci/normalize_version.sh`, is taken up
+  in that section; the second, third and fifth go to a later change to the
+  packaging (the next action); and the fourth, to drop the bundled libraries
+  that the game never loads, does not apply to CI's AppImage, which bundles
+  none.
+- Phase 6 change 12, round 1: NEEDS CHANGES on tree `676c9d7` (staged diff
+  `6bd26108…`), from a fresh read-only reviewer, with one Low finding, in this
+  file: the scope said that every debug-server reply that is not a JSON object
+  fails the run with a failure that names the reply, while the runner takes
+  such a reply for a failed reply, which fails the run at once only on the
+  commands that set up and start the route. Run against the tests' fake runtime
+  with one reply broken at a time, the runner passed with a broken
+  `segment_misses`, failed with a broken `frame` only after its 60 s wait for
+  the boot and without naming the reply, and with a broken `input_route_status`
+  only at `--timeout`; no test pins such a reply but `input_route_start`'s. The
+  reviewer checked the typed reads against the debug server's replies,
+  `prepare_out()`'s order, the records of a run that meets no fault, the fake's
+  signals against psx-runtime's handler, and this file's citations, quotes and
+  records against their sources and the two route batches' logs and outputs.
+  Held at nice 5, it re-ran a copy of `checks-p6-12.sh` whose
+  `git diff --name-only` read a scratch copy of the index, with the tests,
+  `red.sh`, `mutations.py` and `probe_fields.py` in it: its output matched
+  `checks-p6-12.log` but for the effects of the bullet on `checks-p6-12.sh` in
+  the checks above, which was written after that run. It also ran `snapshot.sh`
+  into scratch and the runs above, and ran no runtime, psx-beetle or build.
+  Report: `phase6-12/review-r1.md` (session message 933). Round 2 corrects the
+  scope's sentence and, from the fourth of the five nonblocking suggestions,
+  the changes' wording on the Beetle tests' `--timeout`. Change 13, which
+  reworks these paths and runs every route, takes up the others, with tests
+  that pin how the runner treats a reply that is not a JSON object to each
+  command: the miss counters read through the typed read, since a `false` or
+  `0.0` counts as no miss (1); one helper for an integer that is not a boolean,
+  which the scripts spell four ways (2); `result.json` written under another
+  name and moved into place, so that a full disk cannot leave a partial marker
+  that every later run refuses (3); the wording of the docstrings of
+  `route_status()` and `prepare_out()` (4); and "Beetle oracle" in `AGENTS.md`
+  naming a reply that is not a JSON object (5).
+- Phase 6 change 12, round 2: NEEDS CHANGES on tree `5f9b87f` (staged diff
+  `95f34534…`), from a fresh read-only reviewer, with one Low finding, in this
+  file: round 2's paragraph on the decompilation said that the user chose to
+  start its first spike right after this change is committed, while a sentence
+  further down the next action, the same at HEAD, still said that a
+  decompilation had only been discussed and that the user had not chosen to
+  start one. Round 2's checks had required the next action from the user's
+  trials on to equal round 1's, which kept the sentence. The reviewer found
+  round 1's finding resolved: it traced the scope's new sentences through each
+  path of the runner and the driver, and a fake debug server on 127.0.0.1 that
+  answered `[1]` gave the runner a failed reply and the driver a failure, each
+  naming the reply. It checked round 1's entry against round 1's report, the
+  user's quotes and answers against OpenCode's session database, the spike and
+  the later steps against the plan shown to the user and the plan's draft, the
+  Beetle tests' bullet against the tests, and that only this file changed since
+  round 1, rebuilding round 1's tree and staged diff from its blobs. Held at
+  nice 5, it re-ran `r2/checks-p6-12-r2.sh` on a scratch copy of the index,
+  whose output matched `r2/checks-p6-12-r2.log` but for the effects of
+  round 2's bullet on it, and `snapshot.sh` into scratch, which gave
+  `r2/snapshot/` and `r2/snapshot.log` byte for byte; it ran no route test
+  file, route, runtime, psx-beetle or build. Report:
+  `phase6-12/r2/review-r2.md` (session message 545). Round 3 removes the
+  sentence, moving its pointers to Engram into the paragraph on the
+  decompilation, and takes up the review's four nonblocking suggestions: the
+  scope says that a reply nested too deeply for Python's JSON parser still ends
+  either script in a traceback (1); the paragraph quotes the user's third
+  message on the decompilation (2) and says where the plan is drafted (3); and
+  round 1's entry names the route batches and the bullet on `checks-p6-12.sh`
+  where it had step numbers that this file defines nowhere else (4). The
+  paragraph on the decompilation also records the user's request, made during
+  round 3, for a tool that decompiles every PS1 game, and his choices for it.
+- Phase 6 change 12, round 3: pending review.
 
 ## Next action
 
-After a PASS: commit and push. Then the release, v1.0.0, the version the user
-chose, for him to try its AppImage: run the workflow on the pushed commit from
-the Actions tab, or with `gh workflow run release.yml -f version=1.0.0`, and
-follow it with `gh run watch`. The run must name that version: without one, and
-with no tag yet, it would take `VERSION`'s next patch number, 0.1.1 (the
-observations). When its four builds and its release job pass, check the
-release's files: download the AppImage and its `.sha256`, check the one against
-the other, and start the AppImage as "Releases" in `AGENTS.md` says. If a build
-fails, the others still upload their files, the Linux build's holding the
-AppImage, but no release is published; the fix is a change of its own, and the
-workflow then runs again with the same version, since a failed run tags
-nothing. Each step of these that loads this PC is booked with the resource
-coordinator.
+After a PASS: commit and push. Then the decompilation's first spike, which the
+user chose to start right after this change is committed (the next paragraph),
+and change 13 (below), each step that loads this PC booked with the resource
+coordinator. The release v1.0.0 is published (Phase 8 change 1's section); a
+later release runs the workflow again with its version, or with none for the
+next patch number of the latest tag. Before it, as a change of its own, the
+packaging takes up Phase 8 change 1's review round 2 suggestions: the start
+script's comment and "Releases" in `AGENTS.md` say that the runtime looks for a
+BIOS dump in `bios/`, while it reads only the player's pick, which may name a
+file there by a relative path (`psxrecomp/runtime/src/main.cpp:14274-14281`;
+suggestion 2); the start script's `chmod -R u+rwX` on `assets/` and `bios/`
+also changes the modes of the player's files there, which changing only the
+files that it copies would leave alone (3); and the workflow's comparison of
+the data folder with the payload reads its list of files from a process
+substitution, whose failure bash ignores, and could check that it compared at
+least one file (5). Caching the AppImage's tools in CI, keyed by their pins
+(round 1's suggestion 6, the hypotheses), may join it.
 
-The user's trials then wait on him, in the play copy
+The user asked for a decompilation: "Can you concert this into a decompilation?
+I want to be able to mod and change the game, as well as incorporate the free
+roaming flight from colony wars in this if possible. Keep what we have as a
+second and then make everything current as a decomp", then "Convert*" and
+"Please reference other psx decomp projects too". Asked how, he chose "Matching
+decompilation as the source: it rebuilds the game's files byte for byte with
+the original compiler, and psxrecomp turns the rebuilt (or modded) game into
+the PC build; mods also run on Beetle and a real PS1 (Recommended)"; "In this
+repo, in a new decomp/ folder; today's recompilation keeps building and
+releasing as the second build (Recommended)"; for the flight, "Full Colony
+Wars-style missions: arenas with objectives, a branching mission graph and a
+hub, built on that free flight"; and for the first spike, "Right after
+change 12 is committed (Recommended)", in the second of two rounds of
+questions. During round 3 he asked for more: "I would like to make a toolout of
+this into something like a PSX decompiler that can decompile every PS1 game".
+decompdecomp, the continuation of decomp.wtf under the AGPL-3.0, already
+decompiles games that their owners supply into C that rebuilds them byte for
+byte: it splits the code with splat, tests which compiler built the game,
+matches the easy functions without cost and gives the others to AI agents. Its
+PS1 support is in beta, with GCC 2.6.3, 2.7.2 and 2.8.1 and maspsx: it passes
+every step on its own demo game, no real PS1 game is yet tested from start to
+end, and it makes no PC build (its README, guide and roadmap at commit
+`e8dc953`, in `decomp/decompdecomp/`). Asked how to build the tool, he chose
+"Build on decompdecomp: it does the decompiling, and our own open tool adds
+what it lacks: a rebuilt disc and a psxrecomp PC build from its export, checked
+against the original with routes and Beetle. PS1 fixes we need go upstream to
+decompdecomp. Omega Boost is the first game (Recommended)"; "In this
+repository, in a tools/ folder, until it works; split out later"; and for the
+matching, "The free autopilot only at first, to measure how far it gets on
+Omega Boost; pick a model after seeing that (Recommended)".
+`phase6-12/r3/user-answers.txt` holds his words, read from OpenCode's session
+database.
+
+The spike works in scratch, changes nothing in the repository and decides
+whether the decompilation can go ahead. It runs a pinned copy of decompdecomp
+on Omega Boost's disc with the free autopilot only, and records whether it
+finds the compiler, the boot EXE's code and the 25 zone files that load at
+0x80120000, how many functions it matches, and whether its export rebuilds the
+EXE and the zone files byte for byte. Then, still in scratch, it takes the
+tool's first steps: the disc rebuilt from the export, a psx-runtime build
+generated from that image with a configuration of its own, and a deliberately
+changed copy played on psx-runtime and on Beetle; and it measures the memory
+that the game leaves free. If decompdecomp finds no compiler that matches or
+does not split the zone files, the user chooses how to go on, for example with
+the gap reported or fixed upstream, or with the compiler recipe of
+gt2-reversing, a decompilation of Gran Turismo 2, a game of the same studio,
+tried by hand. The plan's draft, `.cache/evidence/decomp/PLAN.md`, moves into
+the repository with the first change that adds the decompilation. It lists the
+PS1 decompilations and tools that it draws on, as the user asked, and its later
+steps: the tool, in a new tools folder, and the decompilation in the
+repository, with a check that every file rebuilds byte for byte; a PC build of
+the decompilation with its own psxrecomp configuration; the flight code
+decompiled; free flight; the missions; then the rest of the game. Before any
+decompiled C is committed, the user decides where it goes: this repository is
+public, and decompdecomp asks its users not to publish the code that it makes
+from a game. Engram holds the user's decisions (topic
+omega-thrust/direction/decomp), the earlier estimate of the work
+(omega-thrust/decomp-feasibility) and Gran Turismo 2's compiler recipe
+(omega-thrust/decomp-gt2-toolchain).
+
+The user's trials wait on him, in the play copy
 (`play/play.sh <session dir> <SCPH-1001 dump>` in `.cache/evidence/phase4-2/`,
 which refreshes from `build-dev/`) or in the release's AppImage: Gamepad Strafe
 with his gamepad, with Mouse Aim off and Gamepad Strafe on in the launcher's
@@ -3123,20 +3425,15 @@ this yet, and one that does should be proven through a function of
 tree, since a check of the trees' `mips.py` or of the modules' files would pass
 a loader that leaves `zone_data.py` on the other tree's code. The steps, with
 the zone tool's fixes done, the tool split into modules and the route scripts'
-hang fixed, as the approved plan gives them: change 12, the route scripts'
-other error paths, with the result file that marks a run's output directory
-written right after `prepare_out()`, a clean failure when a reply lacks a key,
-and `ping_frame` refusing a JSON `true` (change 1's round 3 suggestion 1),
-and the runtime fake's `groupsignal` comment, which says that psx-runtime
-exits on SIGINT and SIGTERM while the fake dies by SIGTERM and SIGHUP
-(change 11's round 2 suggestion 1);
-change 13, one module for what the two route scripts share, among it
-`stop_signals`, which `beetle_route.py` now imports from `run_route.py`, with
-smaller `main()` functions and `load_route` raising its own exception (the
-audit's findings 3, 4 and 10); each with every route in the three runtime modes
-and the two Beetle modes, as for any change to those scripts; test
-helpers (one copy of `TERMINAL` and `inherited_signals()`, which both route
-test files now hold, change 11's round 2 suggestion 2; the driver tests' fake
+hang and other error paths fixed, as the approved plan gives them: change 13,
+one module for what the two route scripts share, among it `stop_signals`,
+which `beetle_route.py` now imports from `run_route.py`, and the clearing that
+both `prepare_out()` functions repeat, with smaller `main()` functions and
+`load_route` raising its own exception (the audit's findings 3, 4 and 10), and
+with every route in the three runtime modes and the two Beetle modes, as for
+any change to those scripts; test helpers (one copy of `TERMINAL`,
+`inherited_signals()` and `small_files()`, which both route test files now
+hold, change 11's round 2 suggestion 2; the driver tests' fake
 psx-beetle runs its frames on a free 300 Hz clock, so while the host is busy
 a test now and then fails with a late
 event, see change 1; the fake could wait for the driver except in the tests
@@ -3194,10 +3491,6 @@ zones that end in their own code; a committed feature-on route (a runner
 option for a run directory with its own `mods/state.toml`); a whole
 campaign with instant clears, which would also show whether the spike's
 post-credits halt happens with every zone loaded.
-
-A decompilation was only discussed, and the user has not chosen to start
-one; the estimate and Gran Turismo 2's compiler recipe are in Engram (topics
-omega-thrust/decomp-feasibility and omega-thrust/decomp-gt2-toolchain).
 
 One of change 7's round 1 suggestions is still open: the trace could also
 stop at the word after an unconditional jump's delay slot (`j`, `jr`, `b`),

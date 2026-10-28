@@ -118,7 +118,10 @@ def ask(port, cmd, **params):
             buf += chunk
     if not buf:
         raise OSError(f"empty reply to {cmd}")
-    return json.loads(buf)
+    reply = json.loads(buf)
+    if not isinstance(reply, dict):
+        raise ValueError(f"reply to {cmd} is not a JSON object: {reply!r}")
+    return reply
 
 
 def query(port, cmd, **params):
@@ -137,6 +140,25 @@ def must(port, cmd, **params):
     if not reply.get("ok"):
         raise RouteError(f"{cmd} failed: {reason(reply)}")
     return reply
+
+
+def reply_int(reply, cmd, key):
+    """reply[key] as an integer; a reply without one fails the run. JSON's true and
+    false are not integers here, though Python counts them as ints."""
+    value = reply.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RouteError(f"{cmd} reply {reply} has no integer {key}")
+    return value
+
+
+def route_status(reply):
+    """(active, index, remaining) from an input_route_status reply; a reply without
+    them fails the run."""
+    active = reply.get("active")
+    if not isinstance(active, bool):
+        raise RouteError(f"input_route_status reply {reply} has no boolean active")
+    return (active, reply_int(reply, "input_route_status", "index"),
+            reply_int(reply, "input_route_status", "remaining"))
 
 
 def is_int(value, lo, hi):
@@ -187,21 +209,32 @@ def is_runner_dir(out):
         return False
 
 
-def prepare_out(out):
+def write_result(out, result):
+    (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
+
+
+def prepare_out(out, result):
+    """Removes this runner's earlier outputs from out, then marks out as the
+    runner's by writing result, the run's record, before making anything else
+    there. A later run refuses a directory that holds files but no such marker, so
+    a run that fails or is stopped after this still leaves out to the next one."""
     if out.exists() and not out.is_dir():
         raise SystemExit(f"--out {out} is not a directory")
     entries = list(out.iterdir()) if out.exists() else []
     if entries and not is_runner_dir(out):
         raise SystemExit(f"refusing to use {out}: it is not empty and has no result.json "
                          f"written by {RUNNER}")
-    for entry in entries:
+    # The earlier marker goes last, so that a failure while clearing leaves it in place.
+    for entry in sorted(entries, key=lambda path: path.name == "result.json"):
         if entry.name not in OUTPUTS and not SHOT_FILE.fullmatch(entry.name):
             continue
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry)
         else:
             entry.unlink()
-    (out / "cwd").mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
+    write_result(out, result)
+    (out / "cwd").mkdir()
     (out / "memcards").mkdir()
 
 
@@ -240,7 +273,7 @@ def play(port, proc, steps, out, result, timeout):
     must(port, "input_route_clear")
     for step in steps:
         must(port, "input_route_append", frames=step["frames"], buttons=step["buttons"])
-    start = must(port, "input_route_start")["start_frame"]
+    start = reply_int(must(port, "input_route_start"), "input_route_start", "start_frame")
     ends, total = [], start
     for step in steps:
         total += step["frames"]
@@ -265,15 +298,16 @@ def play(port, proc, steps, out, result, timeout):
             time.sleep(0.05)
             continue
         status = reply
-        while pending and (status["index"] > pending[0] or not status["active"]):
+        active, index, remaining = route_status(status)
+        while pending and (index > pending[0] or not active):
             i = pending.pop(0)
             png = out / f"{len(records):02d}-{steps[i]['shot']}.png"
             records.append({"step": i, "shot": steps[i]["shot"], "nominal_frame": ends[i],
                             **evidence(port, png)})
-        if not status["active"]:
+        if not active:
             break
         time.sleep(0.05)
-    if status["index"] != len(steps) or status["remaining"] != 0:
+    if index != len(steps) or remaining != 0:
         raise RouteError(f"route stopped early: {status}")
     records.append({"step": None, "shot": "final", **evidence(port)})
 
@@ -304,11 +338,14 @@ def finish(out, result, failures):
     if result["exit_code"] != 0:
         failures.append(f"runtime exit code {result['exit_code']}")
     result.update(status="FAIL" if failures else "PASS", failures=failures)
-    (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
+    write_result(out, result)
 
     for rec in result["records"]:
         frame = rec["frame"].get("frame")
-        late = "" if rec["step"] is None or frame is None else f" ({frame - rec['nominal_frame']:+d})"
+        # The record keeps the frame reply as it came; only a frame count gives lateness.
+        counted = isinstance(frame, int) and not isinstance(frame, bool)
+        late = (f" ({frame - rec['nominal_frame']:+d})"
+                if rec["step"] is not None and counted else "")
         shot = rec.get("screenshot")
         png = "" if shot is None else " png" if shot.get("ok") else f" no png ({reason(shot)})"
         d = rec["dispatch_stats"]
@@ -376,13 +413,12 @@ def main():
         raise SystemExit(f"127.0.0.1:{args.port} already accepts connections; "
                          "stop that process or choose another --port")
     out = (args.out or repo / ".cache" / "routes" / name / args.mode).resolve()
-    prepare_out(out)
+    result = {"runner": RUNNER, "route": name, "mode": args.mode, "card1_sha256": want_card1,
+              "status": "running", "records": []}
+    prepare_out(out, result)
     if card1 is not None:
         (out / "memcards" / "card1.mcd").write_bytes(card1)
 
-    result = {"runner": RUNNER, "route": name, "mode": args.mode, "card1_sha256": want_card1,
-              "status": "running", "records": []}
-    (out / "result.json").write_text(json.dumps(result, indent=1) + "\n")
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
     env.pop("PSX_BIOS_HLE_KEEP_INTRO", None)

@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import json
 import os
+import resource
 import shutil
 import signal
 import socket
@@ -40,6 +41,12 @@ def inherited_signals(actions):
     finally:
         for sig, action in previous.items():
             signal.signal(sig, action)
+
+
+def small_files():
+    """Keeps every file that the process writes under 64 KiB, half a memory card.
+    Python ignores SIGXFSZ, so a larger write fails with OSError (File too large)."""
+    resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024, 64 * 1024))
 
 
 # Replies use the shapes of psxrecomp/runtime/src/debug_server.c; the startup
@@ -76,6 +83,10 @@ def watchdog():
 
 
 threading.Thread(target=watchdog, daemon=True).start()
+# psx-runtime exits with status 0 on SIGINT and SIGTERM
+# (psxrecomp/runtime/src/crash_trace.c:909-915, 955-956), and SIGHUP kills it.
+for sig in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(sig, lambda *_: os._exit(0))
 
 
 def env_on(name, default):
@@ -115,6 +126,26 @@ def status():
     return {"active": False, "steps": len(steps), "index": len(steps), "remaining": 0}
 
 
+def broken(cmd, reply):
+    """reply as the behaviors that break it send it: without a value the runner reads,
+    with that value of another type, or not a JSON object at all."""
+    if cmd == "input_route_start" and behavior == "nostartframe":
+        del reply["start_frame"]
+    elif cmd == "input_route_start" and behavior == "truestartframe":
+        reply["start_frame"] = True
+    elif cmd == "input_route_start" and behavior == "notobject":
+        return [reply]
+    elif cmd == "input_route_status" and behavior == "noindex":
+        del reply["index"]
+    elif cmd == "input_route_status" and behavior == "noremaining":
+        del reply["remaining"]
+    elif cmd == "input_route_status" and behavior == "intactive":
+        reply["active"] = int(reply["active"])
+    elif cmd == "frame" and behavior == "textframe":
+        reply["frame"] = "x"
+    return reply
+
+
 def handle(conn):
     global start
     with conn:
@@ -133,8 +164,8 @@ def handle(conn):
             reply["steps"] = len(steps)
         elif cmd == "input_route_start" and behavior == "groupsignal":
             # As a terminal signals its foreground process group: the runner and this
-            # fake. psx-runtime exits on SIGINT and SIGTERM and SIGHUP kills it, so the
-            # request gets no reply.
+            # fake, which exits as psx-runtime would (above), so the request gets no
+            # reply.
             os.killpg(0, getattr(signal, os.environ["FAKE_SIGNAL"]))
             os._exit(0)
         elif cmd == "input_route_start":
@@ -162,7 +193,7 @@ def handle(conn):
                 os.kill(parent, getattr(signal, os.environ.get("FAKE_SIGNAL", "SIGTERM")))
         elif cmd == "segment_misses":
             reply["total"] = 0
-        conn.sendall((json.dumps(reply) + "\n").encode())
+        conn.sendall((json.dumps(broken(cmd, reply)) + "\n").encode())
         if cmd == "quit":
             os._exit(0)
 
@@ -431,6 +462,67 @@ class RunRouteTest(unittest.TestCase):
         self.assertEqual(run.returncode, 1)
         self.assertNotIn("Traceback", run.stderr)
         self.assertIn("exited during the route (3)", self.failures())
+
+    def test_a_reply_without_what_the_runner_reads_fails_the_run(self):
+        # Each behavior breaks one reply: a value that the runner reads is missing, or
+        # of another type (Python counts a JSON true as an int), or the reply is not a
+        # JSON object at all.
+        for behavior, failure in (
+                ("nostartframe", r"input_route_start reply \{.*\} has no integer start_frame"),
+                ("truestartframe", r"input_route_start reply \{.*\} has no integer start_frame"),
+                ("notobject", r"input_route_start failed: reply to input_route_start is not a "
+                              r"JSON object: \[\{.*\}\]"),
+                ("noindex", r"input_route_status reply \{.*\} has no integer index"),
+                ("noremaining", r"input_route_status reply \{.*\} has no integer remaining"),
+                ("intactive", r"input_route_status reply \{.*\} has no boolean active")):
+            with self.subTest(behavior):
+                self.reset()
+                run = self.run_runner(self.route(SHORT), env={"FAKE_BEHAVIOR": behavior})
+                self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+                self.assertNotIn("Traceback", run.stderr)
+                self.assertRegex(self.failures(), f"^{failure}$")
+                self.assertEqual(self.fake_pids(), [])
+
+    def test_a_frame_reply_without_a_frame_count_is_recorded_as_it_came(self):
+        run = self.run_runner(self.route(SHORT), env={"FAKE_BEHAVIOR": "textframe"})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn("Traceback", run.stderr)
+        self.assertEqual({rec["frame"]["frame"] for rec in self.result()["records"]}, {"x"})
+        self.assertIn("frame x  unknown-dispatch", run.stdout)
+
+    def test_a_failure_after_the_checks_leaves_a_directory_the_next_run_reuses(self):
+        # A file size limit below a card's fails the copy of --card1 into memcards/,
+        # which the runner makes after it has marked the directory as its own.
+        image = bytes(range(256)) * 512
+        card = self.dir / "card.mcd"
+        card.write_bytes(image)
+        route = self.route(SHORT, card1_sha256=hashlib.sha256(image).hexdigest())
+        run = subprocess.run(self.command(route, "--card1", str(card)), env=self.env(),
+                             preexec_fn=small_files, capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("File too large", run.stderr)
+        self.assertFalse(self.started())
+        self.assertEqual(self.result()["status"], "running")
+        run = self.run_runner(route, "--card1", str(card))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can delete from a read-only directory")
+    def test_a_failure_while_clearing_an_earlier_run_keeps_its_marker(self):
+        # A directory that lists its entries in creation order, as btrfs and tmpfs do,
+        # lists the runner's marker before cwd/, so clearing in that order would delete
+        # the marker before failing on cwd/locked.
+        self.assertEqual(self.run_runner(self.route(SHORT)).returncode, 0)
+        locked = self.out / "cwd" / "locked"
+        locked.mkdir()
+        (locked / "file").write_text("the runner cannot delete this")
+        locked.chmod(0o555)
+        run = self.run_runner(self.route(SHORT))
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn("PermissionError", run.stderr)
+        self.assertEqual(self.result()["status"], "PASS")  # the earlier run's record
+        locked.chmod(0o755)
+        run = self.run_runner(self.route(SHORT))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
     def test_failed_screenshot_is_recorded_without_failing(self):
         run = self.run_runner(self.route(SHORT), env={"FAKE_BEHAVIOR": "noshot"})
